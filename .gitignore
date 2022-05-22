@@ -18,3 +18,8 @@ tsconfig.tsbuildinfo
 #############
 dist
 bundle
+
+# Testing #
+###########
+test.mjs
+cache.json

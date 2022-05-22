@@ -30,7 +30,13 @@
  * import { remarkable } from "rmapi-js";
  *
  * const api = await remarkable(...);
- * await api.putEpub("document name", epubBuffer);
+ * const entry = await api.putEpub("document name", epubBuffer);
+ * const [root, gen] = await api.getRootHash();
+ * const rootEntries = await api.getEntries(root);
+ * rootEntries.push(entry);
+ * const { hash } = await api.putEntries("", rootEntries);
+ * await api.putRootHash(hash, gen);
+ * await api.syncComplete();
  * ```
  *
  * @packageDocumentation
@@ -142,7 +148,7 @@ export interface CollectionEntry {
   /** the number of subfiles */
   subfiles: number;
   /** collections don't have sizes */
-  size: 0n;
+  size: bigint;
 }
 
 /** a remarkable entry for cloud data */
@@ -494,17 +500,6 @@ export interface PutEpubOptions {
   fontName?: string | undefined;
   /** the tool to have enabled by default */
   lastTool?: string;
-  /** set to false to disable notifying other clients of the update */
-  notify?: boolean | undefined;
-  /**
-   * set number of retries for publish
-   *
-   * The final part of uploading involves update the root hash to include the
-   * new contents. If several places are attempting to change content this will
-   * fail, so setting a positive number of retries here causes it to retry that
-   * final step.
-   */
-  retries?: number | undefined;
 }
 
 /**
@@ -531,6 +526,8 @@ export interface RemarkableApi {
    * @param hash - the hash of the new root collection
    * @param generation - the current generation this builds off of
    * @returns the new generation
+   * @throws {@link GenerationError} if the current cloud generation didn't
+   * match the expected pushed generation.
    */
   putRootHash(hash: string, generation: bigint): Promise<bigint>;
 
@@ -575,6 +572,26 @@ export interface RemarkableApi {
   /**
    * upload an epub
    *
+   * @remarks this only uploads the raw data and returns an entry that could be
+   * uploaded as part of a larger collection. To make sure devices know about
+   * it, you'll still need to update the root hash, and potentially notify
+   * other devices.
+   *
+   * @example
+   * This example shows a full process upload. Note that it may fail if other
+   * devices are simultaneously syncing content. See {@link putRootHash} for
+   * more information.
+   *
+   * ```ts
+   * const entry = await putEpub(...);
+   * const [root, gen] = await api.getRootHash();
+   * const rootEntries = await api.getEntries(root);
+   * rootEntries.push(entry);
+   * const { hash } = await api.putEntries("", rootEntries);
+   * await api.putRootHash(hash, gen);
+   * await api.syncComplete();
+   * ```
+   *
    * @param visibleName - the name to show for the uploaded epub
    * @param buffer - the epub contents
    * @param opts - extra options you can specify at upload
@@ -583,11 +600,11 @@ export interface RemarkableApi {
     visibleName: string,
     buffer: Uint8Array,
     opts?: PutEpubOptions
-  ): Promise<void>;
+  ): Promise<Entry>;
 }
 
 /** format an entry */
-function formatEntry({
+export function formatEntry({
   hash,
   type,
   documentId,
@@ -598,7 +615,7 @@ function formatEntry({
 }
 
 /** parse an entry */
-function parseEntry(line: string): Entry {
+export function parseEntry(line: string): Entry {
   const [hash, type, documentId, subfiles, size] = line.split(":");
   if (
     hash === undefined ||
@@ -610,17 +627,13 @@ function parseEntry(line: string): Entry {
     throw new Error(`entries line didn't contain five fields: '${line}'`);
   }
   if (type === "80000000") {
-    if (size !== "0") {
-      throw new Error(`collection type entry had nonzero size: ${size}`);
-    } else {
-      return {
-        hash,
-        type,
-        documentId,
-        subfiles: parseInt(subfiles),
-        size: 0n,
-      };
-    }
+    return {
+      hash,
+      type,
+      documentId,
+      subfiles: parseInt(subfiles),
+      size: BigInt(size),
+    };
   } else if (type === "0") {
     if (subfiles !== "0") {
       throw new Error(
@@ -878,10 +891,8 @@ class Remarkable implements RemarkableApi {
       fontName = "",
       cover = "visited",
       lastTool,
-      notify = true,
-      retries = 3,
     }: PutEpubOptions = {}
-  ): Promise<void> {
+  ): Promise<Entry> {
     const documentId = uuid4();
     const lastModified = `${new Date().valueOf()}`;
 
@@ -936,28 +947,7 @@ class Remarkable implements RemarkableApi {
     // before all contents are uploaded, but this also saves us from uploading
     // the contents entry before all have uploaded successfully
     const entries = await Promise.all(entryPromises);
-    const entry = await this.putEntries(documentId, entries);
-
-    // sync root hash
-    // if server undergoes update, this will fail, and we'll need to start
-    // again, up to `retries`.
-    for (; ; --retries) {
-      try {
-        const [root, gen] = await this.getRootHash();
-        const rootEntries = await this.getEntries(root);
-        rootEntries.push(entry);
-        const { hash } = await this.putEntries("", rootEntries);
-        await this.putRootHash(hash, gen);
-        break;
-      } catch (ex) {
-        if (retries <= 0 || !(ex instanceof GenerationError)) {
-          throw ex;
-        }
-      }
-    }
-    if (notify) {
-      await this.syncComplete();
-    }
+    return await this.putEntries(documentId, entries);
   }
 }
 

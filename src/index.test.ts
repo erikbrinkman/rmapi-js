@@ -336,19 +336,6 @@ describe("remarkable", () => {
       );
     });
 
-    test("invalid collection", async () => {
-      const fetch = createMockFetch(
-        new MockResponse(),
-        new MockResponse(GET_URL),
-        new MockResponse("3\nhash:80000000:id:3:2\n")
-      );
-
-      const api = await remarkable("", { fetch });
-      await expect(api.getEntries("")).rejects.toThrow(
-        "collection type entry had nonzero size: 2"
-      );
-    });
-
     test("invalid document", async () => {
       const fetch = createMockFetch(
         new MockResponse(),
@@ -510,22 +497,6 @@ describe("remarkable", () => {
         new MockResponse(),
         // collection
         new MockResponse(PUT_URL),
-        new MockResponse(),
-        // get root hash
-        new MockResponse(GET_URL),
-        new MockResponse("custom hash", 200, "", {
-          "x-goog-generation": "123",
-        }),
-        // get root entries (no entries)
-        new MockResponse(GET_URL),
-        new MockResponse("3\n"),
-        // put root entries
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // put root hash
-        new MockResponse(PUT_URL),
-        new MockResponse("", 200, "", { "x-goog-generation": "124" }),
-        // sync
         new MockResponse()
       );
 
@@ -534,113 +505,11 @@ describe("remarkable", () => {
       const api = await remarkable("", { fetch });
       await api.putEpub("doc name", enc.encode(epub));
 
-      const [, , doc, , metadata, , content, , collection, , , , , , entries] =
-        fetch.pastRequests;
+      const [, , doc, , metadata, , content, , collection] = fetch.pastRequests;
       expect(doc?.bodyText).toBe(epub);
       expect(JSON.parse(metadata?.bodyText ?? "")).toBeDefined();
       expect(JSON.parse(content?.bodyText ?? "")).toBeDefined();
       expect(collection?.bodyText).toMatch(/^3\n/);
-      expect(entries?.bodyText).toMatch(/^3\n.+\n$/);
-    });
-
-    test("retry", async () => {
-      const fetch = createMockFetch(
-        new MockResponse(),
-        // doc
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // metadata
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // content
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // collection
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // get root hash
-        new MockResponse(GET_URL),
-        new MockResponse("custom hash", 200, "", {
-          "x-goog-generation": "123",
-        }),
-        // get root entries
-        new MockResponse(GET_URL),
-        new MockResponse("3\n"),
-        // put root entries
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // put root hash but fail for retry
-        new MockResponse(PUT_URL),
-        new MockResponse("", 412), // generation failure
-        // get root hash (retry)
-        new MockResponse(GET_URL),
-        new MockResponse("custom hash", 200, "", {
-          "x-goog-generation": "123",
-        }),
-        // get root entries (retry)
-        new MockResponse(GET_URL),
-        new MockResponse("3\n"),
-        // put root entries (retry)
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // put root hash (retry)
-        new MockResponse(PUT_URL),
-        new MockResponse("", 200, "", { "x-goog-generation": "124" }),
-        // sync
-        new MockResponse()
-      );
-
-      const enc = new TextEncoder();
-      const epub = "fake epub content";
-      const api = await remarkable("", { fetch });
-      await api.putEpub("doc name", enc.encode(epub));
-
-      const [, , doc, , metadata, , content, , collection, , , , , , entries] =
-        fetch.pastRequests;
-      expect(doc?.bodyText).toBe(epub);
-      expect(JSON.parse(metadata?.bodyText ?? "")).toBeDefined();
-      expect(JSON.parse(content?.bodyText ?? "")).toBeDefined();
-      expect(collection?.bodyText).toMatch(/^3\n/);
-      expect(entries?.bodyText).toMatch(/^3\n.+\n$/);
-    });
-
-    test("exhaust retry", async () => {
-      const fetch = createMockFetch(
-        new MockResponse(),
-        // doc
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // metadata
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // content
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // collection
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // get root hash
-        new MockResponse(GET_URL),
-        new MockResponse("custom hash", 200, "", {
-          "x-goog-generation": "123",
-        }),
-        // get root entries
-        new MockResponse(GET_URL),
-        new MockResponse("3\n"),
-        // put root entries
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // put root hash but fail for retry
-        new MockResponse(PUT_URL),
-        new MockResponse("", 412) // generation failure
-      );
-
-      const enc = new TextEncoder();
-      const epub = "fake epub content";
-      const api = await remarkable("", { fetch });
-      await expect(
-        api.putEpub("doc name", enc.encode(epub), { retries: 0 })
-      ).rejects.toThrow(GenerationError);
     });
 
     test("custom", async () => {
@@ -657,36 +526,21 @@ describe("remarkable", () => {
         new MockResponse(),
         // collection
         new MockResponse(PUT_URL),
-        new MockResponse(),
-        // get root hash
-        new MockResponse(GET_URL),
-        new MockResponse("custom hash", 200, "", {
-          "x-goog-generation": "123",
-        }),
-        // get root entries (no entries)
-        new MockResponse(GET_URL),
-        new MockResponse("3\n"),
-        // put root entries
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // put root hash
-        new MockResponse(PUT_URL),
-        new MockResponse("", 200, "", { "x-goog-generation": "124" })
+        new MockResponse()
       );
 
       const enc = new TextEncoder();
       const epub = "fake epub content";
       const api = await remarkable("", { fetch });
       await api.putEpub("doc name", enc.encode(epub), {
-        notify: false,
         cover: "first",
         lineHeight: "lg",
         margins: "rr",
         textScale: "sm",
       });
 
-      const entries = fetch.pastRequests[14];
-      expect(entries?.bodyText).toMatch(/^3\n.+\n$/);
+      const [, , , , , , content] = fetch.pastRequests;
+      expect(JSON.parse(content?.bodyText ?? "")?.margins).toEqual(180);
     });
   });
 });
