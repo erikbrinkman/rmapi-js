@@ -36,7 +36,6 @@
  * rootEntries.push(entry);
  * const { hash } = await api.putEntries("", rootEntries);
  * await api.putRootHash(hash, gen);
- * await api.syncComplete();
  * ```
  *
  * @packageDocumentation
@@ -506,9 +505,6 @@ export interface PutEpubOptions {
  * the api for accessing remarkable functions
  */
 export interface RemarkableApi {
-  /** sends a signal to the server that a sync is complete and other devices should update */
-  syncComplete(): Promise<void>;
-
   /**
    * get the root hash and the current generation
    *
@@ -589,7 +585,6 @@ export interface RemarkableApi {
    * rootEntries.push(entry);
    * const { hash } = await api.putEntries("", rootEntries);
    * await api.putRootHash(hash, gen);
-   * await api.syncComplete();
    * ```
    *
    * @param visibleName - the name to show for the uploaded epub
@@ -725,11 +720,6 @@ class Remarkable implements RemarkableApi {
     const res = JSON.parse(raw);
     validate(urlResponseSchema, res);
     return res;
-  }
-
-  /** sends a signal to the server that a sync is complete and other devices should update */
-  async syncComplete(): Promise<void> {
-    await this.authedFetch(`${this.blobUrl}/api/v1/sync-complete`);
   }
 
   /**

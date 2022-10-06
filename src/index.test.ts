@@ -82,17 +82,6 @@ describe("remarkable", () => {
     });
   });
 
-  test("#syncComplete()", async () => {
-    const fetch = createMockFetch(new MockResponse(), new MockResponse());
-
-    const api = await remarkable("", { fetch });
-
-    await api.syncComplete();
-
-    const [, resp] = fetch.pastRequests;
-    expect(resp).toBeDefined();
-  });
-
   describe("#authedFetch()", () => {
     test("error", async () => {
       const fetch = createMockFetch(
@@ -101,7 +90,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
-      await expect(api.syncComplete()).rejects.toThrow(
+      await expect(api.getRootHash()).rejects.toThrow(
         "failed reMarkable request"
       );
     });
