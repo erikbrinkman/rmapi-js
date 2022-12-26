@@ -1,9 +1,6 @@
-import { webcrypto } from "crypto";
 import { Entry, GenerationError, register, remarkable, ResponseError } from ".";
 import { createMockFetch, mapCache, MockResponse } from "./test-utils";
 
-// make sure we use web crypto
-global.crypto = webcrypto as unknown as Crypto;
 // make sure we can't use fetch
 global.fetch = undefined as never;
 
@@ -19,6 +16,13 @@ const PUT_URL = JSON.stringify({
   method: "PUT",
   relative_path: "put path",
   expires: TIMESTAMP,
+});
+const PUT_URL_BYTES = JSON.stringify({
+  url: "put url",
+  method: "PUT",
+  relative_path: "put path",
+  expires: TIMESTAMP,
+  maxuploadsize_bytes: 1000000,
 });
 
 describe("register()", () => {
@@ -155,7 +159,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
-      const gen = await api.putRootHash("", 0n);
+      const gen = await api.putRootHash("new hash", 0n);
       expect(gen).toBe(123n);
     });
 
@@ -278,9 +282,6 @@ describe("remarkable", () => {
           JSON.stringify({
             type: "CollectionType",
             visibleName: "title",
-            lastModified: TIMESTAMP,
-            version: 1,
-            synced: true,
           })
         )
       );
@@ -476,7 +477,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         // doc
-        new MockResponse(PUT_URL),
+        new MockResponse(PUT_URL_BYTES),
         new MockResponse(),
         // metadata
         new MockResponse(PUT_URL),
@@ -505,7 +506,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         // doc
-        new MockResponse(PUT_URL),
+        new MockResponse(PUT_URL_BYTES),
         new MockResponse(),
         // metadata
         new MockResponse(PUT_URL),
@@ -531,5 +532,134 @@ describe("remarkable", () => {
       const [, , , , , , content] = fetch.pastRequests;
       expect(JSON.parse(content?.bodyText ?? "")?.margins).toEqual(180);
     });
+  });
+
+  describe("#putPdf()", () => {
+    test("success", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        // doc
+        new MockResponse(PUT_URL_BYTES),
+        new MockResponse(),
+        // metadata
+        new MockResponse(PUT_URL),
+        new MockResponse(),
+        // content
+        new MockResponse(PUT_URL),
+        new MockResponse(),
+        // collection
+        new MockResponse(PUT_URL),
+        new MockResponse()
+      );
+
+      const enc = new TextEncoder();
+      const pdf = "fake pdf content";
+      const api = await remarkable("", { fetch });
+      await api.putPdf("doc name", enc.encode(pdf));
+
+      const [, , doc, , metadata, , content, , collection] = fetch.pastRequests;
+      expect(doc?.bodyText).toBe(pdf);
+      expect(JSON.parse(metadata?.bodyText ?? "")).toBeDefined();
+      expect(JSON.parse(content?.bodyText ?? "")).toBeDefined();
+      expect(collection?.bodyText).toMatch(/^3\n/);
+    });
+
+    test("custom", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        // doc
+        new MockResponse(PUT_URL_BYTES),
+        new MockResponse(),
+        // metadata
+        new MockResponse(PUT_URL),
+        new MockResponse(),
+        // content
+        new MockResponse(PUT_URL),
+        new MockResponse(),
+        // collection
+        new MockResponse(PUT_URL),
+        new MockResponse()
+      );
+
+      const enc = new TextEncoder();
+      const pdf = "fake pdf content";
+      const api = await remarkable("", { fetch });
+      await api.putPdf("doc name", enc.encode(pdf), {
+        cover: "visited",
+      });
+
+      const [, , , , , , content] = fetch.pastRequests;
+      expect(JSON.parse(content?.bodyText ?? "")?.coverPageNumber).toEqual(-1);
+    });
+  });
+
+  test("#syncComplete()", async () => {
+    const fetch = createMockFetch(new MockResponse(), new MockResponse());
+
+    const api = await remarkable("", { fetch });
+    await api.syncComplete(0n);
+
+    const [, req] = fetch.pastRequests;
+    expect(req?.url).toBe(
+      "https://internal.cloud.remarkable.com/sync/v2/sync-complete"
+    );
+    expect(JSON.parse(req?.bodyText ?? "")).toEqual({ generation: 0 });
+  });
+
+  test("#getEntriesMetadata()", async () => {
+    const entries = [
+      {
+        type: "CollectionType",
+        id: "id",
+        hash: "hash",
+        visibleName: "name",
+        lastModified: "",
+      },
+    ];
+    const fetch = createMockFetch(
+      new MockResponse(),
+      new MockResponse(JSON.stringify(entries))
+    );
+
+    const api = await remarkable("", { fetch });
+    const res = await api.getEntriesMetadata();
+
+    expect(res).toEqual(entries);
+  });
+
+  test("#uploadEpub()", async () => {
+    const fetch = createMockFetch(
+      new MockResponse(),
+      new MockResponse(JSON.stringify({ docID: "epub id", hash: "epub hash" }))
+    );
+
+    const api = await remarkable("", { fetch });
+    const encoder = new TextEncoder();
+    const content = "my epub content";
+    const res = await api.uploadEpub("my epub title", encoder.encode(content));
+
+    expect(res.docID).toBe("epub id");
+    expect(res.hash).toBe("epub hash");
+
+    const [, req] = fetch.pastRequests;
+    expect(req?.bodyText).toBe("my epub content");
+  });
+
+  test("#uploadPdf()", async () => {
+    const fetch = createMockFetch(
+      new MockResponse(),
+      new MockResponse(JSON.stringify({ docID: "pdf id", hash: "pdf hash" }))
+    );
+
+    const api = await remarkable("", { fetch });
+    const encoder = new TextEncoder();
+    const content = "my pdf content";
+    const res = await api.uploadPdf("my pdf title", encoder.encode(content));
+
+    expect(res.docID).toBe("pdf id");
+    expect(res.hash).toBe("pdf hash");
+
+    const [, req] = fetch.pastRequests;
+    expect(req?.bodyText).toBe("my pdf content");
   });
 });

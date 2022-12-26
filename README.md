@@ -7,8 +7,10 @@ rmapi-js
 
 JavaScript implementation of the reMarkable 1.5 api. This implementation is
 built around web standards for fetch and crypto, but can easily be patched to
-work for node. At the current time it's only partially complete, but has the
-backbone to flush out more.
+work for node. It should also be pretty easy to customize to work with
+[rmfakecloud](https://github.com/ddvk/rmfakecloud), although that might take a
+little bit of extra plumbing. At the current time it's only partially complete,
+but has the backbone to be flushed out more.
 
 This implementation is based off of [`rmapi`](https://github.com/juruen/rmapi),
 but aims to be a little simpler. Currently this does no direct handling of the
@@ -19,8 +21,8 @@ helpful to supply a custom cache.
 API
 ---
 
-Before using this API it's necessary to have some rudimentary understand of how
-the API works.
+Before using this API it's necessary to have some rudimentary understanding of
+how the API works.
 
 All data is stored via its sha256 hash. This includes raw files and
 "collections", which have a special format listing all of their `Entry`s by
@@ -64,6 +66,9 @@ const api = await remarkable(...);
 await api.putEpub("document name", epubBuffer);
 ```
 
+Note that to actually update the reMarkable to display it, the root hash will
+also need to be updated, see method documentation for more info.
+
 ### Node
 
 This uses web standards by default, so using within node takes a little more effort.
@@ -95,16 +100,36 @@ import fetch from "node-fetch";
 const api = await remarkable(token, { fetch });
 ```
 
+### Newer API
+
+Recently I discovered the API the the Read on Remarkable extension uses, which
+bypasses the syncing and fetching of the root hash. These APIs are pretty
+limited but can be an easy first step.
+
+```js
+import { remarkable } from "rmapi-js";
+
+const api = await remarkable(...);
+// all the files and folders stored on the reMarkable, no roothash necessary
+const entries = await api.getEntriesMetadata();
+// upload epubs and pdfs without root hash
+// NOTE pdfs aren't currently working as expected
+// NOTE epub options aren't supported
+await api.uploadEpub("name", buffer);
+await api.uploadPdf("name", buffer);
+```
+
+
 Design
 ------
 
 Building a full syncing version of the remarkable filesystem from the cloud API
-is a project in itselfs, so I opted to only implement the primative calls which
-should still be possible to composte to advanced functionality.
+is a project in and of itself, so I opted to only implement the primative calls
+which should still be possible to compose into advanced functionality.
 
 In order to make this as easily cross platform as possible, web standards were
 chosen as the basis since they enjoy relative adoption in node. However, node
 has middling support of webstreams and since none of the reading or writing is
-that intensive or doesn't already required the whole file in memory, we opted
-to process strings or ArrayBuffers ignoring Readable and WriteableStreams for
-the time being.
+that intensive or doesn't already require the whole file in memory, we opted to
+process strings or ArrayBuffers ignoring Readable and WriteableStreams for the
+time being.

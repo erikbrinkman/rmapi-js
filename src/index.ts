@@ -1,12 +1,17 @@
 /**
  * Create and interact with reMarkable cloud.
  *
+ * After getting a device token with the {@link register | `register`} method,
+ * persist it and create api instances using {@link remarkable | `remarkable`}.
+ * Outside of registration, all relevant methods are in
+ * {@link RemarkableApi | `RemarkableApi`}.
+ *
  * @example
  * A simple fetch
  * ```ts
  * import { register, remarkable } from "rmapi-js";
  *
- * const code = "..."  // eight letter code from https://my.remarkable.com/device/desktop/connect
+ * const code = "..."  // eight letter code from https://my.remarkable.com/device/browser/connect
  * const token = await register(code)
  * // persist token
  * const api = await remarkable(token);
@@ -35,21 +40,23 @@
  * const rootEntries = await api.getEntries(root);
  * rootEntries.push(entry);
  * const { hash } = await api.putEntries("", rootEntries);
- * await api.putRootHash(hash, gen);
+ * const nextGen = await api.putRootHash(hash, gen);
+ * await api.syncComplete(nextGen);
  * ```
  *
  * @packageDocumentation
  */
+import { fromByteArray } from "base64-js";
 import { v4 as uuid4 } from "uuid";
 import { concatBuffers, fromHex, toHex } from "./utils";
 import { JtdSchema, validate } from "./validate";
 
 const SCHEMA_VERSION = "3";
-const AUTH_URL =
-  "https://webapp-production-dot-remarkable-production.appspot.com";
-const BLOB_URL = "https://rm-blob-storage-prod.appspot.com";
+const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
+const SYNC_HOST = "https://internal.cloud.remarkable.com";
 const GENERATION_HEADER = "x-goog-generation";
 const GENERATION_RACE_HEADER = "x-goog-if-generation-match";
+const CONTENT_LENGTH_RANGE_HEADER = "x-goog-content-length-range";
 
 // ------------ //
 // Request Info //
@@ -140,7 +147,7 @@ export const builtinLineHeights = {
 export interface CollectionEntry {
   /** collection type */
   type: "80000000";
-  /** the hash of the file this points to */
+  /** the hash of the collection this points to */
   hash: string;
   /** the unique id of the collection */
   documentId: string;
@@ -167,6 +174,21 @@ export interface FileEntry {
 /** a remarkable entry for cloud items */
 export type Entry = CollectionEntry | FileEntry;
 
+/** an simple entry produced by the upload api */
+export interface UploadEntry {
+  /** the document id */
+  docID: string;
+  /** the document hash */
+  hash: string;
+}
+
+const uploadEntrySchema: JtdSchema<UploadEntry> = {
+  properties: {
+    docID: { type: "string" },
+    hash: { type: "string" },
+  },
+};
+
 /** the response when fetching a signed url from google cloud */
 interface UrlResponse {
   /** hash requested */
@@ -177,6 +199,8 @@ interface UrlResponse {
   expires: string;
   /** method for request */
   method: RequestMethod;
+  /** max upload bytes */
+  maxuploadsize_bytes?: number;
 }
 
 const urlResponseSchema: JtdSchema<UrlResponse> = {
@@ -186,6 +210,9 @@ const urlResponseSchema: JtdSchema<UrlResponse> = {
     expires: { type: "timestamp" },
     method: { enum: ["POST", "GET", "PUT", "DELETE"] },
   },
+  optionalProperties: {
+    maxuploadsize_bytes: { type: "float64" },
+  },
 };
 
 /** common metadata for documents and collections */
@@ -193,15 +220,15 @@ export interface CommonMetadata {
   /** name of content */
   visibleName: string;
   /** parent uuid or "" for root or "trash" */
-  parent: string;
+  parent?: string;
   /** last modified time */
   lastModified: string;
   /** unsure */
-  version: number;
+  version?: number;
   /** unsure */
   pinned?: boolean;
   /** unsure */
-  synced: boolean;
+  synced?: boolean;
   /** unsure */
   modified?: boolean;
   /** if file is deleted */
@@ -233,19 +260,43 @@ export interface DocumentTypeMetadata extends CommonMetadata {
  */
 export type Metadata = CollectionTypeMetadata | DocumentTypeMetadata;
 
+/** fields common to all {@link MetadataEntry | MetadataEntries} */
+export interface BaseMetadataEntry {
+  /** the document id of the entry */
+  id: string;
+  /** the hash of the entry */
+  hash: string;
+}
+
+/** the metadata entry for a collection */
+export interface CollectionMetadataEntry
+  extends BaseMetadataEntry,
+    CollectionTypeMetadata {}
+
+/** the metadata entry for a document */
+export interface DocumentMetadataEntry
+  extends BaseMetadataEntry,
+    DocumentTypeMetadata {
+  /** the type of the document */
+  fileType: FileType;
+}
+
+/** a full metadata entry returned by {@link RemarkableApi.getEntriesMetadata} */
+export type MetadataEntry = CollectionMetadataEntry | DocumentMetadataEntry;
+
 const commonProperties = {
   visibleName: { type: "string" },
-  parent: { type: "string" },
   lastModified: { type: "string" },
-  version: { type: "int32" },
-  synced: { type: "boolean" },
 } as const;
 
 const commonOptionalProperties = {
+  version: { type: "int32" },
   pinned: { type: "boolean" },
+  synced: { type: "boolean" },
   modified: { type: "boolean" },
   deleted: { type: "boolean" },
   metadatamodified: { type: "boolean" },
+  parent: { type: "string" },
 } as const;
 
 const metadataSchema: JtdSchema<Metadata> = {
@@ -266,11 +317,41 @@ const metadataSchema: JtdSchema<Metadata> = {
   },
 };
 
+const baseMetadataProperties = {
+  id: { type: "string" },
+  hash: { type: "string" },
+} as const;
+
+const metadataEntrySchema: JtdSchema<MetadataEntry> = {
+  discriminator: "type",
+  mapping: {
+    CollectionType: {
+      properties: {
+        ...commonProperties,
+        ...baseMetadataProperties,
+      },
+      optionalProperties: commonOptionalProperties,
+    },
+    DocumentType: {
+      properties: {
+        ...commonProperties,
+        ...baseMetadataProperties,
+        fileType: { enum: ["notebook", "epub", "pdf", ""] },
+      },
+      optionalProperties: {
+        ...commonOptionalProperties,
+        lastOpened: { type: "string" },
+        lastOpenedPage: { type: "int32" },
+      },
+    },
+  },
+};
+
 /** extra content metadata */
 export type ExtraMetadata = Record<string, string | undefined>;
 
 /** remarkable file type; empty for notebook */
-export type FileType = "pdf" | "epub" | "";
+export type FileType = "notebook" | "pdf" | "epub" | "";
 
 /** document matrix transform */
 export type Transform = Record<`m${1 | 2 | 3}${1 | 2 | 3}`, number>;
@@ -423,14 +504,21 @@ export interface RegisterOptions {
    *
    * Using an improper one will results in the registration being rejected.
    */
-  deviceDesc?: string;
+  deviceDesc?:
+    | "desktop-windows"
+    | "desktop-macos"
+    | "desktop-linux"
+    | "mobile-android"
+    | "mobile-ios"
+    | "browser-chrome"
+    | "remarkable";
   /**
    * the unique id of this device
    *
    * If omitted it will be randomly generated */
   uuid?: string;
-  /** The url to user for authorization requests */
-  authUrl?: string;
+  /** The host to use for authorization requests */
+  authHost?: string;
   /** a function for making fetch requests, see {@link RemarkableOptions.fetch} for more info */
   fetch?: FetchLike;
 }
@@ -438,26 +526,26 @@ export interface RegisterOptions {
 /**
  * register a device and get the token needed to access the api
  *
- * Have users go to `https://my.remarkable.com/device/desktop/connect` and pass
+ * Have users go to `https://my.remarkable.com/device/browser/connect` and pass
  * the resulting code into this function to get a device token. Persist that
  * token to use the api.
  *
- * @param code - the eight letter code a user got from `https://my.remarkable.com/device/desktop/connect`.
+ * @param code - the eight letter code a user got from `https://my.remarkable.com/device/browser/connect`.
  * @returns the device token necessary for creating an api instace. These never expire so persist as long as necessary.
  */
 export async function register(
   code: string,
   {
-    deviceDesc = "desktop-linux",
+    deviceDesc = "browser-chrome",
     uuid = uuid4(),
-    authUrl = AUTH_URL,
+    authHost = AUTH_HOST,
     fetch = globalThis.fetch,
   }: RegisterOptions = {}
 ): Promise<string> {
   if (code.length !== 8) {
     throw new Error(`code should be length 8, but was ${code.length}`);
   }
-  const resp = await fetch(`${authUrl}/token/json/2/device/new`, {
+  const resp = await fetch(`${authHost}/token/json/2/device/new`, {
     method: "POST",
     headers: {
       Authorization: "Bearer",
@@ -497,6 +585,18 @@ export interface PutEpubOptions {
   cover?: "first" | "visited" | undefined;
   /** the font name, should probably come from `builtinFontNames` */
   fontName?: string | undefined;
+  /** the tool to have enabled by default */
+  lastTool?: string;
+}
+
+/** options for uploading a pdf */
+export interface PutPdfOptions {
+  /** the parent id, default to root */
+  parent?: string | undefined;
+  /** the page orientation */
+  orientation?: "portrait" | "landscape" | undefined;
+  /** which page should be shone as the cover */
+  cover?: "first" | "visited" | undefined;
   /** the tool to have enabled by default */
   lastTool?: string;
 }
@@ -579,12 +679,13 @@ export interface RemarkableApi {
    * more information.
    *
    * ```ts
-   * const entry = await putEpub(...);
+   * const entry = await api.putEpub(...);
    * const [root, gen] = await api.getRootHash();
    * const rootEntries = await api.getEntries(root);
    * rootEntries.push(entry);
    * const { hash } = await api.putEntries("", rootEntries);
-   * await api.putRootHash(hash, gen);
+   * const nextGen = await api.putRootHash(hash, gen);
+   * await api.syncComplete(nextGen);
    * ```
    *
    * @param visibleName - the name to show for the uploaded epub
@@ -595,7 +696,94 @@ export interface RemarkableApi {
     visibleName: string,
     buffer: Uint8Array,
     opts?: PutEpubOptions
-  ): Promise<Entry>;
+  ): Promise<CollectionEntry>;
+
+  /**
+   * upload a pdf
+   *
+   * @remarks this only uploads the raw data and returns an entry that could be
+   * uploaded as part of a larger collection. To make sure devices know about
+   * it, you'll still need to update the root hash, and potentially notify
+   * other devices.
+   *
+   * @example
+   * This example shows a full process upload. Note that it may fail if other
+   * devices are simultaneously syncing content. See {@link putRootHash} for
+   * more information.
+   *
+   * ```ts
+   * const entry = await api.putPdf(...);
+   * const [root, gen] = await api.getRootHash();
+   * const rootEntries = await api.getEntries(root);
+   * rootEntries.push(entry);
+   * const { hash } = await api.putEntries("", rootEntries);
+   * const nextGen = await api.putRootHash(hash, gen);
+   * await api.syncComplete(nextGen);
+   * ```
+   *
+   * @param visibleName - the name to show for the uploaded pdf
+   * @param buffer - the pdf contents
+   * @param opts - extra options you can specify at upload
+   */
+  putPdf(
+    visibleName: string,
+    buffer: Uint8Array,
+    opts?: PutPdfOptions
+  ): Promise<CollectionEntry>;
+
+  /**
+   * indicate that a sync is complete and push updates to other devices
+   *
+   * @remarks after successfully putting a new root hash, use this to indicate
+   * that other devices should pick up the change.
+   */
+  syncComplete(generation: bigint): Promise<void>;
+
+  /**
+   * get metadata on all entries
+   *
+   * @remarks this uses a newer api, that returns metadata associated with all
+   * entries and their hash and documentId.
+   */
+  getEntriesMetadata(): Promise<MetadataEntry[]>;
+
+  /**
+   * upload an epub
+   *
+   * @remarks this uses a newer api that performs a full upload and sync, but
+   * doesn't allow adding the same level of extra content data. Useful if you
+   * just want to upload a document with no fuss.
+   *
+   * @example
+   * ```ts
+   * await api.uploadEpub("My EPub", ...);
+   * ```
+   *
+   * @param visibleName - the name to show for the uploaded epub
+   * @param buffer - the epub contents
+   */
+  uploadEpub(visibleName: string, buffer: Uint8Array): Promise<UploadEntry>;
+
+  /**
+   * upload a pdf
+   *
+   * this currently uploads invalid pdfs, but it's not clear why, which is why
+   * this is marked as experimental. Potentially some tweak in the formatting
+   * of buffer will fix it.
+   *
+   * @remarks this uses a newer api that performs a full upload and sync, but
+   * doesn't allow adding the same level of extra information.
+   *
+   * @example
+   * ```ts
+   * await api.uploadPdf("My PDF", ...);
+   * ```
+   *
+   * @param visibleName - the name to show for the uploaded epub
+   * @param buffer - the epub contents
+   * @experimental
+   */
+  uploadPdf(visibleName: string, buffer: Uint8Array): Promise<UploadEntry>;
 }
 
 /** format an entry */
@@ -650,32 +838,53 @@ export function parseEntry(line: string): Entry {
 
 /** the implementation of that api */
 class Remarkable implements RemarkableApi {
+  readonly #userToken: string;
+  readonly #fetch: FetchLike;
+  readonly #cache: CacheLike | undefined;
+  readonly #subtle: SubtleCryptoLike;
+  readonly #syncHost: string;
+
   constructor(
-    private readonly userToken: string,
-    private readonly fetch: FetchLike,
-    private readonly cache: CacheLike | undefined,
-    private readonly subtle: SubtleCryptoLike,
-    private readonly blobUrl: string
-  ) {}
+    userToken: string,
+    fetch: FetchLike,
+    cache: CacheLike | undefined,
+    subtle: SubtleCryptoLike,
+    syncHost: string
+  ) {
+    this.#userToken = userToken;
+    this.#fetch = fetch;
+    this.#cache = cache;
+    this.#subtle = subtle;
+    this.#syncHost = syncHost;
+  }
 
   /** make an authorized request to remarkable */
-  private async authedFetch(
+  async #authedFetch(
     url: string,
-    body?: Record<string, string | undefined> | undefined,
-    method: RequestMethod = "POST"
+    {
+      body,
+      method = "POST",
+      headers = {},
+    }: {
+      body?: Uint8Array | string | undefined;
+      method?: RequestMethod;
+      headers?: Record<string, string>;
+    }
   ): Promise<ResponseLike> {
-    const resp = await this.fetch(url, {
+    const resp = await this.#fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${this.userToken}`,
+        Authorization: `Bearer ${this.#userToken}`,
+        ...headers,
       },
-      body: body && JSON.stringify(body),
+      body,
     });
     if (!resp.ok) {
+      const msg = await resp.text();
       throw new ResponseError(
         resp.status,
         resp.statusText,
-        "failed reMarkable request"
+        `failed reMarkable request: ${msg}`
       );
     } else {
       return resp;
@@ -683,12 +892,18 @@ class Remarkable implements RemarkableApi {
   }
 
   /** make a signed request to the cloud */
-  private async signedFetch(
-    { url, method }: UrlResponse,
+  async #signedFetch(
+    { url, method, maxuploadsize_bytes }: UrlResponse,
     body?: string | Uint8Array | undefined,
-    headers?: Record<string, string> | undefined
+    add_headers: Record<string, string> = {}
   ): Promise<ResponseLike> {
-    const resp = await this.fetch(url, {
+    const headers = maxuploadsize_bytes
+      ? {
+          ...add_headers,
+          [CONTENT_LENGTH_RANGE_HEADER]: `0,${maxuploadsize_bytes}`,
+        }
+      : add_headers;
+    const resp = await this.#fetch(url, {
       method,
       body,
       headers,
@@ -702,19 +917,19 @@ class Remarkable implements RemarkableApi {
   }
 
   /** get the details for how to make a signed request to remarkable cloud */
-  private async getUrl(
+  async #getUrl(
     relativePath: string,
-    gen?: bigint | null | undefined
+    gen?: bigint | null | undefined,
+    rootHash?: string
   ): Promise<UrlResponse> {
     const key = gen === undefined ? "downloads" : "uploads";
-    const generation = gen === null || gen === undefined ? undefined : `${gen}`;
-    const resp = await this.authedFetch(
-      `${this.blobUrl}/api/v1/signed-urls/${key}`,
-      {
-        http_method: generation === undefined ? "GET" : "PUT",
-        relative_path: relativePath,
-        generation,
-      }
+    // NOTE this is done manually to serialize the bigints appropriately
+    const body = rootHash
+      ? `{ "http_method": "PUT", "relative_path": "${relativePath}", "root_schema": "${rootHash}", "generation": ${gen} }`
+      : JSON.stringify({ http_method: "GET", relative_path: relativePath });
+    const resp = await this.#authedFetch(
+      `${this.#syncHost}/sync/v2/signed-urls/${key}`,
+      { body }
     );
     const raw = await resp.text();
     const res = JSON.parse(raw);
@@ -726,8 +941,8 @@ class Remarkable implements RemarkableApi {
    * get the root hash and the current generation
    */
   async getRootHash(): Promise<[string, bigint]> {
-    const signed = await this.getUrl("root");
-    const resp = await this.signedFetch(signed);
+    const signed = await this.#getUrl("root");
+    const resp = await this.#signedFetch(signed);
     const generation = resp.headers.get(GENERATION_HEADER);
     if (!generation) {
       throw new Error("no generation header in root hash");
@@ -739,10 +954,10 @@ class Remarkable implements RemarkableApi {
    * write the root hash, incrementing from the current generation
    */
   async putRootHash(hash: string, generation: bigint): Promise<bigint> {
-    const signed = await this.getUrl("root", generation);
+    const signed = await this.#getUrl("root", generation, hash);
     let resp;
     try {
-      resp = await this.signedFetch(signed, hash, {
+      resp = await this.#signedFetch(signed, hash, {
         [GENERATION_RACE_HEADER]: `${generation}`,
       });
     } catch (ex) {
@@ -763,8 +978,8 @@ class Remarkable implements RemarkableApi {
    * get text content associated with hash
    */
   async getBuffer(hash: string): Promise<ArrayBuffer> {
-    const signed = await this.getUrl(hash);
-    const resp = await this.signedFetch(signed);
+    const signed = await this.#getUrl(hash);
+    const resp = await this.#signedFetch(signed);
     return await resp.arrayBuffer();
   }
 
@@ -772,14 +987,14 @@ class Remarkable implements RemarkableApi {
    * get text content associated with hash
    */
   async getText(hash: string): Promise<string> {
-    const cached = this.cache && (await this.cache.get(hash));
+    const cached = await this.#cache?.get(hash);
     if (cached) {
       return cached;
     } else {
-      const signed = await this.getUrl(hash);
-      const resp = await this.signedFetch(signed);
+      const signed = await this.#getUrl(hash);
+      const resp = await this.#signedFetch(signed);
       const raw = await resp.text();
-      this.cache && (await this.cache.set(hash, raw));
+      await this.#cache?.set(hash, raw);
       return raw;
     }
   }
@@ -809,12 +1024,9 @@ class Remarkable implements RemarkableApi {
   }
 
   /** upload data to hash */
-  private async putHash(
-    hash: string,
-    body: Uint8Array | string
-  ): Promise<void> {
-    const signed = await this.getUrl(hash, null);
-    await this.signedFetch(signed, body);
+  async #putHash(hash: string, body: Uint8Array | string): Promise<void> {
+    const signed = await this.#getUrl(hash, null);
+    await this.#signedFetch(signed, body);
   }
 
   /** put a reference to a set of entries into the cloud */
@@ -827,14 +1039,14 @@ class Remarkable implements RemarkableApi {
     entries.sort((a, b) => a.documentId.localeCompare(b.documentId));
 
     const hashes = concatBuffers(entries.map((ent) => fromHex(ent.hash)));
-    const digest = await this.subtle.digest("SHA-256", hashes);
+    const digest = await this.#subtle.digest("SHA-256", hashes);
     const hash = toHex(digest);
 
     const entryContents = entries.map(formatEntry).join("");
     const contents = `${SCHEMA_VERSION}\n${entryContents}`;
     const buffer = enc.encode(contents);
-    await this.putHash(hash, buffer);
-    this.cache && (await this.cache.set(hash, contents));
+    await this.#putHash(hash, buffer);
+    await this.#cache?.set(hash, contents);
 
     return {
       hash,
@@ -847,9 +1059,9 @@ class Remarkable implements RemarkableApi {
 
   /** put a raw buffer in the cloud */
   async putBuffer(documentId: string, buffer: Uint8Array): Promise<FileEntry> {
-    const digest = await this.subtle.digest("SHA-256", buffer);
+    const digest = await this.#subtle.digest("SHA-256", buffer);
     const hash = toHex(digest);
-    await this.putHash(hash, buffer);
+    await this.#putHash(hash, buffer);
     return {
       hash,
       type: "0",
@@ -863,8 +1075,54 @@ class Remarkable implements RemarkableApi {
   async putText(documentId: string, contents: string): Promise<FileEntry> {
     const enc = new TextEncoder();
     const entry = await this.putBuffer(documentId, enc.encode(contents));
-    this.cache && (await this.cache.set(entry.hash, contents));
+    await this.#cache?.set(entry.hash, contents);
     return entry;
+  }
+
+  /** upload a content file */
+  async #putContent(
+    visibleName: string,
+    buffer: Uint8Array,
+    fileType: "epub" | "pdf",
+    parent: string,
+    content: Content
+  ): Promise<CollectionEntry> {
+    /* istanbul ignore if */
+    if (content.fileType !== fileType) {
+      throw new Error(
+        `internal error: fileTypes don't match: ${fileType}, ${content.fileType}`
+      );
+    }
+
+    const documentId = uuid4();
+    const lastModified = `${new Date().valueOf()}`;
+
+    const entryPromises: Promise<Entry>[] = [];
+
+    // upload main document
+    entryPromises.push(this.putBuffer(`${documentId}.${fileType}`, buffer));
+
+    // upload metadata
+    const metadata: Metadata = {
+      type: "DocumentType",
+      visibleName,
+      version: 0,
+      parent,
+      synced: true,
+      lastModified,
+    };
+    entryPromises.push(
+      this.putText(`${documentId}.metadata`, JSON.stringify(metadata))
+    );
+    entryPromises.push(
+      this.putText(`${documentId}.content`, JSON.stringify(content))
+    );
+
+    // NOTE we technically get the entries a bit earlier, so could upload this
+    // before all contents are uploaded, but this also saves us from uploading
+    // the contents entry before all have uploaded successfully
+    const entries = await Promise.all(entryPromises);
+    return await this.putEntries(documentId, entries);
   }
 
   /** upload an epub */
@@ -882,28 +1140,7 @@ class Remarkable implements RemarkableApi {
       cover = "visited",
       lastTool,
     }: PutEpubOptions = {}
-  ): Promise<Entry> {
-    const documentId = uuid4();
-    const lastModified = `${new Date().valueOf()}`;
-
-    const entryPromises: Promise<Entry>[] = [];
-
-    // upload main document
-    entryPromises.push(this.putBuffer(`${documentId}.epub`, buffer));
-
-    // upload metadata
-    const metadata: Metadata = {
-      type: "DocumentType",
-      visibleName,
-      version: 0,
-      parent,
-      synced: true,
-      lastModified,
-    };
-    entryPromises.push(
-      this.putText(`${documentId}.metadata`, JSON.stringify(metadata))
-    );
-
+  ): Promise<CollectionEntry> {
     // upload content file
     const content: Content = {
       dummyDocument: false,
@@ -929,15 +1166,98 @@ class Remarkable implements RemarkableApi {
       textAlignment,
       fontName,
     };
-    entryPromises.push(
-      this.putText(`${documentId}.content`, JSON.stringify(content))
-    );
+    return await this.#putContent(visibleName, buffer, "epub", parent, content);
+  }
 
-    // NOTE we technically get the entries a bit earlier, so could upload this
-    // before all contents are uploaded, but this also saves us from uploading
-    // the contents entry before all have uploaded successfully
-    const entries = await Promise.all(entryPromises);
-    return await this.putEntries(documentId, entries);
+  /** upload a pdf */
+  async putPdf(
+    visibleName: string,
+    buffer: Uint8Array,
+    { parent = "", orientation, cover = "first", lastTool }: PutPdfOptions = {}
+  ): Promise<CollectionEntry> {
+    // upload content file
+    const content: Content = {
+      dummyDocument: false,
+      extraMetadata: {
+        LastTool: lastTool,
+      },
+      fileType: "pdf",
+      pageCount: 0,
+      lastOpenedPage: 0,
+      lineHeight: -1,
+      margins: 125,
+      textScale: 1,
+      pages: [],
+      coverPageNumber: cover === "first" ? 0 : -1,
+      formatVersion: 1,
+      orientation,
+    };
+    return await this.#putContent(visibleName, buffer, "pdf", parent, content);
+  }
+
+  /** send sync complete request */
+  async syncComplete(generation: bigint): Promise<void> {
+    // NOTE this is done manually to properly serialize the bigint
+    const body = `{ "generation": ${generation} }`;
+    await this.#authedFetch(`${this.#syncHost}/sync/v2/sync-complete`, {
+      body,
+    });
+  }
+
+  /** get entries and metadata for all files */
+  async getEntriesMetadata(): Promise<MetadataEntry[]> {
+    const resp = await this.#authedFetch(`${this.#syncHost}/doc/v2/files`, {
+      method: "GET",
+      headers: {
+        "rm-source": "RoR-Browser",
+      },
+    });
+    const raw = await resp.text();
+    const res = JSON.parse(raw);
+    const schema: JtdSchema<MetadataEntry[]> = {
+      elements: metadataEntrySchema,
+    };
+    validate(schema, res);
+    return res;
+  }
+
+  /** upload a file */
+  async #uploadFile(
+    visibleName: string,
+    buffer: Uint8Array,
+    contentType: `application/${"epub+zip" | "pdf"}`
+  ): Promise<UploadEntry> {
+    const encoder = new TextEncoder();
+    const meta = encoder.encode(JSON.stringify({ file_name: visibleName }));
+    const resp = await this.#authedFetch(`${this.#syncHost}/doc/v2/files`, {
+      body: buffer,
+      headers: {
+        "content-type": contentType,
+        "rm-meta": fromByteArray(meta),
+        "rm-source": "RoR-Browser",
+      },
+    });
+    const raw = await resp.text();
+    const res = JSON.parse(raw);
+    validate(uploadEntrySchema, res);
+    return res;
+  }
+
+  /** upload an epub */
+  async uploadEpub(
+    visibleName: string,
+    buffer: Uint8Array
+  ): Promise<UploadEntry> {
+    return await this.#uploadFile(visibleName, buffer, "application/epub+zip");
+  }
+
+  /** upload a pdf */
+  async uploadPdf(
+    visibleName: string,
+    buffer: Uint8Array
+  ): Promise<UploadEntry> {
+    // TODO why doesn't this work
+    return await this.#uploadFile(visibleName, buffer, "application/pdf");
   }
 }
 
@@ -954,6 +1274,7 @@ export interface RemarkableOptions {
    * for node 17.5 or higher.
    */
   fetch?: FetchLike;
+
   /**
    * an optional cache for text requests
    *
@@ -966,6 +1287,7 @@ export interface RemarkableOptions {
    * some old files may stay around for quite a while
    */
   cache?: CacheLike;
+
   /**
    * a subtle-crypto-like object
    *
@@ -975,10 +1297,15 @@ export interface RemarkableOptions {
    * `webcrypto.subtle`.
    */
   subtle?: SubtleCryptoLike;
+
   /** the url for making authorization requests */
-  authUrl?: string;
-  /** the window for making blob requests */
-  blobUrl?: string;
+  authHost?: string;
+
+  /** the url for making raw document requests */
+  docHost?: string;
+
+  /** the url for making synchronization requests */
+  syncHost?: string;
 }
 
 /**
@@ -987,7 +1314,8 @@ export interface RemarkableOptions {
  * This gets a temporary authentication token with the device token. If
  * requests start failing, simply recreate the api instance.
  *
- * @param deviceToken - the device token proving this api instance is registered. Create one with {@link register}.
+ * @param deviceToken - the device token proving this api instance is
+ *    registered. Create one with {@link register}.
  * @returns an api instance
  */
 export async function remarkable(
@@ -996,11 +1324,11 @@ export async function remarkable(
     fetch = globalThis.fetch,
     cache,
     subtle = globalThis.crypto?.subtle,
-    authUrl = AUTH_URL,
-    blobUrl = BLOB_URL,
+    authHost = AUTH_HOST,
+    syncHost = SYNC_HOST,
   }: RemarkableOptions = {}
 ): Promise<RemarkableApi> {
-  const resp = await fetch(`${authUrl}/token/json/2/user/new`, {
+  const resp = await fetch(`${authHost}/token/json/2/user/new`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${deviceToken}`,
@@ -1010,5 +1338,5 @@ export async function remarkable(
     throw new Error(`couldn't fetch auth token: ${resp.statusText}`);
   }
   const userToken = await resp.text();
-  return new Remarkable(userToken, fetch, cache, subtle, blobUrl);
+  return new Remarkable(userToken, fetch, cache, subtle, syncHost);
 }
