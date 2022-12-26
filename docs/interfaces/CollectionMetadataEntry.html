@@ -1,4 +1,4 @@
-<!DOCTYPE html><html class="default" lang="en"><head><meta charSet="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>DocumentTypeMetadata | rmapi-js</title><meta name="description" content="Documentation for rmapi-js"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script async src="../assets/search.js" id="search-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os"</script><header class="tsd-page-toolbar">
+<!DOCTYPE html><html class="default" lang="en"><head><meta charSet="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>CollectionMetadataEntry | rmapi-js</title><meta name="description" content="Documentation for rmapi-js"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script async src="../assets/search.js" id="search-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os"</script><header class="tsd-page-toolbar">
 <div class="tsd-toolbar-contents container">
 <div class="table-cell" id="tsd-search" data-base="..">
 <div class="field"><label for="tsd-search-field" class="tsd-widget tsd-toolbar-icon search no-caption"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M15.7824 13.833L12.6666 10.7177C12.5259 10.5771 12.3353 10.499 12.1353 10.499H11.6259C12.4884 9.39596 13.001 8.00859 13.001 6.49937C13.001 2.90909 10.0914 0 6.50048 0C2.90959 0 0 2.90909 0 6.49937C0 10.0896 2.90959 12.9987 6.50048 12.9987C8.00996 12.9987 9.39756 12.4863 10.5008 11.6239V12.1332C10.5008 12.3332 10.5789 12.5238 10.7195 12.6644L13.8354 15.7797C14.1292 16.0734 14.6042 16.0734 14.8948 15.7797L15.7793 14.8954C16.0731 14.6017 16.0731 14.1267 15.7824 13.833ZM6.50048 10.499C4.29094 10.499 2.50018 8.71165 2.50018 6.49937C2.50018 4.29021 4.28781 2.49976 6.50048 2.49976C8.71001 2.49976 10.5008 4.28708 10.5008 6.49937C10.5008 8.70852 8.71314 10.499 6.50048 10.499Z" fill="var(--color-text)"></path></svg></label><input type="text" id="tsd-search-field" aria-label="Search"/></div>
@@ -13,21 +13,20 @@
 <div class="tsd-page-title">
 <ul class="tsd-breadcrumb">
 <li><a href="../modules.html">rmapi-js</a></li>
-<li><a href="DocumentTypeMetadata.html">DocumentTypeMetadata</a></li></ul>
-<h1>Interface DocumentTypeMetadata</h1></div>
+<li><a href="CollectionMetadataEntry.html">CollectionMetadataEntry</a></li></ul>
+<h1>Interface CollectionMetadataEntry</h1></div>
 <section class="tsd-panel tsd-comment">
-<div class="tsd-comment tsd-typography"><p>metadata for document types</p>
+<div class="tsd-comment tsd-typography"><p>the metadata entry for a collection</p>
 </div></section>
 <section class="tsd-panel tsd-hierarchy">
 <h4>Hierarchy</h4>
 <ul class="tsd-hierarchy">
-<li><a href="CommonMetadata.html" class="tsd-signature-type" data-tsd-kind="Interface">CommonMetadata</a>
+<li><a href="BaseMetadataEntry.html" class="tsd-signature-type" data-tsd-kind="Interface">BaseMetadataEntry</a></li>
+<li><a href="CollectionTypeMetadata.html" class="tsd-signature-type" data-tsd-kind="Interface">CollectionTypeMetadata</a>
 <ul class="tsd-hierarchy">
-<li><span class="target">DocumentTypeMetadata</span>
-<ul class="tsd-hierarchy">
-<li><a href="DocumentMetadataEntry.html" class="tsd-signature-type" data-tsd-kind="Interface">DocumentMetadataEntry</a></li></ul></li></ul></li></ul></section><aside class="tsd-sources">
+<li><span class="target">CollectionMetadataEntry</span></li></ul></li></ul></section><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L247">src/index.ts:247</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L272">src/index.ts:272</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-index-accordion" open><summary class="tsd-accordion-summary tsd-index-summary">
@@ -35,18 +34,18 @@
 <div class="tsd-accordion-details">
 <section class="tsd-index-section">
 <h3 class="tsd-index-heading">Properties</h3>
-<div class="tsd-index-list"><a href="DocumentTypeMetadata.html#deleted" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><rect fill="var(--color-icon-background)" stroke="#FF984D" stroke-width="1.5" x="1" y="1" width="22" height="22" rx="12" id="icon-1024-path"></rect><path d="M9.354 16V7.24H12.174C12.99 7.24 13.638 7.476 14.118 7.948C14.606 8.412 14.85 9.036 14.85 9.82C14.85 10.604 14.606 11.232 14.118 11.704C13.638 12.168 12.99 12.4 12.174 12.4H10.434V16H9.354ZM10.434 11.428H12.174C12.646 11.428 13.022 11.284 13.302 10.996C13.59 10.7 13.734 10.308 13.734 9.82C13.734 9.324 13.59 8.932 13.302 8.644C13.022 8.356 12.646 8.212 12.174 8.212H10.434V11.428Z" fill="var(--color-text)" id="icon-1024-text"></path></svg><span>deleted?</span></a>
-<a href="DocumentTypeMetadata.html#lastModified" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>last<wbr/>Modified</span></a>
-<a href="DocumentTypeMetadata.html#lastOpened" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>last<wbr/>Opened?</span></a>
-<a href="DocumentTypeMetadata.html#lastOpenedPage" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>last<wbr/>Opened<wbr/>Page?</span></a>
-<a href="DocumentTypeMetadata.html#metadatamodified" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>metadatamodified?</span></a>
-<a href="DocumentTypeMetadata.html#modified" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>modified?</span></a>
-<a href="DocumentTypeMetadata.html#parent" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>parent?</span></a>
-<a href="DocumentTypeMetadata.html#pinned" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>pinned?</span></a>
-<a href="DocumentTypeMetadata.html#synced" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>synced?</span></a>
-<a href="DocumentTypeMetadata.html#type" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>type</span></a>
-<a href="DocumentTypeMetadata.html#version" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>version?</span></a>
-<a href="DocumentTypeMetadata.html#visibleName" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>visible<wbr/>Name</span></a>
+<div class="tsd-index-list"><a href="CollectionMetadataEntry.html#deleted" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><rect fill="var(--color-icon-background)" stroke="#FF984D" stroke-width="1.5" x="1" y="1" width="22" height="22" rx="12" id="icon-1024-path"></rect><path d="M9.354 16V7.24H12.174C12.99 7.24 13.638 7.476 14.118 7.948C14.606 8.412 14.85 9.036 14.85 9.82C14.85 10.604 14.606 11.232 14.118 11.704C13.638 12.168 12.99 12.4 12.174 12.4H10.434V16H9.354ZM10.434 11.428H12.174C12.646 11.428 13.022 11.284 13.302 10.996C13.59 10.7 13.734 10.308 13.734 9.82C13.734 9.324 13.59 8.932 13.302 8.644C13.022 8.356 12.646 8.212 12.174 8.212H10.434V11.428Z" fill="var(--color-text)" id="icon-1024-text"></path></svg><span>deleted?</span></a>
+<a href="CollectionMetadataEntry.html#hash" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>hash</span></a>
+<a href="CollectionMetadataEntry.html#id" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>id</span></a>
+<a href="CollectionMetadataEntry.html#lastModified" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>last<wbr/>Modified</span></a>
+<a href="CollectionMetadataEntry.html#metadatamodified" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>metadatamodified?</span></a>
+<a href="CollectionMetadataEntry.html#modified" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>modified?</span></a>
+<a href="CollectionMetadataEntry.html#parent" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>parent?</span></a>
+<a href="CollectionMetadataEntry.html#pinned" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>pinned?</span></a>
+<a href="CollectionMetadataEntry.html#synced" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>synced?</span></a>
+<a href="CollectionMetadataEntry.html#type" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>type</span></a>
+<a href="CollectionMetadataEntry.html#version" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>version?</span></a>
+<a href="CollectionMetadataEntry.html#visibleName" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>visible<wbr/>Name</span></a>
 </div></section></div></details></section></section>
 <section class="tsd-panel-group tsd-member-group">
 <h2>Properties</h2>
@@ -55,37 +54,39 @@
 <div class="tsd-signature">deleted<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div>
 <div class="tsd-comment tsd-typography"><p>if file is deleted</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#deleted">deleted</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#deleted">deleted</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L235">src/index.ts:235</a></li></ul></aside></section>
+<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="hash" class="tsd-anchor"></a>
+<h3 class="tsd-anchor-link"><span>hash</span><a href="#hash" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
+<div class="tsd-signature">hash<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
+<div class="tsd-comment tsd-typography"><p>the hash of the entry</p>
+</div><aside class="tsd-sources">
+<p>Inherited from <a href="BaseMetadataEntry.html">BaseMetadataEntry</a>.<a href="BaseMetadataEntry.html#hash">hash</a></p>
+<ul>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L268">src/index.ts:268</a></li></ul></aside></section>
+<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="id" class="tsd-anchor"></a>
+<h3 class="tsd-anchor-link"><span>id</span><a href="#id" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
+<div class="tsd-signature">id<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
+<div class="tsd-comment tsd-typography"><p>the document id of the entry</p>
+</div><aside class="tsd-sources">
+<p>Inherited from <a href="BaseMetadataEntry.html">BaseMetadataEntry</a>.<a href="BaseMetadataEntry.html#id">id</a></p>
+<ul>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L266">src/index.ts:266</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="lastModified" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><span>last<wbr/>Modified</span><a href="#lastModified" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">last<wbr/>Modified<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>last modified time</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#lastModified">lastModified</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#lastModified">lastModified</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L225">src/index.ts:225</a></li></ul></aside></section>
-<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="lastOpened" class="tsd-anchor"></a>
-<h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>last<wbr/>Opened</span><a href="#lastOpened" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
-<div class="tsd-signature">last<wbr/>Opened<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
-<div class="tsd-comment tsd-typography"><p>last opened time for documents</p>
-</div><aside class="tsd-sources">
-<ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L251">src/index.ts:251</a></li></ul></aside></section>
-<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="lastOpenedPage" class="tsd-anchor"></a>
-<h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>last<wbr/>Opened<wbr/>Page</span><a href="#lastOpenedPage" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
-<div class="tsd-signature">last<wbr/>Opened<wbr/>Page<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span></div>
-<div class="tsd-comment tsd-typography"><p>last opened page for documents</p>
-</div><aside class="tsd-sources">
-<ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L253">src/index.ts:253</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="metadatamodified" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>metadatamodified</span><a href="#metadatamodified" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">metadatamodified<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div>
 <div class="tsd-comment tsd-typography"><p>unsure</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#metadatamodified">metadatamodified</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#metadatamodified">metadatamodified</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L237">src/index.ts:237</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="modified" class="tsd-anchor"></a>
@@ -93,7 +94,7 @@
 <div class="tsd-signature">modified<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div>
 <div class="tsd-comment tsd-typography"><p>unsure</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#modified">modified</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#modified">modified</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L233">src/index.ts:233</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="parent" class="tsd-anchor"></a>
@@ -101,7 +102,7 @@
 <div class="tsd-signature">parent<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>parent uuid or &quot;&quot; for root or &quot;trash&quot;</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#parent">parent</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#parent">parent</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L223">src/index.ts:223</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="pinned" class="tsd-anchor"></a>
@@ -109,7 +110,7 @@
 <div class="tsd-signature">pinned<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div>
 <div class="tsd-comment tsd-typography"><p>unsure</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#pinned">pinned</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#pinned">pinned</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L229">src/index.ts:229</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="synced" class="tsd-anchor"></a>
@@ -117,22 +118,23 @@
 <div class="tsd-signature">synced<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div>
 <div class="tsd-comment tsd-typography"><p>unsure</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#synced">synced</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#synced">synced</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L231">src/index.ts:231</a></li></ul></aside></section>
-<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="type" class="tsd-anchor"></a>
+<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="type" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><span>type</span><a href="#type" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
-<div class="tsd-signature">type<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">&quot;DocumentType&quot;</span></div>
-<div class="tsd-comment tsd-typography"><p>the key for document types</p>
+<div class="tsd-signature">type<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">&quot;CollectionType&quot;</span></div>
+<div class="tsd-comment tsd-typography"><p>the key for collection types</p>
 </div><aside class="tsd-sources">
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#type">type</a></p>
 <ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L249">src/index.ts:249</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L243">src/index.ts:243</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="version" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>version</span><a href="#version" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">version<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span></div>
 <div class="tsd-comment tsd-typography"><p>unsure</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#version">version</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#version">version</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L227">src/index.ts:227</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a id="visibleName" class="tsd-anchor"></a>
@@ -140,7 +142,7 @@
 <div class="tsd-signature">visible<wbr/>Name<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>name of content</p>
 </div><aside class="tsd-sources">
-<p>Inherited from <a href="CommonMetadata.html">CommonMetadata</a>.<a href="CommonMetadata.html#visibleName">visibleName</a></p>
+<p>Inherited from <a href="CollectionTypeMetadata.html">CollectionTypeMetadata</a>.<a href="CollectionTypeMetadata.html#visibleName">visibleName</a></p>
 <ul>
 <li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/07db06d/src/index.ts#L221">src/index.ts:221</a></li></ul></aside></section></section></div>
 <div class="col-4 col-menu menu-sticky-wrap menu-highlight">
@@ -166,20 +168,20 @@
 <ul></ul></li></ul></div></details></nav>
 <nav class="tsd-navigation secondary menu-sticky">
 <ul>
-<li class="current tsd-kind-interface"><a href="DocumentTypeMetadata.html" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><rect fill="var(--color-icon-background)" stroke="var(--color-ts-interface)" stroke-width="1.5" x="1" y="1" width="22" height="22" rx="6" id="icon-256-path"></rect><path d="M9.51 16V15.016H11.298V8.224H9.51V7.24H14.19V8.224H12.402V15.016H14.19V16H9.51Z" fill="var(--color-text)" id="icon-256-text"></path></svg><span>Document<wbr/>Type<wbr/>Metadata</span></a>
+<li class="current tsd-kind-interface"><a href="CollectionMetadataEntry.html" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><rect fill="var(--color-icon-background)" stroke="var(--color-ts-interface)" stroke-width="1.5" x="1" y="1" width="22" height="22" rx="6" id="icon-256-path"></rect><path d="M9.51 16V15.016H11.298V8.224H9.51V7.24H14.19V8.224H12.402V15.016H14.19V16H9.51Z" fill="var(--color-text)" id="icon-256-text"></path></svg><span>Collection<wbr/>Metadata<wbr/>Entry</span></a>
 <ul>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#deleted" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>deleted?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#lastModified" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>last<wbr/>Modified</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface"><a href="DocumentTypeMetadata.html#lastOpened" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>last<wbr/>Opened?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface"><a href="DocumentTypeMetadata.html#lastOpenedPage" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>last<wbr/>Opened<wbr/>Page?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#metadatamodified" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>metadatamodified?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#modified" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>modified?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#parent" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>parent?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#pinned" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>pinned?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#synced" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>synced?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface"><a href="DocumentTypeMetadata.html#type" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>type</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#version" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>version?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="DocumentTypeMetadata.html#visibleName" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>visible<wbr/>Name</a></li></ul></li></ul></nav></div></div>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#deleted" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>deleted?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#hash" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>hash</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#id" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>id</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#lastModified" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>last<wbr/>Modified</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#metadatamodified" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>metadatamodified?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#modified" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>modified?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#parent" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>parent?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#pinned" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>pinned?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#synced" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>synced?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#type" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>type</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#version" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>version?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface tsd-is-inherited"><a href="CollectionMetadataEntry.html#visibleName" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>visible<wbr/>Name</a></li></ul></li></ul></nav></div></div>
 <div class="container tsd-generator">
 <p>Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></div>
 <div class="overlay"></div><script src="../assets/main.js"></script></body></html>
