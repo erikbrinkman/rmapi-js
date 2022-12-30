@@ -1,7 +1,7 @@
 rmapi-js
 ========
 [![build](https://github.com/erikbrinkman/rmapi-js/actions/workflows/node.js.yml/badge.svg)](https://github.com/erikbrinkman/rmapi-js/actions/workflows/node.js.yml)
-[![docs](https://img.shields.io/badge/docs-docs-blue)](https://erikbrinkman.github.io/rmapi-js/)
+[![docs](https://img.shields.io/badge/docs-docs-blue)](https://erikbrinkman.github.io/rmapi-js/modules.html)
 [![npm](https://img.shields.io/npm/v/rmapi-js)](https://www.npmjs.com/package/rmapi-js)
 [![license](https://img.shields.io/github/license/erikbrinkman/rmapi-js)](LICENSE)
 
