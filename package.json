@@ -95,6 +95,7 @@
       "node": true
     },
     "rules": {
+      "@typescript-eslint/no-inferrable-types": "off",
       "tsdoc/syntax": "error",
       "no-warning-comments": [
         "error",

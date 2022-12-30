@@ -219,21 +219,21 @@ const urlResponseSchema: JtdSchema<UrlResponse> = {
 export interface CommonMetadata {
   /** name of content */
   visibleName: string;
-  /** parent uuid or "" for root or "trash" */
+  /** parent uuid (documentId) or "" for root or "trash" */
   parent?: string;
   /** last modified time */
   lastModified: string;
-  /** unsure */
+  /** unknown significance */
   version?: number;
-  /** unsure */
+  /** unknown significance */
   pinned?: boolean;
-  /** unsure */
+  /** unknown significance */
   synced?: boolean;
-  /** unsure */
+  /** unknown significance */
   modified?: boolean;
   /** if file is deleted */
   deleted?: boolean;
-  /** unsure */
+  /** unknown significance */
   metadatamodified?: boolean;
 }
 
@@ -666,6 +666,25 @@ export interface RemarkableApi {
   putText(documentId: string, contents: string): Promise<FileEntry>;
 
   /**
+   * put metadata into the cloud
+   *
+   * This is a small wrapper around {@link RemarkableApi.putText | `putText`}.
+   *
+   * @param documentId - this should be the documentId of the item that this is
+   *   metadata for; it should not end in `.metadata`
+   * @param metadata - the metadata to upload
+   */
+  putMetadata(documentId: string, metadata: Metadata): Promise<FileEntry>;
+
+  /**
+   * create a new collection (folder)
+   *
+   * @param documentId - the name of the new folder
+   * @param parent - the documentId of the parent collection (folder)
+   */
+  putCollection(visibleName: string, parent?: string): Promise<CollectionEntry>;
+
+  /**
    * upload an epub
    *
    * @remarks this only uploads the raw data and returns an entry that could be
@@ -1079,6 +1098,43 @@ class Remarkable implements RemarkableApi {
     return entry;
   }
 
+  /** put metadata into the cloud */
+  async putMetadata(
+    documentId: string,
+    metadata: Metadata
+  ): Promise<FileEntry> {
+    return await this.putText(
+      `${documentId}.metadata`,
+      JSON.stringify(metadata)
+    );
+  }
+
+  /** put a new collection (folder) */
+  async putCollection(
+    visibleName: string,
+    parent: string = ""
+  ): Promise<CollectionEntry> {
+    const documentId = uuid4();
+    const lastModified = `${new Date().valueOf()}`;
+
+    const entryPromises: Promise<Entry>[] = [];
+
+    // upload metadata
+    const metadata: CollectionTypeMetadata = {
+      type: "CollectionType",
+      visibleName,
+      version: 0,
+      parent,
+      synced: true,
+      lastModified,
+    };
+    entryPromises.push(this.putMetadata(documentId, metadata));
+    entryPromises.push(this.putText(`${documentId}.content`, "{}"));
+
+    const entries = await Promise.all(entryPromises);
+    return await this.putEntries(documentId, entries);
+  }
+
   /** upload a content file */
   async #putContent(
     visibleName: string,
@@ -1103,7 +1159,7 @@ class Remarkable implements RemarkableApi {
     entryPromises.push(this.putBuffer(`${documentId}.${fileType}`, buffer));
 
     // upload metadata
-    const metadata: Metadata = {
+    const metadata: DocumentTypeMetadata = {
       type: "DocumentType",
       visibleName,
       version: 0,
@@ -1111,9 +1167,7 @@ class Remarkable implements RemarkableApi {
       synced: true,
       lastModified,
     };
-    entryPromises.push(
-      this.putText(`${documentId}.metadata`, JSON.stringify(metadata))
-    );
+    entryPromises.push(this.putMetadata(documentId, metadata));
     entryPromises.push(
       this.putText(`${documentId}.content`, JSON.stringify(content))
     );

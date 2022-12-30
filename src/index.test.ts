@@ -472,6 +472,28 @@ describe("remarkable", () => {
     });
   });
 
+  test("#putCollection()", async () => {
+    const fetch = createMockFetch(
+      new MockResponse(),
+      // metadata
+      new MockResponse(PUT_URL),
+      new MockResponse(),
+      // content
+      new MockResponse(PUT_URL),
+      new MockResponse(),
+      // collection
+      new MockResponse(PUT_URL),
+      new MockResponse()
+    );
+
+    const api = await remarkable("", { fetch });
+    await api.putCollection("New Folder");
+
+    const [, , , metadata, , content] = fetch.pastRequests;
+    expect(JSON.parse(metadata?.bodyText ?? "")).toBeDefined();
+    expect(JSON.parse(content?.bodyText ?? "")).toBeDefined();
+  });
+
   describe("#putEpub()", () => {
     test("success", async () => {
       const fetch = createMockFetch(
