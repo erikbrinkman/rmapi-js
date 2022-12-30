@@ -36,12 +36,7 @@
  *
  * const api = await remarkable(...);
  * const entry = await api.putEpub("document name", epubBuffer);
- * const [root, gen] = await api.getRootHash();
- * const rootEntries = await api.getEntries(root);
- * rootEntries.push(entry);
- * const { hash } = await api.putEntries("", rootEntries);
- * const nextGen = await api.putRootHash(hash, gen);
- * await api.syncComplete(nextGen);
+ * await api.create(entry);
  * ```
  *
  * @packageDocumentation
@@ -619,6 +614,16 @@ export interface RemarkableApi {
    * generation. Use this to preven race conditions. If this rejects, refetch
    * the root hash, resync the updates, and then try to put again.
    *
+   * @remarks Updating the root hash can be dangerous as it changes the full
+   * state of what's on the the remarkable. However, it's also the only way to
+   * change what's actually visible. If you're unsure if you're doing the right
+   * thing, make sure to first save your inital root hash. Then you can always
+   * recover by doing:
+   * ```
+   * let [, gen] = await api.getRootHash();
+   * await api.putRootHash(backup, gen);
+   * ```
+   *
    * @param hash - the hash of the new root collection
    * @param generation - the current generation this builds off of
    * @returns the new generation
@@ -699,12 +704,7 @@ export interface RemarkableApi {
    *
    * ```ts
    * const entry = await api.putEpub(...);
-   * const [root, gen] = await api.getRootHash();
-   * const rootEntries = await api.getEntries(root);
-   * rootEntries.push(entry);
-   * const { hash } = await api.putEntries("", rootEntries);
-   * const nextGen = await api.putRootHash(hash, gen);
-   * await api.syncComplete(nextGen);
+   * await api.create(entry);
    * ```
    *
    * @param visibleName - the name to show for the uploaded epub
@@ -732,12 +732,7 @@ export interface RemarkableApi {
    *
    * ```ts
    * const entry = await api.putPdf(...);
-   * const [root, gen] = await api.getRootHash();
-   * const rootEntries = await api.getEntries(root);
-   * rootEntries.push(entry);
-   * const { hash } = await api.putEntries("", rootEntries);
-   * const nextGen = await api.putRootHash(hash, gen);
-   * await api.syncComplete(nextGen);
+   * await api.create(entry);
    * ```
    *
    * @param visibleName - the name to show for the uploaded pdf
@@ -757,6 +752,73 @@ export interface RemarkableApi {
    * that other devices should pick up the change.
    */
   syncComplete(generation: bigint): Promise<void>;
+
+  /**
+   * high level api to create an entry
+   *
+   * After creating a collection entry with
+   * {@link RemarkableApi.putCollection | `putCollection`},
+   * {@link RemarkableApi.putEpub | `putEpub`}, or
+   * {@link RemarkableApi.putPdf | `putPdf`}, this is a high level API to try
+   * syncing the change to the remarkable.
+   *
+   * @remarks
+   * This API is provided to give a high level interface and to serve as an
+   * example of how to implement more advanced functionality, but it comes with
+   * a number of caveats:
+   * 1. For most use cases, it will repeat requests to remarkable's servers
+   *    (even with a cache) making it slower than implementing similar steps
+   *    manually.
+   * 2. It includes no handling of concurrent modification or other networking
+   *    errors, requiring repeat network requests if anything fails.
+   *
+   * @example
+   * ```ts
+   * const entry = await api.putEpub(...);
+   * await api.create(entry);
+   * ```
+   *
+   * @param entry - and entry, usually created by a `put*` method
+   * @param sync - whether to notify apps of a change (default: true)
+   * @returns synced - if sync was successful
+   * @throws error - if any error occurred, in this case, nothing will be
+   *   changed
+   */
+  create(entry: CollectionEntry, sync?: boolean): Promise<boolean>;
+
+  /**
+   * high level api to move a document / collection
+   *
+   * Use this as a high level api to move files in the document tree.
+   *
+   * @remarks
+   * This API is provided to give a high level interface and to serve as an
+   * example of how to implement more advanced functionality, but it comes with
+   * a number of caveats:
+   * 1. For most use cases, it will repeat requests to remarkable's servers
+   *    (even with a cache) making it slower than implementing similar steps
+   *    manually.
+   * 2. It includes no handling of concurrent modification or other networking
+   *    errors, requiring repeat network requests if anything fails.
+   *
+   * @example
+   * ```ts
+   * const [root] = await api.getRootHash();
+   * const entries = await api.getEntries(root);
+   * const { documentId } = entries.find(...);
+   * await api.move(documentId, "trash");
+   * ```
+   *
+   * @param documentId - the document id of the document or collection to move
+   * @param dest - the new parent of this collection or document; this should
+   *   be the document id of an existing collection, an empty string for root,
+   *   or the string `"trash"` to move to the trash
+   * @param sync - whether to notify apps of a change (default: true)
+   * @returns synced - true if synced successfully
+   * @throws error - if any error occurred, in this case, nothing will be
+   *   changed
+   */
+  move(documentId: string, dest: string, sync?: boolean): Promise<boolean>;
 
   /**
    * get metadata on all entries
@@ -1256,6 +1318,105 @@ class Remarkable implements RemarkableApi {
     await this.#authedFetch(`${this.#syncHost}/sync/v2/sync-complete`, {
       body,
     });
+  }
+
+  /** try to sync, always succeed */
+  async #trySync(gen: bigint): Promise<boolean> {
+    try {
+      await this.syncComplete(gen);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** high level api to create an entry */
+  async create(entry: CollectionEntry, sync: boolean = true): Promise<boolean> {
+    const [root, gen] = await this.getRootHash();
+    const rootEntries = await this.getEntries(root);
+    rootEntries.push(entry);
+    const { hash } = await this.putEntries("", rootEntries);
+    const nextGen = await this.putRootHash(hash, gen);
+    if (sync) {
+      return await this.#trySync(nextGen);
+    } else {
+      return false;
+    }
+  }
+
+  /** high level api to move a document / collection */
+  async move(
+    documentId: string,
+    dest: string,
+    sync: boolean = true
+  ): Promise<boolean> {
+    const [root, gen] = await this.getRootHash();
+    const rootEntries = await this.getEntries(root);
+
+    // check if destination is a collection
+    if (!dest || dest === "trash") {
+      // fine
+    } else {
+      // TODO some of these could be done in parallel
+      const entry = rootEntries.find((ent) => ent.documentId === dest);
+      if (!entry) {
+        throw new Error(`destination id not found: ${dest}`);
+      } else if (entry.type !== "80000000") {
+        throw new Error(`destination id was a raw file: ${dest}`);
+      }
+      const ents = await this.getEntries(entry.hash);
+      const [meta] = ents.filter(
+        (ent) => ent.documentId === `${dest}.metadata`
+      );
+      if (!meta) {
+        throw new Error(`destination id didn't have metadata: ${dest}`);
+      }
+      const metadata = await this.getMetadata(meta.hash);
+      if (metadata.type !== "CollectionType") {
+        throw new Error(`destination id wasn't a collection: ${dest}`);
+      }
+    }
+
+    // get entry to move from root
+    const ind = rootEntries.findIndex((ent) => ent.documentId === documentId);
+    if (ind === -1) {
+      throw new Error(`document not found: ${documentId}`);
+    }
+    const [oldEntry] = rootEntries.splice(ind, 1);
+    if (oldEntry!.type !== "80000000") {
+      throw new Error(`document was a raw file: ${documentId}`);
+    }
+
+    // get metadata from entry
+    const docEnts = await this.getEntries(oldEntry!.hash);
+    const metaInd = docEnts.findIndex(
+      (ent) => ent.documentId === `${documentId}.metadata`
+    );
+    if (metaInd === -1) {
+      throw new Error(`document didn't have metadata: ${documentId}`);
+    }
+    const [metaEnt] = docEnts.splice(metaInd, 1);
+    const metadata = await this.getMetadata(metaEnt!.hash);
+
+    // update metadata
+    metadata.parent = dest;
+    const newMetaEnt = await this.putMetadata(documentId, metadata);
+    docEnts.push(newMetaEnt);
+
+    // update root entries
+    const newEntry = await this.putEntries(documentId, docEnts);
+    rootEntries.push(newEntry);
+
+    // update generation
+    const { hash } = await this.putEntries("", rootEntries);
+    const nextGen = await this.putRootHash(hash, gen);
+
+    // sync
+    if (sync) {
+      return await this.#trySync(nextGen);
+    } else {
+      return false;
+    }
   }
 
   /** get entries and metadata for all files */

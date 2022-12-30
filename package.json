@@ -96,6 +96,7 @@
     },
     "rules": {
       "@typescript-eslint/no-inferrable-types": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
       "tsdoc/syntax": "error",
       "no-warning-comments": [
         "error",
@@ -124,6 +125,7 @@
             "Pencilv",
             "authed",
             "bigints",
+            "docid",
             "ebooks",
             "epub",
             "fineliner",
@@ -132,10 +134,14 @@
             "incrementing",
             "linux",
             "macos",
+            "movee",
             "rmapi",
             "subfiles",
             "urls",
             "webcrypto"
+          ],
+          "skipIfMatch": [
+            "^[0-9a-f]{64}"
           ],
           "minLength": 4
         }

@@ -24,6 +24,24 @@ const PUT_URL_BYTES = JSON.stringify({
   expires: TIMESTAMP,
   maxuploadsize_bytes: 1000000,
 });
+const PUT_COLLECTION_RESPONSES = [
+  // metadata
+  new MockResponse(PUT_URL),
+  new MockResponse(),
+  // content
+  new MockResponse(PUT_URL),
+  new MockResponse(),
+  // collection
+  new MockResponse(PUT_URL),
+  new MockResponse(),
+] as const;
+const PUT_FILE_RESPONSES = [
+  // doc
+  new MockResponse(PUT_URL_BYTES),
+  new MockResponse(),
+  // rest
+  ...PUT_COLLECTION_RESPONSES,
+] as const;
 
 describe("register()", () => {
   test("success", async () => {
@@ -475,15 +493,7 @@ describe("remarkable", () => {
   test("#putCollection()", async () => {
     const fetch = createMockFetch(
       new MockResponse(),
-      // metadata
-      new MockResponse(PUT_URL),
-      new MockResponse(),
-      // content
-      new MockResponse(PUT_URL),
-      new MockResponse(),
-      // collection
-      new MockResponse(PUT_URL),
-      new MockResponse()
+      ...PUT_COLLECTION_RESPONSES
     );
 
     const api = await remarkable("", { fetch });
@@ -496,21 +506,7 @@ describe("remarkable", () => {
 
   describe("#putEpub()", () => {
     test("success", async () => {
-      const fetch = createMockFetch(
-        new MockResponse(),
-        // doc
-        new MockResponse(PUT_URL_BYTES),
-        new MockResponse(),
-        // metadata
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // content
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // collection
-        new MockResponse(PUT_URL),
-        new MockResponse()
-      );
+      const fetch = createMockFetch(new MockResponse(), ...PUT_FILE_RESPONSES);
 
       const enc = new TextEncoder();
       const epub = "fake epub content";
@@ -525,21 +521,7 @@ describe("remarkable", () => {
     });
 
     test("custom", async () => {
-      const fetch = createMockFetch(
-        new MockResponse(),
-        // doc
-        new MockResponse(PUT_URL_BYTES),
-        new MockResponse(),
-        // metadata
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // content
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // collection
-        new MockResponse(PUT_URL),
-        new MockResponse()
-      );
+      const fetch = createMockFetch(new MockResponse(), ...PUT_FILE_RESPONSES);
 
       const enc = new TextEncoder();
       const epub = "fake epub content";
@@ -558,21 +540,7 @@ describe("remarkable", () => {
 
   describe("#putPdf()", () => {
     test("success", async () => {
-      const fetch = createMockFetch(
-        new MockResponse(),
-        // doc
-        new MockResponse(PUT_URL_BYTES),
-        new MockResponse(),
-        // metadata
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // content
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // collection
-        new MockResponse(PUT_URL),
-        new MockResponse()
-      );
+      const fetch = createMockFetch(new MockResponse(), ...PUT_FILE_RESPONSES);
 
       const enc = new TextEncoder();
       const pdf = "fake pdf content";
@@ -587,21 +555,7 @@ describe("remarkable", () => {
     });
 
     test("custom", async () => {
-      const fetch = createMockFetch(
-        new MockResponse(),
-        // doc
-        new MockResponse(PUT_URL_BYTES),
-        new MockResponse(),
-        // metadata
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // content
-        new MockResponse(PUT_URL),
-        new MockResponse(),
-        // collection
-        new MockResponse(PUT_URL),
-        new MockResponse()
-      );
+      const fetch = createMockFetch(new MockResponse(), ...PUT_FILE_RESPONSES);
 
       const enc = new TextEncoder();
       const pdf = "fake pdf content";
@@ -626,6 +580,359 @@ describe("remarkable", () => {
       "https://internal.cloud.remarkable.com/sync/v2/sync-complete"
     );
     expect(JSON.parse(req?.bodyText ?? "")).toEqual({ generation: 0 });
+  });
+
+  describe("#create()", () => {
+    const CREATE_RESPONSES = [
+      // root hash
+      new MockResponse(GET_URL),
+      new MockResponse("custom hash", 200, "", {
+        "x-goog-generation": "123",
+      }),
+      // entries
+      new MockResponse(GET_URL),
+      new MockResponse(
+        "3\n" + "hash:0:id:0:1234\n" + "other_hash:80000000:other_id:4:0\n"
+      ),
+      // put entries
+      new MockResponse(PUT_URL),
+      new MockResponse(),
+      // put root hash
+      new MockResponse(PUT_URL),
+      new MockResponse("custom hash", 200, "", {
+        "x-goog-generation": "124",
+      }),
+    ] as const;
+
+    test("sync", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        ...CREATE_RESPONSES,
+        new MockResponse()
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = await api.create({
+        type: "80000000",
+        hash: "create hash",
+        documentId: "docid",
+        subfiles: 3,
+        size: 0n,
+      });
+
+      expect(res).toBe(true);
+
+      const [, , , , , , ents, , , sync] = fetch.pastRequests;
+
+      expect(ents?.bodyText).toEqual(
+        "3\n" +
+          "create hash:80000000:docid:3:0\n" +
+          "hash:0:id:0:1234\n" +
+          "other_hash:80000000:other_id:4:0\n"
+      );
+      expect(JSON.parse(sync?.bodyText ?? "")).toEqual({ generation: 124 });
+    });
+
+    test("sync failure", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        ...CREATE_RESPONSES,
+        // sync failure
+        new MockResponse("", 400)
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = await api.create({
+        type: "80000000",
+        hash: "create hash",
+        documentId: "docid",
+        subfiles: 3,
+        size: 0n,
+      });
+
+      expect(res).toBe(false);
+
+      const [, , , , , , ents, , , sync] = fetch.pastRequests;
+
+      expect(ents?.bodyText).toEqual(
+        "3\n" +
+          "create hash:80000000:docid:3:0\n" +
+          "hash:0:id:0:1234\n" +
+          "other_hash:80000000:other_id:4:0\n"
+      );
+      expect(sync).toBeDefined();
+    });
+
+    test("no sync", async () => {
+      const fetch = createMockFetch(new MockResponse(), ...CREATE_RESPONSES);
+
+      const api = await remarkable("", { fetch });
+      const res = await api.create(
+        {
+          type: "80000000",
+          hash: "create hash",
+          documentId: "docid",
+          subfiles: 3,
+          size: 0n,
+        },
+        false
+      );
+
+      expect(res).toBe(false);
+
+      const [, , , , , , ents, , , sync] = fetch.pastRequests;
+
+      expect(ents?.bodyText).toEqual(
+        "3\n" +
+          "create hash:80000000:docid:3:0\n" +
+          "hash:0:id:0:1234\n" +
+          "other_hash:80000000:other_id:4:0\n"
+      );
+      expect(sync).toBeUndefined();
+    });
+  });
+
+  describe("#move()", () => {
+    const MOVE_INIT_RESPONSES = [
+      // root hash
+      new MockResponse(GET_URL),
+      new MockResponse("custom hash", 200, "", {
+        "x-goog-generation": "123",
+      }),
+      // entries
+      new MockResponse(GET_URL),
+      new MockResponse(
+        "3\n" + "hash:80000000:id:1:0\n" + "other_hash:80000000:other_id:4:0\n"
+      ),
+    ];
+    const MOVE_DEST_RESPONSES = [
+      // dest entries
+      new MockResponse(GET_URL),
+      new MockResponse("3\n" + "hash:0:other_id.metadata:0:1234\n"),
+      // dest metadata
+      new MockResponse(GET_URL),
+      new MockResponse(
+        JSON.stringify({
+          type: "CollectionType",
+          visibleName: "title",
+          parent: "",
+          lastModified: TIMESTAMP,
+          version: 1,
+          synced: true,
+        })
+      ),
+    ] as const;
+    const MOVE_FINAL_RESPONSES = [
+      // doc entries
+      new MockResponse(GET_URL),
+      new MockResponse(
+        "3\n" +
+          "hash:0:id.metadata:0:1234\n" +
+          "blah hash:0:id.content:0:1234\n"
+      ),
+      // doc metadata
+      new MockResponse(GET_URL),
+      new MockResponse(
+        JSON.stringify({
+          type: "DocumentType",
+          visibleName: "movee",
+          parent: "",
+          lastModified: TIMESTAMP,
+          version: 1,
+          synced: true,
+        })
+      ),
+      // put metadata
+      new MockResponse(PUT_URL),
+      new MockResponse(),
+      // put entries
+      new MockResponse(PUT_URL),
+      new MockResponse(),
+      // put entries
+      new MockResponse(PUT_URL),
+      new MockResponse(),
+      // put root hash
+      new MockResponse(PUT_URL),
+      new MockResponse("custom hash", 200, "", {
+        "x-goog-generation": "124",
+      }),
+    ] as const;
+
+    test("sync", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        ...MOVE_INIT_RESPONSES,
+        ...MOVE_DEST_RESPONSES,
+        ...MOVE_FINAL_RESPONSES,
+        new MockResponse()
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = await api.move("id", "other_id");
+
+      expect(res).toBe(true);
+
+      const [meta, , docEnts, , rootEnts, , , sync] =
+        fetch.pastRequests.slice(14);
+
+      expect(JSON.parse(meta?.bodyText ?? "").parent).toEqual("other_id");
+      expect(docEnts?.bodyText).toBe(
+        "3\n" +
+          "blah hash:0:id.content:0:1234\n" +
+          "47e72d978dcf21a9bc1d3fb48dfd8da52b92135e3ed3c17937b463552fef56fa:0:id.metadata:0:132\n"
+      );
+      expect(rootEnts?.bodyText).toBe(
+        "3\n" +
+          "d93bbcd2a8795197d3a3f491eddb3ebfe9e48388108c03123d843b0561d27f94:80000000:id:2:0\n" +
+          "other_hash:80000000:other_id:4:0\n"
+      );
+      expect(JSON.parse(sync?.bodyText ?? "")).toEqual({ generation: 124 });
+    });
+
+    test("no sync trash", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        ...MOVE_INIT_RESPONSES,
+        ...MOVE_FINAL_RESPONSES
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = await api.move("id", "trash", false);
+
+      expect(res).toBe(false);
+
+      const [meta, , docEnts, , rootEnts, , , sync] =
+        fetch.pastRequests.slice(10);
+
+      expect(JSON.parse(meta?.bodyText ?? "").parent).toEqual("trash");
+      expect(docEnts?.bodyText).toBe(
+        "3\n" +
+          "blah hash:0:id.content:0:1234\n" +
+          "35d87410103d809697f194ac7c072169e69553c1cfc4cd1224c10ecd1a517523:0:id.metadata:0:129\n"
+      );
+      expect(rootEnts?.bodyText).toBe(
+        "3\n" +
+          "40ac0ba7d152cdd8c8c497a9ae704f6e34397c0150f770c6d56bbce158788b18:80000000:id:2:0\n" +
+          "other_hash:80000000:other_id:4:0\n"
+      );
+      expect(sync).toBeUndefined();
+    });
+
+    test("throws with missing dest", async () => {
+      const fetch = createMockFetch(new MockResponse(), ...MOVE_INIT_RESPONSES);
+
+      const api = await remarkable("", { fetch });
+      const res = api.move("id", "missing", false);
+      await expect(res).rejects.toThrow("destination id not found: missing");
+    });
+
+    test("throws with wrong destination type", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        // root hash
+        new MockResponse(GET_URL),
+        new MockResponse("custom hash", 200, "", {
+          "x-goog-generation": "123",
+        }),
+        // entries
+        new MockResponse(GET_URL),
+        new MockResponse(
+          "3\n" + "hash:80000000:id:1:0\n" + "other_hash:0:other_id:0:4\n"
+        )
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = api.move("id", "other_id", false);
+      await expect(res).rejects.toThrow(
+        "destination id was a raw file: other_id"
+      );
+    });
+
+    test("throws with no dest metadata", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        ...MOVE_INIT_RESPONSES,
+        // dest entries
+        new MockResponse(GET_URL),
+        new MockResponse("3\n" + "hash:0:other_id.content:0:1234\n")
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = api.move("id", "other_id", false);
+      await expect(res).rejects.toThrow(
+        "destination id didn't have metadata: other_id"
+      );
+    });
+
+    test("throws with file destination", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        ...MOVE_INIT_RESPONSES,
+        // dest entries
+        new MockResponse(GET_URL),
+        new MockResponse("3\n" + "hash:0:other_id.metadata:0:1234\n"),
+        // dest metadata
+        new MockResponse(GET_URL),
+        new MockResponse(
+          JSON.stringify({
+            type: "DocumentType",
+            visibleName: "title",
+            parent: "",
+            lastModified: TIMESTAMP,
+            version: 1,
+            synced: true,
+          })
+        )
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = api.move("id", "other_id", false);
+      await expect(res).rejects.toThrow(
+        "destination id wasn't a collection: other_id"
+      );
+    });
+
+    test("throws with missing document", async () => {
+      const fetch = createMockFetch(new MockResponse(), ...MOVE_INIT_RESPONSES);
+
+      const api = await remarkable("", { fetch });
+      const res = api.move("missing", "");
+      await expect(res).rejects.toThrow("document not found: missing");
+    });
+
+    test("throws with non-collection document", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        // root hash
+        new MockResponse(GET_URL),
+        new MockResponse("custom hash", 200, "", {
+          "x-goog-generation": "123",
+        }),
+        // entries
+        new MockResponse(GET_URL),
+        new MockResponse(
+          "3\n" + "hash:80000000:id:1:0\n" + "other_hash:0:other_id:0:4\n"
+        )
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = api.move("other_id", "");
+      await expect(res).rejects.toThrow("document was a raw file: other_id");
+    });
+
+    test("throws with no document metadata", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        ...MOVE_INIT_RESPONSES,
+        // doc entries
+        new MockResponse(GET_URL),
+        new MockResponse("3\n" + "blah hash:0:id.content:0:1234\n")
+      );
+
+      const api = await remarkable("", { fetch });
+      const res = api.move("id", "");
+      await expect(res).rejects.toThrow("document didn't have metadata: id");
+    });
   });
 
   test("#getEntriesMetadata()", async () => {
