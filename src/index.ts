@@ -692,7 +692,7 @@ export interface RemarkableApi {
   putEntries(documentId: string, entries: Entry[]): Promise<CollectionEntry>;
 
   /** put a raw buffer in the cloud */
-  putBuffer(documentId: string, buffer: Uint8Array): Promise<FileEntry>;
+  putBuffer(documentId: string, buffer: ArrayBuffer): Promise<FileEntry>;
 
   /**
    * put a raw text in the cloud
@@ -744,7 +744,7 @@ export interface RemarkableApi {
    */
   putEpub(
     visibleName: string,
-    buffer: Uint8Array,
+    buffer: ArrayBuffer,
     opts?: PutEpubOptions
   ): Promise<CollectionEntry>;
 
@@ -772,7 +772,7 @@ export interface RemarkableApi {
    */
   putPdf(
     visibleName: string,
-    buffer: Uint8Array,
+    buffer: ArrayBuffer,
     opts?: PutPdfOptions
   ): Promise<CollectionEntry>;
 
@@ -893,7 +893,7 @@ export interface RemarkableApi {
    * @param visibleName - the name to show for the uploaded epub
    * @param buffer - the epub contents
    */
-  uploadEpub(visibleName: string, buffer: Uint8Array): Promise<UploadEntry>;
+  uploadEpub(visibleName: string, buffer: ArrayBuffer): Promise<UploadEntry>;
 
   /**
    * upload a pdf
@@ -914,7 +914,7 @@ export interface RemarkableApi {
    * @param buffer - the epub contents
    * @experimental
    */
-  uploadPdf(visibleName: string, buffer: Uint8Array): Promise<UploadEntry>;
+  uploadPdf(visibleName: string, buffer: ArrayBuffer): Promise<UploadEntry>;
 }
 
 /** format an entry */
@@ -974,21 +974,22 @@ class Remarkable implements RemarkableApi {
   readonly #subtle: SubtleCryptoLike;
   readonly #syncHost: string;
   // caches
-  readonly #cache: CacheLike | undefined;
+  readonly #cacheLimitBytes: number;
+  readonly #cache: Map<string, Promise<ArrayBuffer | null>> = new Map();
   #rootCache: null | Promise<readonly [string, bigint]> = null;
 
   constructor(
     userToken: string,
     fetch: FetchLike,
-    cache: CacheLike | undefined,
     subtle: SubtleCryptoLike,
-    syncHost: string
+    syncHost: string,
+    cacheLimitBytes: number
   ) {
     this.#userToken = userToken;
     this.#fetch = fetch;
-    this.#cache = cache;
     this.#subtle = subtle;
     this.#syncHost = syncHost;
+    this.#cacheLimitBytes = cacheLimitBytes;
   }
 
   /** make an authorized request to remarkable */
@@ -999,7 +1000,7 @@ class Remarkable implements RemarkableApi {
       method = "POST",
       headers = {},
     }: {
-      body?: Uint8Array | string | undefined;
+      body?: ArrayBuffer | string | undefined;
       method?: RequestMethod;
       headers?: Record<string, string>;
     }
@@ -1027,7 +1028,7 @@ class Remarkable implements RemarkableApi {
   /** make a signed request to the cloud */
   async #signedFetch(
     { url, method, maxuploadsize_bytes }: UrlResponse,
-    body?: string | Uint8Array | undefined,
+    body?: string | ArrayBuffer | undefined,
     add_headers: Record<string, string> = {}
   ): Promise<ResponseLike> {
     const headers = maxuploadsize_bytes
@@ -1134,28 +1135,60 @@ class Remarkable implements RemarkableApi {
   }
 
   /**
+   * get content associated with hash
+   */
+  async #getHash(hash: string): Promise<ArrayBuffer> {
+    let cached = this.#cache.get(hash);
+    while (cached) {
+      try {
+        const val = await cached;
+        if (val) {
+          return val;
+        } else {
+          cached = undefined; // break
+        }
+      } catch {
+        // try again if promise rejected
+        cached = this.#cache.get(hash);
+      }
+    }
+    const prom = (async () => {
+      const signed = await this.#getUrl(hash);
+      const resp = await this.#signedFetch(signed);
+      return await resp.arrayBuffer();
+    })();
+
+    // set cache with appropriate promise that cleans up on rejection
+    this.#cache.set(
+      hash,
+      prom.then(
+        (buff) => (buff.byteLength < this.#cacheLimitBytes ? buff : null),
+        (ex) => {
+          this.#cache.delete(hash);
+          throw ex;
+        }
+      )
+    );
+
+    return await prom;
+  }
+
+  /**
    * get text content associated with hash
    */
   async getBuffer(hash: string): Promise<ArrayBuffer> {
-    const signed = await this.#getUrl(hash);
-    const resp = await this.#signedFetch(signed);
-    return await resp.arrayBuffer();
+    const buff = await this.#getHash(hash);
+    // copy if it is long enough to be cached to preven mutations
+    return buff.byteLength < this.#cacheLimitBytes ? buff.slice(0) : buff;
   }
 
   /**
    * get text content associated with hash
    */
   async getText(hash: string): Promise<string> {
-    const cached = await this.#cache?.get(hash);
-    if (cached) {
-      return cached;
-    } else {
-      const signed = await this.#getUrl(hash);
-      const resp = await this.#signedFetch(signed);
-      const raw = await resp.text();
-      await this.#cache?.set(hash, raw);
-      return raw;
-    }
+    const buff = await this.#getHash(hash);
+    const decoder = new TextDecoder();
+    return decoder.decode(buff);
   }
 
   /**
@@ -1183,9 +1216,30 @@ class Remarkable implements RemarkableApi {
   }
 
   /** upload data to hash */
-  async #putHash(hash: string, body: Uint8Array | string): Promise<void> {
-    const signed = await this.#getUrl(hash, null);
-    await this.#signedFetch(signed, body);
+  async #putHash(hash: string, body: ArrayBuffer): Promise<void> {
+    // try cached version
+    const cached = this.#cache.get(hash);
+    if (cached) {
+      try {
+        await cached;
+        return;
+      } catch {
+        // noop
+      }
+    }
+    // if missing or rejected then put for real
+    const prom = (async () => {
+      try {
+        const signed = await this.#getUrl(hash, null);
+        await this.#signedFetch(signed, body);
+        return body.byteLength < this.#cacheLimitBytes ? body : null;
+      } catch (ex) {
+        this.#cache.delete(hash);
+        throw ex;
+      }
+    })();
+    this.#cache.set(hash, prom);
+    await prom;
   }
 
   /** put a reference to a set of entries into the cloud */
@@ -1205,7 +1259,6 @@ class Remarkable implements RemarkableApi {
     const contents = `${SCHEMA_VERSION}\n${entryContents}`;
     const buffer = enc.encode(contents);
     await this.#putHash(hash, buffer);
-    await this.#cache?.set(hash, contents);
 
     return {
       hash,
@@ -1217,7 +1270,7 @@ class Remarkable implements RemarkableApi {
   }
 
   /** put a raw buffer in the cloud */
-  async putBuffer(documentId: string, buffer: Uint8Array): Promise<FileEntry> {
+  async putBuffer(documentId: string, buffer: ArrayBuffer): Promise<FileEntry> {
     const digest = await this.#subtle.digest("SHA-256", buffer);
     const hash = toHex(digest);
     await this.#putHash(hash, buffer);
@@ -1226,7 +1279,7 @@ class Remarkable implements RemarkableApi {
       type: "0",
       documentId,
       subfiles: 0,
-      size: BigInt(buffer.length),
+      size: BigInt(buffer.byteLength),
     };
   }
 
@@ -1234,7 +1287,6 @@ class Remarkable implements RemarkableApi {
   async putText(documentId: string, contents: string): Promise<FileEntry> {
     const enc = new TextEncoder();
     const entry = await this.putBuffer(documentId, enc.encode(contents));
-    await this.#cache?.set(entry.hash, contents);
     return entry;
   }
 
@@ -1278,7 +1330,7 @@ class Remarkable implements RemarkableApi {
   /** upload a content file */
   async #putContent(
     visibleName: string,
-    buffer: Uint8Array,
+    buffer: ArrayBuffer,
     fileType: "epub" | "pdf",
     parent: string,
     content: Content
@@ -1322,7 +1374,7 @@ class Remarkable implements RemarkableApi {
   /** upload an epub */
   async putEpub(
     visibleName: string,
-    buffer: Uint8Array,
+    buffer: ArrayBuffer,
     {
       parent = "",
       margins = 125,
@@ -1366,7 +1418,7 @@ class Remarkable implements RemarkableApi {
   /** upload a pdf */
   async putPdf(
     visibleName: string,
-    buffer: Uint8Array,
+    buffer: ArrayBuffer,
     { parent = "", orientation, cover = "first", lastTool }: PutPdfOptions = {}
   ): Promise<CollectionEntry> {
     // upload content file
@@ -1518,7 +1570,7 @@ class Remarkable implements RemarkableApi {
   /** upload a file */
   async #uploadFile(
     visibleName: string,
-    buffer: Uint8Array,
+    buffer: ArrayBuffer,
     contentType: `application/${"epub+zip" | "pdf"}`
   ): Promise<UploadEntry> {
     const encoder = new TextEncoder();
@@ -1540,7 +1592,7 @@ class Remarkable implements RemarkableApi {
   /** upload an epub */
   async uploadEpub(
     visibleName: string,
-    buffer: Uint8Array
+    buffer: ArrayBuffer
   ): Promise<UploadEntry> {
     return await this.#uploadFile(visibleName, buffer, "application/epub+zip");
   }
@@ -1548,7 +1600,7 @@ class Remarkable implements RemarkableApi {
   /** upload a pdf */
   async uploadPdf(
     visibleName: string,
-    buffer: Uint8Array
+    buffer: ArrayBuffer
   ): Promise<UploadEntry> {
     // TODO why doesn't this work
     return await this.#uploadFile(visibleName, buffer, "application/pdf");
@@ -1566,21 +1618,10 @@ export interface RemarkableOptions {
    *
    * In node you can either use `"node-fetch"`, or `node --experimental-fetch`
    * for node 17.5 or higher.
+   *
+   * @defaultValue globalThis.fetch
    */
   fetch?: FetchLike;
-
-  /**
-   * an optional cache for text requests
-   *
-   * If you're using the api to sync between a local copy and the cloud, you'll
-   * want to keep a cache so that as long as a file's hash doesn't change you
-   * don't need to request another copy.
-   *
-   * @remarks currently there are no mechanisms that actually clear the cache,
-   * so be warned if the cache doesn't have an auto clearning mechansim that
-   * some old files may stay around for quite a while
-   */
-  cache?: CacheLike;
 
   /**
    * a subtle-crypto-like object
@@ -1589,17 +1630,39 @@ export interface RemarkableOptions {
    * default value.  In node try
    * `import { webcrypto } from "crypto"; global.crypto = webcrypto` or pass in
    * `webcrypto.subtle`.
+   *
+   * @defaultValue globalThis.crypto.subtle
    */
   subtle?: SubtleCryptoLike;
 
-  /** the url for making authorization requests */
+  /**
+   * the url for making authorization requests
+   *
+   * @defaultValue "https://webapp-prod.cloud.remarkable.engineering"
+   */
   authHost?: string;
 
-  /** the url for making raw document requests */
-  docHost?: string;
-
-  /** the url for making synchronization requests */
+  /**
+   * the url for making synchronization requests
+   *
+   * @defaultValue "https://internal.cloud.remarkable.com"
+   */
   syncHost?: string;
+
+  /**
+   * the maximum size in bytes to cache the value of a stored object
+   *
+   * Since the remarkableApi is based around hashes, the value of a hash should
+   * never change (barring collisions in ASH256). Any known hash value that's
+   * less than this amount will be cached locally to prevent future network
+   * requests. In addition, all successful puts and gets will be cached to
+   * prevent duplicate puts in the future.
+   *
+   * To save memory and disable fetch caching, set to 0.
+   *
+   * @defaultValue 1 MiB
+   */
+  cacheLimitBytes?: number;
 }
 
 /**
@@ -1616,12 +1679,15 @@ export async function remarkable(
   deviceToken: string,
   {
     fetch = globalThis.fetch,
-    cache,
     subtle = globalThis.crypto?.subtle,
     authHost = AUTH_HOST,
     syncHost = SYNC_HOST,
+    cacheLimitBytes = 1048576,
   }: RemarkableOptions = {}
 ): Promise<RemarkableApi> {
+  if (!subtle) {
+    throw new Error("subtle was missing, try specifying it manually");
+  }
   const resp = await fetch(`${authHost}/token/json/2/user/new`, {
     method: "POST",
     headers: {
@@ -1632,5 +1698,5 @@ export async function remarkable(
     throw new Error(`couldn't fetch auth token: ${resp.statusText}`);
   }
   const userToken = await resp.text();
-  return new Remarkable(userToken, fetch, cache, subtle, syncHost);
+  return new Remarkable(userToken, fetch, subtle, syncHost, cacheLimitBytes);
 }

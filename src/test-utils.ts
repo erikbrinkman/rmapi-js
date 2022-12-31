@@ -1,10 +1,12 @@
-import {
-  CacheLike,
-  FetchLike,
-  HeadersLike,
-  RequestInitLike,
-  ResponseLike,
-} from ".";
+import { FetchLike, HeadersLike, RequestInitLike, ResponseLike } from ".";
+
+export function resolveTo<T>(val: T): [Promise<T>, () => void] {
+  let res: (val: T) => void;
+  const prom = new Promise<T>((resolve) => {
+    res = resolve;
+  });
+  return [prom, () => res(val)];
+}
 
 export class MockResponse implements ResponseLike {
   constructor(
@@ -43,7 +45,6 @@ export interface LoggedRequest extends RequestInitLike {
 }
 
 export interface MockFetch extends FetchLike {
-  nextResponses: MockResponse[];
   pastRequests: LoggedRequest[];
 }
 
@@ -61,14 +62,18 @@ function extractBodyText(
   }
 }
 
-export function createMockFetch(...responses: MockResponse[]): MockFetch {
-  const nextResponses: MockResponse[] = responses.reverse();
+export type Awaitable<T> = T | Promise<T>;
+
+export function createMockFetch(
+  ...nextResponses: Awaitable<MockResponse>[]
+): MockFetch {
+  nextResponses.reverse();
   const pastRequests: LoggedRequest[] = [];
 
-  function mockFetch(
+  const mockFetch = async (
     url: string,
     options?: RequestInitLike | undefined
-  ): ResponseLike {
+  ): Promise<ResponseLike> => {
     pastRequests.push({
       url,
       bodyText: extractBodyText(options?.body),
@@ -77,23 +82,11 @@ export function createMockFetch(...responses: MockResponse[]): MockFetch {
     const res = nextResponses.pop();
     /* istanbul ignore else */
     if (res) {
-      return res;
+      return await res;
     } else {
       throw new Error("didn't set next response");
     }
-  }
-  mockFetch.nextResponses = nextResponses;
+  };
   mockFetch.pastRequests = pastRequests;
   return mockFetch;
-}
-
-export function mapCache(backedBy: Map<string, string> = new Map()): CacheLike {
-  return {
-    get(key: string): string | undefined {
-      return backedBy.get(key);
-    },
-    set(key: string, val: string): void {
-      backedBy.set(key, val);
-    },
-  };
 }

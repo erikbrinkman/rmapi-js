@@ -1,5 +1,5 @@
 import { Entry, GenerationError, register, remarkable, ResponseError } from ".";
-import { createMockFetch, mapCache, MockResponse } from "./test-utils";
+import { createMockFetch, MockResponse, resolveTo } from "./test-utils";
 
 // make sure we can't use fetch
 global.fetch = undefined as never;
@@ -99,6 +99,14 @@ describe("remarkable", () => {
       );
     });
 
+    test("subtle error", async () => {
+      const fetch = createMockFetch(new MockResponse("", 400));
+
+      await expect(
+        remarkable("", { fetch, subtle: null as never })
+      ).rejects.toThrow("subtle was missing");
+    });
+
     test("default", async () => {
       await expect(remarkable("")).rejects.toThrow("fetch is not a function");
     });
@@ -146,6 +154,30 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       await expect(api.getRootHash()).rejects.toThrow("no generation header");
+    });
+
+    test("triple cache", async () => {
+      // this should only make two requests, even though the first fails
+      const [failedGet, send] = resolveTo(new MockResponse("err", 500));
+      const fetch = createMockFetch(
+        new MockResponse(),
+        failedGet,
+        new MockResponse(GET_URL),
+        new MockResponse("custom hash", 200, "", { "x-goog-generation": "123" })
+      );
+
+      const api = await remarkable("", { fetch });
+      const first = api.getRootHash(); // fails
+      const second = api.getRootHash(); // succeeds
+      const third = api.getRootHash(); // cached
+      send(); // resolve first others waiting
+      await expect(first).rejects.toThrow("failed reMarkable request: err");
+      const [shash, sgen] = await second;
+      expect(shash).toBe("custom hash");
+      expect(sgen).toBe(123n);
+      const [thash, tgen] = await third;
+      expect(thash).toBe("custom hash");
+      expect(tgen).toBe(123n);
     });
   });
 
@@ -232,7 +264,7 @@ describe("remarkable", () => {
         new MockResponse("different text")
       );
 
-      const api = await remarkable("", { fetch });
+      const api = await remarkable("", { fetch, cacheLimitBytes: 0 });
       const first = await api.getText("hash");
       expect(first).toBe("custom text");
       // no cache
@@ -248,9 +280,8 @@ describe("remarkable", () => {
         new MockResponse(GET_URL),
         new MockResponse("different text")
       );
-      const cache = mapCache();
 
-      const api = await remarkable("", { fetch, cache });
+      const api = await remarkable("", { fetch });
       const first = await api.getText("hash");
       expect(first).toBe("custom text");
       // cache, no requests
@@ -260,19 +291,63 @@ describe("remarkable", () => {
       const third = await api.getText("new hash");
       expect(third).toBe("different text");
     });
+
+    test("triple cache", async () => {
+      // this tests that three simultaneous requests with a failure has the
+      // appropriate behavior
+      const [failedGet, send] = resolveTo(new MockResponse("err", 500));
+      const fetch = createMockFetch(
+        new MockResponse(),
+        failedGet,
+        new MockResponse(GET_URL),
+        new MockResponse("custom text")
+      );
+
+      const api = await remarkable("", { fetch });
+
+      const first = api.getText("hash"); // error
+      const second = api.getText("hash"); // succeed
+      const third = api.getText("hash"); // cache
+
+      send(); // finish first request
+
+      await expect(first).rejects.toThrow("failed reMarkable request: err");
+      await expect(second).resolves.toBe("custom text");
+      await expect(third).resolves.toBe("custom text");
+    });
   });
 
-  test("#getBuffer()", async () => {
-    const fetch = createMockFetch(
-      new MockResponse(),
-      new MockResponse(GET_URL),
-      new MockResponse("custom text")
-    );
+  describe("#getBuffer()", () => {
+    test("success", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        new MockResponse(GET_URL),
+        new MockResponse("custom text")
+      );
 
-    const api = await remarkable("", { fetch });
-    const first = await api.getBuffer("hash");
-    const dec = new TextDecoder();
-    expect(dec.decode(first)).toBe("custom text");
+      const api = await remarkable("", { fetch });
+      const first = await api.getBuffer("hash");
+      const dec = new TextDecoder();
+      expect(dec.decode(first)).toBe("custom text");
+    });
+
+    test("no cache", async () => {
+      const dec = new TextDecoder();
+
+      const fetch = createMockFetch(
+        new MockResponse(),
+        new MockResponse(GET_URL),
+        new MockResponse("custom text"),
+        new MockResponse(GET_URL),
+        new MockResponse("other text")
+      );
+
+      const api = await remarkable("", { fetch, cacheLimitBytes: 0 });
+      const first = await api.getBuffer("hash");
+      expect(dec.decode(first)).toBe("custom text");
+      const second = await api.getBuffer("hash");
+      expect(dec.decode(second)).toBe("other text");
+    });
   });
 
   describe("#getMetadata()", () => {
@@ -422,9 +497,8 @@ describe("remarkable", () => {
         new MockResponse(PUT_URL),
         new MockResponse()
       );
-      const cache = mapCache();
 
-      const api = await remarkable("", { fetch, cache });
+      const api = await remarkable("", { fetch });
       const entry: Entry = {
         type: "0",
         hash: "hash",
@@ -486,12 +560,51 @@ describe("remarkable", () => {
         new MockResponse(PUT_URL),
         new MockResponse()
       );
-      const cache = mapCache();
 
-      const api = await remarkable("", { fetch, cache });
+      const api = await remarkable("", { fetch });
       const { hash } = await api.putText("doc id", "custom text");
       const cached = await api.getText(hash);
       expect(cached).toBe("custom text");
+    });
+
+    test("no cache", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        new MockResponse(PUT_URL),
+        new MockResponse(),
+        new MockResponse(GET_URL),
+        new MockResponse("different text")
+      );
+
+      const api = await remarkable("", { fetch, cacheLimitBytes: 0 });
+      const { hash } = await api.putText("doc id", "custom text");
+      const result = await api.getText(hash);
+      expect(result).toBe("different text");
+    });
+
+    test("cache failure", async () => {
+      const [failedPut, send] = resolveTo(new MockResponse("err", 500));
+      const fetch = createMockFetch(
+        new MockResponse(),
+        failedPut,
+        new MockResponse(PUT_URL),
+        new MockResponse()
+      );
+
+      const api = await remarkable("", { fetch });
+
+      const first = api.putText("doc id", "custom text"); // fail
+      const second = api.putText("doc id", "custom text"); // send
+      const third = api.putText("doc id", "custom text"); // cached
+
+      send();
+
+      await expect(first).rejects.toThrow("failed reMarkable request: err");
+      await second;
+      await third;
+
+      // second failed
+      expect(fetch.pastRequests).toHaveLength(4);
     });
   });
 
@@ -701,7 +814,7 @@ describe("remarkable", () => {
     const MOVE_INIT_RESPONSES = [
       // root hash
       new MockResponse(GET_URL),
-      new MockResponse("custom hash", 200, "", {
+      new MockResponse("old root hash", 200, "", {
         "x-goog-generation": "123",
       }),
       // entries
@@ -713,7 +826,7 @@ describe("remarkable", () => {
     const MOVE_DEST_RESPONSES = [
       // dest entries
       new MockResponse(GET_URL),
-      new MockResponse("3\n" + "hash:0:other_id.metadata:0:1234\n"),
+      new MockResponse("3\n" + "other_meta_hash:0:other_id.metadata:0:1234\n"),
       // dest metadata
       new MockResponse(GET_URL),
       new MockResponse(
@@ -732,8 +845,8 @@ describe("remarkable", () => {
       new MockResponse(GET_URL),
       new MockResponse(
         "3\n" +
-          "hash:0:id.metadata:0:1234\n" +
-          "blah hash:0:id.content:0:1234\n"
+          "meta_hash:0:id.metadata:0:1234\n" +
+          "content_hash:0:id.content:0:1234\n"
       ),
       // doc metadata
       new MockResponse(GET_URL),
@@ -758,7 +871,7 @@ describe("remarkable", () => {
       new MockResponse(),
       // put root hash
       new MockResponse(PUT_URL),
-      new MockResponse("custom hash", 200, "", {
+      new MockResponse("next root hash", 200, "", {
         "x-goog-generation": "124",
       }),
     ] as const;
@@ -783,12 +896,12 @@ describe("remarkable", () => {
       expect(JSON.parse(meta?.bodyText ?? "").parent).toEqual("other_id");
       expect(docEnts?.bodyText).toBe(
         "3\n" +
-          "blah hash:0:id.content:0:1234\n" +
+          "content_hash:0:id.content:0:1234\n" +
           "47e72d978dcf21a9bc1d3fb48dfd8da52b92135e3ed3c17937b463552fef56fa:0:id.metadata:0:132\n"
       );
       expect(rootEnts?.bodyText).toBe(
         "3\n" +
-          "d93bbcd2a8795197d3a3f491eddb3ebfe9e48388108c03123d843b0561d27f94:80000000:id:2:0\n" +
+          "1fa5b199c2f79873b23eb47dad1ada8dbad82b51dc31d858a2ff31cec148d20f:80000000:id:2:0\n" +
           "other_hash:80000000:other_id:4:0\n"
       );
       expect(JSON.parse(sync?.bodyText ?? "")).toEqual({ generation: 124 });
@@ -812,12 +925,12 @@ describe("remarkable", () => {
       expect(JSON.parse(meta?.bodyText ?? "").parent).toEqual("trash");
       expect(docEnts?.bodyText).toBe(
         "3\n" +
-          "blah hash:0:id.content:0:1234\n" +
+          "content_hash:0:id.content:0:1234\n" +
           "35d87410103d809697f194ac7c072169e69553c1cfc4cd1224c10ecd1a517523:0:id.metadata:0:129\n"
       );
       expect(rootEnts?.bodyText).toBe(
         "3\n" +
-          "40ac0ba7d152cdd8c8c497a9ae704f6e34397c0150f770c6d56bbce158788b18:80000000:id:2:0\n" +
+          "96522b6b4e61954df668c85a01bc18a5c66148388db363d97ae2bb1a5852e016:80000000:id:2:0\n" +
           "other_hash:80000000:other_id:4:0\n"
       );
       expect(sync).toBeUndefined();
@@ -931,7 +1044,7 @@ describe("remarkable", () => {
         ...MOVE_INIT_RESPONSES,
         // doc entries
         new MockResponse(GET_URL),
-        new MockResponse("3\n" + "blah hash:0:id.content:0:1234\n")
+        new MockResponse("3\n" + "content_hash:0:id.content:0:1234\n")
       );
 
       const api = await remarkable("", { fetch });
