@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2022-12-30
+
+### Added
+
+- `create` and `move` apis added for a simple high level interface for adding
+  and moving documents.
+
+## [2.1.0] - 2022-12-30
+
+### Added
+
+- `putMetadata` created for adding metadata and to parallel `getMetadata`. It's
+  just a thin wrapper around `putText`.
+- `putCollection` add to simplify folder creation.
+
+## [2.0.0] - 2022-12-26
+
+### Added
+
+- New default URLs to work with the new api.
+- `syncComplete` was readded and working.
+- `putPdf` added for uploading pdfs.
+- `uploadPdf` and `uploadEpub` added to expose a different upload api.
+
 ## [1.1.0] - 2022-10-07
 
 ### Removed
