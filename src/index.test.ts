@@ -130,6 +130,11 @@ describe("remarkable", () => {
       const [hash, gen] = await api.getRootHash();
       expect(hash).toBe("custom hash");
       expect(gen).toBe(123n);
+
+      // cached
+      const [chash, cgen] = await api.getRootHash();
+      expect(chash).toBe("custom hash");
+      expect(cgen).toBe(123n);
     });
 
     test("no generation", async () => {

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- the root hash is now cached, with the default option if using the cached
+  value instead of making a request for it.
+
 ## [2.2.0] - 2022-12-30
 
 ### Added

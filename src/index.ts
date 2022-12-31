@@ -584,6 +584,37 @@ export interface PutEpubOptions {
   lastTool?: string;
 }
 
+/**
+ * options for {@link RemarkableApi.getRootHash | `getRootHash`}
+ */
+export interface GetRootHashOptions {
+  /**
+   * whether to use the last known valid root hash
+   *
+   * @defaultValue true
+   */
+  cache?: boolean;
+}
+
+/**
+ * options for {@link RemarkableApi.create | `create`} and
+ * {@link RemarkableApi.move | `move`}
+ */
+export interface CreateMoveOptions {
+  /**
+   * whether to use the last known valid root hash
+   *
+   * @defaultValue true
+   */
+  cache?: boolean;
+  /**
+   * whether broadcast syncing complete to other devices
+   *
+   * @defaultValue true
+   */
+  sync?: boolean;
+}
+
 /** options for uploading a pdf */
 export interface PutPdfOptions {
   /** the parent id, default to root */
@@ -605,7 +636,7 @@ export interface RemarkableApi {
    *
    * If this hasn't changed, then neither have any of the files.
    */
-  getRootHash(): Promise<[string, bigint]>;
+  getRootHash(options?: GetRootHashOptions): Promise<[string, bigint]>;
 
   /**
    * write the root hash, incrimenting from the current generation
@@ -784,7 +815,14 @@ export interface RemarkableApi {
    * @throws error - if any error occurred, in this case, nothing will be
    *   changed
    */
-  create(entry: CollectionEntry, sync?: boolean): Promise<boolean>;
+  create(entry: CollectionEntry, options?: CreateMoveOptions): Promise<boolean>;
+  /**
+   * deprecated variant without the ability to specify caching behavior
+   *
+   * @deprecated in favor of the options syntax: replace `create(entry, sync)`
+   * with `create(entry, { cache: false, sync: sync })`
+   */
+  create(entry: CollectionEntry, sync: boolean): Promise<boolean>;
 
   /**
    * high level api to move a document / collection
@@ -818,7 +856,19 @@ export interface RemarkableApi {
    * @throws error - if any error occurred, in this case, nothing will be
    *   changed
    */
-  move(documentId: string, dest: string, sync?: boolean): Promise<boolean>;
+  move(
+    documentId: string,
+    dest: string,
+    opts?: CreateMoveOptions
+  ): Promise<boolean>;
+  /**
+   * deprecated variant without the ability to specify caching behavior
+   *
+   * @deprecated in favor of the options syntax: replace
+   * `move(docid, dest, sync)` with
+   * `move(docid, dest, { cache: false, sync: sync })`
+   */
+  move(documentId: string, dest: string, sync: boolean): Promise<boolean>;
 
   /**
    * get metadata on all entries
@@ -921,9 +971,11 @@ export function parseEntry(line: string): Entry {
 class Remarkable implements RemarkableApi {
   readonly #userToken: string;
   readonly #fetch: FetchLike;
-  readonly #cache: CacheLike | undefined;
   readonly #subtle: SubtleCryptoLike;
   readonly #syncHost: string;
+  // caches
+  readonly #cache: CacheLike | undefined;
+  #rootCache: null | Promise<readonly [string, bigint]> = null;
 
   constructor(
     userToken: string,
@@ -1021,14 +1073,37 @@ class Remarkable implements RemarkableApi {
   /**
    * get the root hash and the current generation
    */
-  async getRootHash(): Promise<[string, bigint]> {
-    const signed = await this.#getUrl("root");
-    const resp = await this.#signedFetch(signed);
-    const generation = resp.headers.get(GENERATION_HEADER);
-    if (!generation) {
-      throw new Error("no generation header in root hash");
+  async getRootHash({ cache = true }: GetRootHashOptions = {}): Promise<
+    [string, bigint]
+  > {
+    if (cache) {
+      while (this.#rootCache) {
+        try {
+          const [hash, gen] = await this.#rootCache;
+          return [hash, gen];
+        } catch {
+          // noop
+        }
+      }
     }
-    return [await resp.text(), BigInt(generation)];
+    const prom = (async () => {
+      try {
+        const signed = await this.#getUrl("root");
+        const resp = await this.#signedFetch(signed);
+        const generation = resp.headers.get(GENERATION_HEADER);
+        if (!generation) {
+          throw new Error("no generation header in root hash");
+        } else {
+          return [await resp.text(), BigInt(generation)] as const;
+        }
+      } catch (ex) {
+        this.#rootCache = null;
+        throw ex;
+      }
+    })();
+    this.#rootCache = prom;
+    const [hash, gen] = await prom;
+    return [hash, gen];
   }
 
   /**
@@ -1043,16 +1118,19 @@ class Remarkable implements RemarkableApi {
       });
     } catch (ex) {
       if (ex instanceof ResponseError && ex.status === 412) {
+        this.#rootCache = null;
         throw new GenerationError();
       } else {
         throw ex;
       }
     }
-    const gen = resp.headers.get(GENERATION_HEADER);
-    if (!gen) {
+    const genStr = resp.headers.get(GENERATION_HEADER);
+    if (!genStr) {
       throw new Error("no generation header in root hash");
     }
-    return BigInt(gen);
+    const gen = BigInt(genStr);
+    this.#rootCache = Promise.resolve([hash, gen]);
+    return gen;
   }
 
   /**
@@ -1321,36 +1399,47 @@ class Remarkable implements RemarkableApi {
   }
 
   /** try to sync, always succeed */
-  async #trySync(gen: bigint): Promise<boolean> {
-    try {
-      await this.syncComplete(gen);
-      return true;
-    } catch {
+  async #tryPutRootEntries(
+    gen: bigint,
+    entries: Entry[],
+    sync: boolean
+  ): Promise<boolean> {
+    const { hash } = await this.putEntries("", entries);
+    const nextGen = await this.putRootHash(hash, gen);
+    if (sync) {
+      try {
+        await this.syncComplete(nextGen);
+        return true;
+      } catch {
+        return false;
+      }
+    } else {
       return false;
     }
   }
 
   /** high level api to create an entry */
-  async create(entry: CollectionEntry, sync: boolean = true): Promise<boolean> {
-    const [root, gen] = await this.getRootHash();
+  async create(
+    entry: CollectionEntry,
+    opts: CreateMoveOptions | boolean = {}
+  ): Promise<boolean> {
+    const { cache = true, sync = true } =
+      typeof opts === "boolean" ? { cache: false, sync: opts } : opts;
+    const [root, gen] = await this.getRootHash({ cache });
     const rootEntries = await this.getEntries(root);
     rootEntries.push(entry);
-    const { hash } = await this.putEntries("", rootEntries);
-    const nextGen = await this.putRootHash(hash, gen);
-    if (sync) {
-      return await this.#trySync(nextGen);
-    } else {
-      return false;
-    }
+    return await this.#tryPutRootEntries(gen, rootEntries, sync);
   }
 
   /** high level api to move a document / collection */
   async move(
     documentId: string,
     dest: string,
-    sync: boolean = true
+    opts: CreateMoveOptions | boolean = {}
   ): Promise<boolean> {
-    const [root, gen] = await this.getRootHash();
+    const { cache = true, sync = true } =
+      typeof opts === "boolean" ? { cache: false, sync: opts } : opts;
+    const [root, gen] = await this.getRootHash({ cache });
     const rootEntries = await this.getEntries(root);
 
     // check if destination is a collection
@@ -1406,17 +1495,7 @@ class Remarkable implements RemarkableApi {
     // update root entries
     const newEntry = await this.putEntries(documentId, docEnts);
     rootEntries.push(newEntry);
-
-    // update generation
-    const { hash } = await this.putEntries("", rootEntries);
-    const nextGen = await this.putRootHash(hash, gen);
-
-    // sync
-    if (sync) {
-      return await this.#trySync(nextGen);
-    } else {
-      return false;
-    }
+    return await this.#tryPutRootEntries(gen, rootEntries, sync);
   }
 
   /** get entries and metadata for all files */
