@@ -41,6 +41,7 @@
  * @packageDocumentation
  */
 import { fromByteArray } from "base64-js";
+import stringify from "json-stable-stringify";
 import { v4 as uuid4 } from "uuid";
 import { concatBuffers, fromHex, toHex } from "./utils";
 import { JtdSchema, validate } from "./validate";
@@ -669,14 +670,17 @@ export interface RemarkableApi {
   /**
    * get text content associated with hash
    *
-   * This call uses the cache if provided since contents of a specific hash
-   * should never change. This isn't atomic so calling with the same hash in
-   * quick succession could result in two requests being fired instead of the
-   * second waiting for the first.
-   *
    * @param hash - the hash to get text data from
    */
   getText(hash: string): Promise<string>;
+
+  /**
+   * get a json object associated with a hash
+   *
+   * This is identical to `getText(hash).then(JSON.parse)` and is only provided
+   * for consistency with {@link RemarkableApi.putJson | `putJson`}.
+   */
+  getJson(hash: string): Promise<object>;
 
   /** get metadata from hash */
   getMetadata(hash: string): Promise<Metadata>;
@@ -695,11 +699,19 @@ export interface RemarkableApi {
   putBuffer(documentId: string, buffer: ArrayBuffer): Promise<FileEntry>;
 
   /**
-   * put a raw text in the cloud
+   * put a raw text in the cloud encoded as utf-8
    *
-   * This is similar to `putBuffer` but will also cache the upload.
+   * this is no different than using `putBuffer(..., new TextEncoder().encode(contents))`
    */
   putText(documentId: string, contents: string): Promise<FileEntry>;
+
+  /**
+   * put json into the cloud
+   *
+   * This uses a stable (sorted keys) json serilization to preserve consistent
+   * hashes.
+   */
+  putJson(documentId: string, contents: object): Promise<FileEntry>;
 
   /**
    * put metadata into the cloud
@@ -1184,13 +1196,20 @@ class Remarkable implements RemarkableApi {
   }
 
   /**
+   * get json content associated with hash
+   */
+  async getJson(hash: string): Promise<object> {
+    const str = await this.getText(hash);
+    return JSON.parse(str);
+  }
+
+  /**
    * get metadata from hash
    */
   async getMetadata(hash: string): Promise<Metadata> {
-    const raw = await this.getText(hash);
-    const parsed = JSON.parse(raw);
-    validate(metadataSchema, parsed);
-    return parsed;
+    const raw = await this.getJson(hash);
+    validate(metadataSchema, raw);
+    return raw;
   }
 
   /**
@@ -1279,11 +1298,15 @@ class Remarkable implements RemarkableApi {
     };
   }
 
-  /** put cached text in the cloud */
+  /** put text in the cloud */
   async putText(documentId: string, contents: string): Promise<FileEntry> {
     const enc = new TextEncoder();
-    const entry = await this.putBuffer(documentId, enc.encode(contents));
-    return entry;
+    return await this.putBuffer(documentId, enc.encode(contents));
+  }
+
+  /** put json in the cloud */
+  async putJson(documentId: string, contents: object): Promise<FileEntry> {
+    return await this.putText(documentId, stringify(contents));
   }
 
   /** put metadata into the cloud */
@@ -1291,10 +1314,7 @@ class Remarkable implements RemarkableApi {
     documentId: string,
     metadata: Metadata
   ): Promise<FileEntry> {
-    return await this.putText(
-      `${documentId}.metadata`,
-      JSON.stringify(metadata)
-    );
+    return await this.putJson(`${documentId}.metadata`, metadata);
   }
 
   /** put a new collection (folder) */

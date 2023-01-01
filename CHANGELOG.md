@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The ability to call `getEntries` without a hash to implicitely fetch the root
   hash.
+- `getJson` and `putJson` methods that use stable hashing.
 
 ### Changed
 

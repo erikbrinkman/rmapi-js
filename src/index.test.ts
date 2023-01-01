@@ -932,11 +932,11 @@ describe("remarkable", () => {
       expect(docEnts?.bodyText).toBe(
         "3\n" +
           "content_hash:0:id.content:0:1234\n" +
-          "47e72d978dcf21a9bc1d3fb48dfd8da52b92135e3ed3c17937b463552fef56fa:0:id.metadata:0:132\n"
+          "ff853ac97253cf6856770bcac4cce7802f237268c2df12ab9be2715cc9402cd6:0:id.metadata:0:132\n"
       );
       expect(rootEnts?.bodyText).toBe(
         "3\n" +
-          "1fa5b199c2f79873b23eb47dad1ada8dbad82b51dc31d858a2ff31cec148d20f:80000000:id:2:0\n" +
+          "e33dbfdf70fbb9a095aabf8296ec2ffbd963ab32df8f966686a81644068e967a:80000000:id:2:0\n" +
           "other_hash:80000000:other_id:4:0\n"
       );
       expect(JSON.parse(sync?.bodyText ?? "")).toEqual({ generation: 124 });
@@ -961,11 +961,11 @@ describe("remarkable", () => {
       expect(docEnts?.bodyText).toBe(
         "3\n" +
           "content_hash:0:id.content:0:1234\n" +
-          "35d87410103d809697f194ac7c072169e69553c1cfc4cd1224c10ecd1a517523:0:id.metadata:0:129\n"
+          "05466705d317771c1b3439d41e6e2bedfbf5e97a40e1617eaf05cbd8765c099a:0:id.metadata:0:129\n"
       );
       expect(rootEnts?.bodyText).toBe(
         "3\n" +
-          "96522b6b4e61954df668c85a01bc18a5c66148388db363d97ae2bb1a5852e016:80000000:id:2:0\n" +
+          "72737117d50fb4caf947d26bbb3b70c4b1473a2b2115b090ed39dc33ae9be932:80000000:id:2:0\n" +
           "other_hash:80000000:other_id:4:0\n"
       );
       expect(sync).toBeUndefined();
