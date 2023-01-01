@@ -800,6 +800,10 @@ export interface RemarkableApi {
    * 2. It includes no handling of concurrent modification or other networking
    *    errors, requiring repeat network requests if anything fails.
    *
+   * However, with recent changes in the way this library caches results, it
+   * won't be terribly inefficient to just do multiple retries of create after
+   * uploading the file itself.
+   *
    * @example
    * ```ts
    * const entry = await api.putEpub(...);
@@ -813,13 +817,6 @@ export interface RemarkableApi {
    *   changed
    */
   create(entry: CollectionEntry, options?: CreateMoveOptions): Promise<boolean>;
-  /**
-   * deprecated variant without the ability to specify caching behavior
-   *
-   * @deprecated in favor of the options syntax: replace `create(entry, sync)`
-   * with `create(entry, { cache: false, sync: sync })`
-   */
-  create(entry: CollectionEntry, sync: boolean): Promise<boolean>;
 
   /**
    * high level api to move a document / collection
@@ -835,6 +832,9 @@ export interface RemarkableApi {
    *    manually.
    * 2. It includes no handling of concurrent modification or other networking
    *    errors, requiring repeat network requests if anything fails.
+   *
+   * However, with changes to the way this caches results, it won't be terribly
+   * inefficient to just retry calling `move` if there's a failure.
    *
    * @example
    * ```ts
@@ -858,14 +858,6 @@ export interface RemarkableApi {
     dest: string,
     opts?: CreateMoveOptions
   ): Promise<boolean>;
-  /**
-   * deprecated variant without the ability to specify caching behavior
-   *
-   * @deprecated in favor of the options syntax: replace
-   * `move(docid, dest, sync)` with
-   * `move(docid, dest, { cache: false, sync: sync })`
-   */
-  move(documentId: string, dest: string, sync: boolean): Promise<boolean>;
 
   /**
    * get metadata on all entries
@@ -1470,10 +1462,8 @@ class Remarkable implements RemarkableApi {
   /** high level api to create an entry */
   async create(
     entry: CollectionEntry,
-    opts: CreateMoveOptions | boolean = {}
+    { cache = true, sync = true }: CreateMoveOptions = {}
   ): Promise<boolean> {
-    const { cache = true, sync = true } =
-      typeof opts === "boolean" ? { cache: false, sync: opts } : opts;
     const [root, gen] = await this.getRootHash({ cache });
     const rootEntries = await this.getEntries(root);
     rootEntries.push(entry);
@@ -1484,10 +1474,8 @@ class Remarkable implements RemarkableApi {
   async move(
     documentId: string,
     dest: string,
-    opts: CreateMoveOptions | boolean = {}
+    { cache = true, sync = true }: CreateMoveOptions = {}
   ): Promise<boolean> {
-    const { cache = true, sync = true } =
-      typeof opts === "boolean" ? { cache: false, sync: opts } : opts;
     const [root, gen] = await this.getRootHash({ cache });
     const rootEntries = await this.getEntries(root);
 

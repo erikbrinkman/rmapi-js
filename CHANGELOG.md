@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   most redundant calls from higher level interfaces.
 - Changed `FetchLike` interfaces to be promises instead of awaitable.
 
+### Removed
+
+- Removed deprecated versions of `create` and `move`.
+
 ## [2.3.0] - 2022-12-31
 
 ### Added

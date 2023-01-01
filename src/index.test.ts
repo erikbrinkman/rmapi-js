@@ -131,7 +131,11 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("custom hash", 200, "", { "x-goog-generation": "123" })
+        new MockResponse("custom hash", 200, "", {
+          "x-goog-generation": "123",
+        }),
+        new MockResponse(GET_URL),
+        new MockResponse("new hash", 200, "", { "x-goog-generation": "124" })
       );
 
       const api = await remarkable("", { fetch });
@@ -143,6 +147,11 @@ describe("remarkable", () => {
       const [chash, cgen] = await api.getRootHash();
       expect(chash).toBe("custom hash");
       expect(cgen).toBe(123n);
+
+      // not cached
+      const [shash, sgen] = await api.getRootHash({ cache: false });
+      expect(shash).toBe("new hash");
+      expect(sgen).toBe(124n);
     });
 
     test("no generation", async () => {
@@ -793,7 +802,7 @@ describe("remarkable", () => {
           subfiles: 3,
           size: 0n,
         },
-        false
+        { sync: false }
       );
 
       expect(res).toBe(false);
@@ -915,7 +924,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
-      const res = await api.move("id", "trash", false);
+      const res = await api.move("id", "trash", { sync: false });
 
       expect(res).toBe(false);
 
@@ -940,7 +949,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(new MockResponse(), ...MOVE_INIT_RESPONSES);
 
       const api = await remarkable("", { fetch });
-      const res = api.move("id", "missing", false);
+      const res = api.move("id", "missing", { sync: false });
       await expect(res).rejects.toThrow("destination id not found: missing");
     });
 
@@ -960,7 +969,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
-      const res = api.move("id", "other_id", false);
+      const res = api.move("id", "other_id", { sync: false });
       await expect(res).rejects.toThrow(
         "destination id was a raw file: other_id"
       );
@@ -976,7 +985,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
-      const res = api.move("id", "other_id", false);
+      const res = api.move("id", "other_id", { sync: false });
       await expect(res).rejects.toThrow(
         "destination id didn't have metadata: other_id"
       );
@@ -1004,7 +1013,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
-      const res = api.move("id", "other_id", false);
+      const res = api.move("id", "other_id", { sync: false });
       await expect(res).rejects.toThrow(
         "destination id wasn't a collection: other_id"
       );
