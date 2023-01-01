@@ -406,9 +406,6 @@ export interface Content {
 // In order to be generic, we allow custom implementations of tools provided by
 // the browser.
 
-/** anything that can be awaited */
-export type Awaitable<T> = T | PromiseLike<T>;
-
 /** stripped down version of RequestInit */
 export interface RequestInitLike {
   /** request method */
@@ -436,22 +433,22 @@ export interface ResponseLike {
   /** headers in response */
   headers: HeadersLike;
   /** get response body as text */
-  text(): Awaitable<string>;
+  text(): Promise<string>;
   /** get response body as an array buffer */
-  arrayBuffer(): Awaitable<ArrayBuffer>;
+  arrayBuffer(): Promise<ArrayBuffer>;
 }
 
 /** stripped down version of fetch */
 export interface FetchLike {
-  (url: string, options?: RequestInitLike | undefined): Awaitable<ResponseLike>;
+  (url: string, options?: RequestInitLike | undefined): Promise<ResponseLike>;
 }
 
 /** async storage, map like */
 export interface CacheLike {
   /** get value for key or undefined if missing */
-  get(key: string): Awaitable<string | undefined>;
+  get(key: string): Promise<string | undefined>;
   /** set value for key */
-  set(key: string, value: string): Awaitable<void>;
+  set(key: string, value: string): Promise<void>;
 }
 
 /** stripped down version of subtle crypto */

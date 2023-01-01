@@ -29,11 +29,11 @@ export class MockResponse implements ResponseLike {
     };
   }
 
-  text(): string {
+  async text(): Promise<string> {
     return this.content;
   }
 
-  arrayBuffer(): ArrayBuffer {
+  async arrayBuffer(): Promise<ArrayBuffer> {
     const enc = new TextEncoder();
     return enc.encode(this.content);
   }

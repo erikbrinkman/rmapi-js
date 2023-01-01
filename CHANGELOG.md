@@ -8,19 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.3.0] - 2022-12-31
-
-### Added
-
-- the root hash is now cached, with the default option of using the cached
-  value instead of making a request for it.
-
 ### Changed
 
 - Caching behavior: You can no longer customize the caching behavior with a
   custom `CacheLike` object, but instead specify the maximum size of objects to
   cache. This both cleans up the caching code, and makes it easier to remove
   most redundant calls from higher level interfaces.
+- Changed `FetchLike` interfaces to be promises instead of awaitable.
+
+## [2.3.0] - 2022-12-31
+
+### Added
+
+- the root hash is now cached, with the default option of using the cached
+  value instead of making a request for it.
 
 ## [2.2.0] - 2022-12-30
 
