@@ -15,9 +15,8 @@
  * const token = await register(code)
  * // persist token
  * const api = await remarkable(token);
- * const [root] = await api.getRootHash();
- * const fileEntries = await api.getEntries(root);
- * for (const entry of fileEntries) {
+ * const rootEntries = await api.getEntries();
+ * for (const entry of rootEntries) {
  *   const children = await api.getEntries(entry.hash);
  *   for (const { hash, documentId } of children) {
  *     if (documentId.endsWith(".metadata")) {
@@ -682,8 +681,12 @@ export interface RemarkableApi {
   /** get metadata from hash */
   getMetadata(hash: string): Promise<Metadata>;
 
-  /** get entries from a collection hash */
-  getEntries(hash: string): Promise<Entry[]>;
+  /**
+   * get entries from a collection hash
+   *
+   * If omitted, this will use `getRootHash()`.
+   */
+  getEntries(hash?: string): Promise<Entry[]>;
 
   /** put a reference to a set of entries into the cloud */
   putEntries(documentId: string, entries: Entry[]): Promise<CollectionEntry>;
@@ -1193,7 +1196,11 @@ class Remarkable implements RemarkableApi {
   /**
    * get entries from a collection hash
    */
-  async getEntries(hash: string): Promise<Entry[]> {
+  async getEntries(hash?: string): Promise<Entry[]> {
+    if (hash === undefined) {
+      const [newHash] = await this.getRootHash({ cache: true });
+      hash = newHash;
+    }
     const raw = await this.getText(hash);
     // slice for trailing new line
     const [schema, ...lines] = raw.slice(0, -1).split("\n");

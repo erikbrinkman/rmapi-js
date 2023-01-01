@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The ability to call `getEntries` without a hash to implicitely fetch the root
+  hash.
+
 ### Changed
 
 - Caching behavior: You can no longer customize the caching behavior with a

@@ -420,6 +420,32 @@ describe("remarkable", () => {
       expect(second?.subfiles).toBe(4);
     });
 
+    test("root", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        new MockResponse(GET_URL),
+        new MockResponse("root hash", 200, "", {
+          "x-goog-generation": "123",
+        }),
+        new MockResponse(GET_URL),
+        new MockResponse(
+          "3\n" + "hash:0:id:0:1234\n" + "other_hash:80000000:other_id:4:0\n"
+        )
+      );
+
+      const api = await remarkable("", { fetch });
+      const [first, second] = await api.getEntries();
+      expect(first?.hash).toBe("hash");
+      expect(first?.documentId).toBe("id");
+      expect(first?.size).toBe(1234n);
+      expect(second?.hash).toBe("other_hash");
+      expect(second?.documentId).toBe("other_id");
+      expect(second?.subfiles).toBe(4);
+
+      const [, , , req] = fetch.pastRequests;
+      expect(JSON.parse(req?.bodyText ?? "").relative_path).toBe("root hash");
+    });
+
     test("invalid format", async () => {
       const fetch = createMockFetch(
         new MockResponse(),
