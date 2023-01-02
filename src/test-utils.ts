@@ -29,13 +29,13 @@ export class MockResponse implements ResponseLike {
     };
   }
 
-  async text(): Promise<string> {
-    return this.content;
+  text(): Promise<string> {
+    return Promise.resolve(this.content);
   }
 
-  async arrayBuffer(): Promise<ArrayBuffer> {
+  arrayBuffer(): Promise<ArrayBuffer> {
     const enc = new TextEncoder();
-    return enc.encode(this.content);
+    return Promise.resolve(enc.encode(this.content));
   }
 }
 

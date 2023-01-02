@@ -21,9 +21,11 @@
   "scripts": {
     "doc": "typedoc",
     "fmt": "prettier --cache --write 'src/*.ts' '*.json' bundle.mjs",
-    "lint": "tsc && eslint --cache 'src/*.ts' bundle.mjs && typedoc --emit none",
+    "lint:es": "eslint --cache 'src/*.ts'",
+    "lint:doc": "typedoc --emit none",
+    "lint": "tsc && yarn lint:es && yarn lint:doc",
     "test": "jest --coverage",
-    "build": "tsc -p tsconfig.build.json && yarn node bundle.mjs",
+    "build": "tsc -p tsconfig.build.json && node bundle.mjs",
     "prepack": "yarn lint && yarn test && yarn build"
   },
   "dependencies": {
@@ -90,9 +92,15 @@
     "extends": [
       "eslint:recommended",
       "plugin:@typescript-eslint/recommended",
+      "plugin:@typescript-eslint/recommended-requiring-type-checking",
       "plugin:jest/recommended",
       "prettier"
     ],
+    "parserOptions": {
+      "project": [
+        "./tsconfig.json"
+      ]
+    },
     "env": {
       "node": true
     },

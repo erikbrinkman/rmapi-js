@@ -443,7 +443,10 @@ describe("remarkable", () => {
       expect(second?.subfiles).toBe(4);
 
       const [, , , req] = fetch.pastRequests;
-      expect(JSON.parse(req?.bodyText ?? "").relative_path).toBe("root hash");
+      expect(
+        (JSON.parse(req?.bodyText ?? "") as { relative_path: string })
+          .relative_path
+      ).toBe("root hash");
     });
 
     test("invalid format", async () => {
@@ -687,7 +690,9 @@ describe("remarkable", () => {
       });
 
       const [, , , , , , content] = fetch.pastRequests;
-      expect(JSON.parse(content?.bodyText ?? "")?.margins).toEqual(180);
+      expect(
+        (JSON.parse(content?.bodyText ?? "") as { margins: number }).margins
+      ).toEqual(180);
     });
   });
 
@@ -718,7 +723,10 @@ describe("remarkable", () => {
       });
 
       const [, , , , , , content] = fetch.pastRequests;
-      expect(JSON.parse(content?.bodyText ?? "")?.coverPageNumber).toEqual(-1);
+      expect(
+        (JSON.parse(content?.bodyText ?? "") as { coverPageNumber: number })
+          .coverPageNumber
+      ).toEqual(-1);
     });
   });
 
@@ -928,7 +936,9 @@ describe("remarkable", () => {
       const [meta, , docEnts, , rootEnts, , , sync] =
         fetch.pastRequests.slice(14);
 
-      expect(JSON.parse(meta?.bodyText ?? "").parent).toEqual("other_id");
+      expect(
+        (JSON.parse(meta?.bodyText ?? "") as { parent: string }).parent
+      ).toEqual("other_id");
       expect(docEnts?.bodyText).toBe(
         "3\n" +
           "content_hash:0:id.content:0:1234\n" +
@@ -957,7 +967,9 @@ describe("remarkable", () => {
       const [meta, , docEnts, , rootEnts, , , sync] =
         fetch.pastRequests.slice(10);
 
-      expect(JSON.parse(meta?.bodyText ?? "").parent).toEqual("trash");
+      expect(
+        (JSON.parse(meta?.bodyText ?? "") as { parent: string }).parent
+      ).toEqual("trash");
       expect(docEnts?.bodyText).toBe(
         "3\n" +
           "content_hash:0:id.content:0:1234\n" +

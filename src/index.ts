@@ -680,7 +680,7 @@ export interface RemarkableApi {
    * This is identical to `getText(hash).then(JSON.parse)` and is only provided
    * for consistency with {@link RemarkableApi.putJson | `putJson`}.
    */
-  getJson(hash: string): Promise<object>;
+  getJson(hash: string): Promise<unknown>;
 
   /** get metadata from hash */
   getMetadata(hash: string): Promise<Metadata>;
@@ -1076,15 +1076,16 @@ class Remarkable implements RemarkableApi {
   ): Promise<UrlResponse> {
     const key = gen === undefined ? "downloads" : "uploads";
     // NOTE this is done manually to serialize the bigints appropriately
-    const body = rootHash
-      ? `{ "http_method": "PUT", "relative_path": "${relativePath}", "root_schema": "${rootHash}", "generation": ${gen} }`
-      : JSON.stringify({ http_method: "GET", relative_path: relativePath });
+    const body =
+      rootHash && gen !== null && gen !== undefined
+        ? `{ "http_method": "PUT", "relative_path": "${relativePath}", "root_schema": "${rootHash}", "generation": ${gen} }`
+        : JSON.stringify({ http_method: "GET", relative_path: relativePath });
     const resp = await this.#authedFetch(
       `${this.#syncHost}/sync/v2/signed-urls/${key}`,
       { body }
     );
     const raw = await resp.text();
-    const res = JSON.parse(raw);
+    const res = JSON.parse(raw) as unknown;
     validate(urlResponseSchema, res);
     return res;
   }
@@ -1212,9 +1213,9 @@ class Remarkable implements RemarkableApi {
   /**
    * get json content associated with hash
    */
-  async getJson(hash: string): Promise<object> {
+  async getJson(hash: string): Promise<unknown> {
     const str = await this.getText(hash);
-    return JSON.parse(str);
+    return JSON.parse(str) as unknown;
   }
 
   /**
@@ -1238,7 +1239,7 @@ class Remarkable implements RemarkableApi {
     // slice for trailing new line
     const [schema, ...lines] = raw.slice(0, -1).split("\n");
     if (schema !== SCHEMA_VERSION) {
-      throw new Error(`got unexpected schema version: ${schema}`);
+      throw new Error(`got unexpected schema version: ${schema!}`);
     }
 
     return lines.map(parseEntry);
@@ -1585,7 +1586,7 @@ class Remarkable implements RemarkableApi {
       },
     });
     const raw = await resp.text();
-    const res = JSON.parse(raw);
+    const res = JSON.parse(raw) as unknown;
     const schema: JtdSchema<MetadataEntry[]> = {
       elements: metadataEntrySchema,
     };
@@ -1610,7 +1611,7 @@ class Remarkable implements RemarkableApi {
       },
     });
     const raw = await resp.text();
-    const res = JSON.parse(raw);
+    const res = JSON.parse(raw) as unknown;
     validate(uploadEntrySchema, res);
     return res;
   }
