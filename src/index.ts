@@ -919,6 +919,14 @@ export interface RemarkableApi {
    * @experimental
    */
   uploadPdf(visibleName: string, buffer: ArrayBuffer): Promise<UploadEntry>;
+
+  /**
+   * get the current state of the cache for persisting
+   *
+   * This won't include items that weren't cached because they were too big,
+   * meaning it won't prevent duplicate puts of large content across sessions.
+   */
+  getCache(): Promise<Map<string, ArrayBuffer>>;
 }
 
 /** format an entry */
@@ -987,13 +995,19 @@ class Remarkable implements RemarkableApi {
     fetch: FetchLike,
     subtle: SubtleCryptoLike,
     syncHost: string,
-    cacheLimitBytes: number
+    cacheLimitBytes: number,
+    initCache: Iterable<readonly [string, ArrayBuffer]>
   ) {
     this.#userToken = userToken;
     this.#fetch = fetch;
     this.#subtle = subtle;
     this.#syncHost = syncHost;
     this.#cacheLimitBytes = cacheLimitBytes;
+
+    // set cache
+    for (const [hash, val] of initCache) {
+      this.#cache.set(hash, Promise.resolve(val));
+    }
   }
 
   /** make an authorized request to remarkable */
@@ -1617,6 +1631,26 @@ class Remarkable implements RemarkableApi {
     // TODO why doesn't this work
     return await this.#uploadFile(visibleName, buffer, "application/pdf");
   }
+
+  async getCache(): Promise<Map<string, ArrayBuffer>> {
+    const promises = [];
+    for (const [hash, prom] of this.#cache) {
+      promises.push(
+        prom.then(
+          (val) => [hash, val] as const,
+          () => [hash, null]
+        )
+      );
+    }
+    const entries = await Promise.all(promises);
+    const cache = new Map();
+    for (const [hash, val] of entries) {
+      if (val) {
+        cache.set(hash, val);
+      }
+    }
+    return cache;
+  }
 }
 
 /** options for a remarkable instance */
@@ -1675,6 +1709,14 @@ export interface RemarkableOptions {
    * @defaultValue 1 MiB
    */
   cacheLimitBytes?: number;
+
+  /**
+   * a set of values to use to initialize the cache
+   *
+   * If this is inaccurate, then you could encounter errors with other methods.
+   * Often this will come from {@link RemarkableApi.getCache | `getCache`}.
+   */
+  initCache?: Iterable<readonly [string, ArrayBuffer]>;
 }
 
 /**
@@ -1695,6 +1737,7 @@ export async function remarkable(
     authHost = AUTH_HOST,
     syncHost = SYNC_HOST,
     cacheLimitBytes = 1048576,
+    initCache = [],
   }: RemarkableOptions = {}
 ): Promise<RemarkableApi> {
   if (!subtle) {
@@ -1710,5 +1753,12 @@ export async function remarkable(
     throw new Error(`couldn't fetch auth token: ${resp.statusText}`);
   }
   const userToken = await resp.text();
-  return new Remarkable(userToken, fetch, subtle, syncHost, cacheLimitBytes);
+  return new Remarkable(
+    userToken,
+    fetch,
+    subtle,
+    syncHost,
+    cacheLimitBytes,
+    initCache
+  );
 }

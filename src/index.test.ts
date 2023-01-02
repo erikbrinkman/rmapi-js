@@ -1144,4 +1144,48 @@ describe("remarkable", () => {
     const [, req] = fetch.pastRequests;
     expect(req?.bodyText).toBe("my pdf content");
   });
+
+  test("#getCache()", async () => {
+    let initCache;
+
+    {
+      const [failedGet, send] = resolveTo(new MockResponse("err", 500));
+
+      const fetch = createMockFetch(
+        new MockResponse(),
+        new MockResponse(GET_URL),
+        new MockResponse("text"),
+        failedGet
+      );
+
+      const api = await remarkable("", { fetch });
+      const first = await api.getText("hash");
+      expect(first).toBe("text");
+      // this will throw when we try to get the cache
+      const second = api.getText("other hash");
+      const cache = api.getCache();
+
+      send(); // failed request resolves
+
+      initCache = await cache;
+
+      await expect(second).rejects.toThrow("failed reMarkable request: err");
+    }
+
+    {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        new MockResponse(GET_URL),
+        new MockResponse("different")
+      );
+
+      const api = await remarkable("", { fetch, initCache });
+      // still in cache
+      const first = await api.getText("hash");
+      expect(first).toBe("text");
+      // not in cache since request failed
+      const second = await api.getText("other hash");
+      expect(second).toBe("different");
+    }
+  });
 });
