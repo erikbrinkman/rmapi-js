@@ -23,7 +23,7 @@
 <ul class="tsd-hierarchy">
 <li><span class="target">RemarkableOptions</span></li></ul></section><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/79d62a5/src/index.ts#L1559">src/index.ts:1559</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/5fd7b55/src/index.ts#L1658">src/index.ts:1658</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-index-accordion" open><summary class="tsd-accordion-summary tsd-index-summary">
@@ -32,9 +32,9 @@
 <section class="tsd-index-section">
 <h3 class="tsd-index-heading">Properties</h3>
 <div class="tsd-index-list"><a href="RemarkableOptions.html#authHost" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><rect fill="var(--color-icon-background)" stroke="#FF984D" stroke-width="1.5" x="1" y="1" width="22" height="22" rx="12" id="icon-1024-path"></rect><path d="M9.354 16V7.24H12.174C12.99 7.24 13.638 7.476 14.118 7.948C14.606 8.412 14.85 9.036 14.85 9.82C14.85 10.604 14.606 11.232 14.118 11.704C13.638 12.168 12.99 12.4 12.174 12.4H10.434V16H9.354ZM10.434 11.428H12.174C12.646 11.428 13.022 11.284 13.302 10.996C13.59 10.7 13.734 10.308 13.734 9.82C13.734 9.324 13.59 8.932 13.302 8.644C13.022 8.356 12.646 8.212 12.174 8.212H10.434V11.428Z" fill="var(--color-text)" id="icon-1024-text"></path></svg><span>auth<wbr/>Host?</span></a>
-<a href="RemarkableOptions.html#cache" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>cache?</span></a>
-<a href="RemarkableOptions.html#docHost" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>doc<wbr/>Host?</span></a>
+<a href="RemarkableOptions.html#cacheLimitBytes" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>cache<wbr/>Limit<wbr/>Bytes?</span></a>
 <a href="RemarkableOptions.html#fetch" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>fetch?</span></a>
+<a href="RemarkableOptions.html#initCache" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>init<wbr/>Cache?</span></a>
 <a href="RemarkableOptions.html#subtle" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>subtle?</span></a>
 <a href="RemarkableOptions.html#syncHost" class="tsd-index-link tsd-kind-property tsd-parent-kind-interface"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg><span>sync<wbr/>Host?</span></a>
 </div></section></div></details></section></section>
@@ -44,30 +44,26 @@
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>auth<wbr/>Host</span><a href="#authHost" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none" id="icon-anchor-a"></path><path d="M10 14a3.5 3.5 0 0 0 5 0l4 -4a3.5 3.5 0 0 0 -5 -5l-.5 .5" id="icon-anchor-b"></path><path d="M14 10a3.5 3.5 0 0 0 -5 0l-4 4a3.5 3.5 0 0 0 5 5l.5 -.5" id="icon-anchor-c"></path></svg></a></h3>
 <div class="tsd-signature">auth<wbr/>Host<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>the url for making authorization requests</p>
-</div><aside class="tsd-sources">
-<ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/79d62a5/src/index.ts#L1596">src/index.ts:1596</a></li></ul></aside></section>
-<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="cache" class="tsd-anchor"></a>
-<h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>cache</span><a href="#cache" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
-<div class="tsd-signature">cache<span class="tsd-signature-symbol">?:</span> <a href="CacheLike.html" class="tsd-signature-type" data-tsd-kind="Interface">CacheLike</a></div>
-<div class="tsd-comment tsd-typography"><p>an optional cache for text requests</p>
-<p>If you&#39;re using the api to sync between a local copy and the cloud, you&#39;ll
-want to keep a cache so that as long as a file&#39;s hash doesn&#39;t change you
-don&#39;t need to request another copy.</p>
 
-<h3>Remarks</h3><p>currently there are no mechanisms that actually clear the cache,
-so be warned if the cache doesn&#39;t have an auto clearning mechansim that
-some old files may stay around for quite a while</p>
+<h3>Default Value</h3><p>&quot;<a href="https://webapp-prod.cloud.remarkable.engineering">https://webapp-prod.cloud.remarkable.engineering</a>&quot;</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/79d62a5/src/index.ts#L1583">src/index.ts:1583</a></li></ul></aside></section>
-<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="docHost" class="tsd-anchor"></a>
-<h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>doc<wbr/>Host</span><a href="#docHost" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
-<div class="tsd-signature">doc<wbr/>Host<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
-<div class="tsd-comment tsd-typography"><p>the url for making raw document requests</p>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/5fd7b55/src/index.ts#L1690">src/index.ts:1690</a></li></ul></aside></section>
+<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="cacheLimitBytes" class="tsd-anchor"></a>
+<h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>cache<wbr/>Limit<wbr/>Bytes</span><a href="#cacheLimitBytes" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
+<div class="tsd-signature">cache<wbr/>Limit<wbr/>Bytes<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span></div>
+<div class="tsd-comment tsd-typography"><p>the maximum size in bytes to cache the value of a stored object</p>
+<p>Since the remarkableApi is based around hashes, the value of a hash should
+never change (barring collisions in ASH256). Any known hash value that&#39;s
+less than this amount will be cached locally to prevent future network
+requests. In addition, all successful puts and gets will be cached to
+prevent duplicate puts in the future.</p>
+<p>To save memory and disable fetch caching, set to 0.</p>
+
+<h3>Default Value</h3><p>1 MiB</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/79d62a5/src/index.ts#L1599">src/index.ts:1599</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/5fd7b55/src/index.ts#L1712">src/index.ts:1712</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="fetch" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>fetch</span><a href="#fetch" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">fetch<span class="tsd-signature-symbol">?:</span> <a href="FetchLike.html" class="tsd-signature-type" data-tsd-kind="Interface">FetchLike</a></div>
@@ -77,9 +73,20 @@ node-fetch also works. This will default to the global definitions of
 fetch.</p>
 <p>In node you can either use <code>&quot;node-fetch&quot;</code>, or <code>node --experimental-fetch</code>
 for node 17.5 or higher.</p>
+
+<h3>Default Value</h3><p>globalThis.fetch</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/79d62a5/src/index.ts#L1570">src/index.ts:1570</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/5fd7b55/src/index.ts#L1671">src/index.ts:1671</a></li></ul></aside></section>
+<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="initCache" class="tsd-anchor"></a>
+<h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>init<wbr/>Cache</span><a href="#initCache" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
+<div class="tsd-signature">init<wbr/>Cache<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">Iterable</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">readonly </span><span class="tsd-signature-symbol">[</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">, </span><span class="tsd-signature-type">ArrayBuffer</span><span class="tsd-signature-symbol">]</span><span class="tsd-signature-symbol">&gt;</span></div>
+<div class="tsd-comment tsd-typography"><p>a set of values to use to initialize the cache</p>
+<p>If this is inaccurate, then you could encounter errors with other methods.
+Often this will come from <a href="RemarkableApi.html#getCache"><code>getCache</code></a>.</p>
+</div><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/5fd7b55/src/index.ts#L1720">src/index.ts:1720</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="subtle" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>subtle</span><a href="#subtle" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">subtle<span class="tsd-signature-symbol">?:</span> <a href="SubtleCryptoLike.html" class="tsd-signature-type" data-tsd-kind="Interface">SubtleCryptoLike</a></div>
@@ -88,16 +95,20 @@ for node 17.5 or higher.</p>
 default value.  In node try
 <code>import { webcrypto } from &quot;crypto&quot;; global.crypto = webcrypto</code> or pass in
 <code>webcrypto.subtle</code>.</p>
+
+<h3>Default Value</h3><p>globalThis.crypto.subtle</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/79d62a5/src/index.ts#L1593">src/index.ts:1593</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/5fd7b55/src/index.ts#L1683">src/index.ts:1683</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface"><a id="syncHost" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagOptional">Optional</code> <span>sync<wbr/>Host</span><a href="#syncHost" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">sync<wbr/>Host<span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>the url for making synchronization requests</p>
+
+<h3>Default Value</h3><p>&quot;<a href="https://internal.cloud.remarkable.com">https://internal.cloud.remarkable.com</a>&quot;</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/79d62a5/src/index.ts#L1602">src/index.ts:1602</a></li></ul></aside></section></section></div>
+<li>Defined in <a href="https://github.com/erikbrinkman/rmapi-js/blob/5fd7b55/src/index.ts#L1697">src/index.ts:1697</a></li></ul></aside></section></section></div>
 <div class="col-4 col-menu menu-sticky-wrap menu-highlight">
 <div class="tsd-navigation settings">
 <details class="tsd-index-accordion"><summary class="tsd-accordion-summary">
@@ -124,9 +135,9 @@ default value.  In node try
 <li class="current tsd-kind-interface"><a href="RemarkableOptions.html" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><rect fill="var(--color-icon-background)" stroke="var(--color-ts-interface)" stroke-width="1.5" x="1" y="1" width="22" height="22" rx="6" id="icon-256-path"></rect><path d="M9.51 16V15.016H11.298V8.224H9.51V7.24H14.19V8.224H12.402V15.016H14.19V16H9.51Z" fill="var(--color-text)" id="icon-256-text"></path></svg><span>Remarkable<wbr/>Options</span></a>
 <ul>
 <li class="tsd-kind-property tsd-parent-kind-interface"><a href="RemarkableOptions.html#authHost" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>auth<wbr/>Host?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface"><a href="RemarkableOptions.html#cache" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>cache?</a></li>
-<li class="tsd-kind-property tsd-parent-kind-interface"><a href="RemarkableOptions.html#docHost" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>doc<wbr/>Host?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface"><a href="RemarkableOptions.html#cacheLimitBytes" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>cache<wbr/>Limit<wbr/>Bytes?</a></li>
 <li class="tsd-kind-property tsd-parent-kind-interface"><a href="RemarkableOptions.html#fetch" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>fetch?</a></li>
+<li class="tsd-kind-property tsd-parent-kind-interface"><a href="RemarkableOptions.html#initCache" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>init<wbr/>Cache?</a></li>
 <li class="tsd-kind-property tsd-parent-kind-interface"><a href="RemarkableOptions.html#subtle" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>subtle?</a></li>
 <li class="tsd-kind-property tsd-parent-kind-interface"><a href="RemarkableOptions.html#syncHost" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-1024-path"></use><use href="#icon-1024-text"></use></svg>sync<wbr/>Host?</a></li></ul></li></ul></nav></div></div>
 <div class="container tsd-generator">
