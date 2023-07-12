@@ -5,15 +5,15 @@ export type { JtdSchema };
 
 export function validate<T>(
   schema: JtdSchema<T>,
-  obj: unknown
+  obj: unknown,
 ): asserts obj is T {
   const errors = jtdValidate(schema, obj);
   if (errors.length) {
     // TODO better errors
     throw new Error(
       `couldn't validate schema: ${JSON.stringify(
-        obj
-      )} didn't match schema ${JSON.stringify(schema)}`
+        obj,
+      )} didn't match schema ${JSON.stringify(schema)}`,
     );
   }
 }

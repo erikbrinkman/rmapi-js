@@ -440,6 +440,7 @@ export interface ResponseLike {
 
 /** stripped down version of fetch */
 export interface FetchLike {
+  /** the rough interface to fetch */
   (url: string, options?: RequestInitLike | undefined): Promise<ResponseLike>;
 }
 
@@ -480,7 +481,7 @@ export class ResponseError extends Error {
 export class GenerationError extends Error {
   constructor() {
     super(
-      "Generation preconditions failed. This means the current state is out of date with the cloud and needs to be re-synced."
+      "Generation preconditions failed. This means the current state is out of date with the cloud and needs to be re-synced.",
     );
   }
 }
@@ -532,7 +533,7 @@ export async function register(
     uuid = uuid4(),
     authHost = AUTH_HOST,
     fetch = globalThis.fetch,
-  }: RegisterOptions = {}
+  }: RegisterOptions = {},
 ): Promise<string> {
   if (code.length !== 8) {
     throw new Error(`code should be length 8, but was ${code.length}`);
@@ -552,7 +553,7 @@ export async function register(
     throw new ResponseError(
       resp.status,
       resp.statusText,
-      "couldn't register api"
+      "couldn't register api",
     );
   } else {
     return await resp.text();
@@ -757,7 +758,7 @@ export interface RemarkableApi {
   putEpub(
     visibleName: string,
     buffer: ArrayBuffer,
-    opts?: PutEpubOptions
+    opts?: PutEpubOptions,
   ): Promise<CollectionEntry>;
 
   /**
@@ -785,7 +786,7 @@ export interface RemarkableApi {
   putPdf(
     visibleName: string,
     buffer: ArrayBuffer,
-    opts?: PutPdfOptions
+    opts?: PutPdfOptions,
   ): Promise<CollectionEntry>;
 
   /**
@@ -871,7 +872,7 @@ export interface RemarkableApi {
   move(
     documentId: string,
     dest: string,
-    opts?: CreateMoveOptions
+    opts?: CreateMoveOptions,
   ): Promise<boolean>;
 
   /**
@@ -963,7 +964,7 @@ export function parseEntry(line: string): Entry {
   } else if (type === "0") {
     if (subfiles !== "0") {
       throw new Error(
-        `file type entry had nonzero number of subfiles: ${subfiles}`
+        `file type entry had nonzero number of subfiles: ${subfiles}`,
       );
     } else {
       return {
@@ -996,7 +997,7 @@ class Remarkable implements RemarkableApi {
     subtle: SubtleCryptoLike,
     syncHost: string,
     cacheLimitBytes: number,
-    initCache: Iterable<readonly [string, ArrayBuffer]>
+    initCache: Iterable<readonly [string, ArrayBuffer]>,
   ) {
     this.#userToken = userToken;
     this.#fetch = fetch;
@@ -1021,7 +1022,7 @@ class Remarkable implements RemarkableApi {
       body?: ArrayBuffer | string | undefined;
       method?: RequestMethod;
       headers?: Record<string, string>;
-    }
+    },
   ): Promise<ResponseLike> {
     const resp = await this.#fetch(url, {
       method,
@@ -1036,7 +1037,7 @@ class Remarkable implements RemarkableApi {
       throw new ResponseError(
         resp.status,
         resp.statusText,
-        `failed reMarkable request: ${msg}`
+        `failed reMarkable request: ${msg}`,
       );
     } else {
       return resp;
@@ -1047,7 +1048,7 @@ class Remarkable implements RemarkableApi {
   async #signedFetch(
     { url, method, maxuploadsize_bytes }: UrlResponse,
     body?: string | ArrayBuffer | undefined,
-    add_headers: Record<string, string> = {}
+    add_headers: Record<string, string> = {},
   ): Promise<ResponseLike> {
     const headers = maxuploadsize_bytes
       ? {
@@ -1072,7 +1073,7 @@ class Remarkable implements RemarkableApi {
   async #getUrl(
     relativePath: string,
     gen?: bigint | null | undefined,
-    rootHash?: string
+    rootHash?: string,
   ): Promise<UrlResponse> {
     const key = gen === undefined ? "downloads" : "uploads";
     // NOTE this is done manually to serialize the bigints appropriately
@@ -1082,7 +1083,7 @@ class Remarkable implements RemarkableApi {
         : JSON.stringify({ http_method: "GET", relative_path: relativePath });
     const resp = await this.#authedFetch(
       `${this.#syncHost}/sync/v2/signed-urls/${key}`,
-      { body }
+      { body },
     );
     const raw = await resp.text();
     const res = JSON.parse(raw) as unknown;
@@ -1185,8 +1186,8 @@ class Remarkable implements RemarkableApi {
         (ex) => {
           this.#cache.delete(hash);
           throw ex;
-        }
-      )
+        },
+      ),
     );
 
     return await prom;
@@ -1275,7 +1276,7 @@ class Remarkable implements RemarkableApi {
   /** put a reference to a set of entries into the cloud */
   async putEntries(
     documentId: string,
-    entries: Entry[]
+    entries: Entry[],
   ): Promise<CollectionEntry> {
     // hash of a collection is the hash of all hashes in documentId order
     const enc = new TextEncoder();
@@ -1327,7 +1328,7 @@ class Remarkable implements RemarkableApi {
   /** put metadata into the cloud */
   async putMetadata(
     documentId: string,
-    metadata: Metadata
+    metadata: Metadata,
   ): Promise<FileEntry> {
     return await this.putJson(`${documentId}.metadata`, metadata);
   }
@@ -1335,7 +1336,7 @@ class Remarkable implements RemarkableApi {
   /** put a new collection (folder) */
   async putCollection(
     visibleName: string,
-    parent: string = ""
+    parent: string = "",
   ): Promise<CollectionEntry> {
     const documentId = uuid4();
     const lastModified = `${new Date().valueOf()}`;
@@ -1364,12 +1365,12 @@ class Remarkable implements RemarkableApi {
     buffer: ArrayBuffer,
     fileType: "epub" | "pdf",
     parent: string,
-    content: Content
+    content: Content,
   ): Promise<CollectionEntry> {
     /* istanbul ignore if */
     if (content.fileType !== fileType) {
       throw new Error(
-        `internal error: fileTypes don't match: ${fileType}, ${content.fileType}`
+        `internal error: fileTypes don't match: ${fileType}, ${content.fileType}`,
       );
     }
 
@@ -1392,7 +1393,7 @@ class Remarkable implements RemarkableApi {
     };
     entryPromises.push(this.putMetadata(documentId, metadata));
     entryPromises.push(
-      this.putText(`${documentId}.content`, JSON.stringify(content))
+      this.putText(`${documentId}.content`, JSON.stringify(content)),
     );
 
     // NOTE we technically get the entries a bit earlier, so could upload this
@@ -1416,7 +1417,7 @@ class Remarkable implements RemarkableApi {
       fontName = "",
       cover = "visited",
       lastTool,
-    }: PutEpubOptions = {}
+    }: PutEpubOptions = {},
   ): Promise<CollectionEntry> {
     // upload content file
     const content: Content = {
@@ -1450,7 +1451,7 @@ class Remarkable implements RemarkableApi {
   async putPdf(
     visibleName: string,
     buffer: ArrayBuffer,
-    { parent = "", orientation, cover = "first", lastTool }: PutPdfOptions = {}
+    { parent = "", orientation, cover = "first", lastTool }: PutPdfOptions = {},
   ): Promise<CollectionEntry> {
     // upload content file
     const content: Content = {
@@ -1485,7 +1486,7 @@ class Remarkable implements RemarkableApi {
   async #tryPutRootEntries(
     gen: bigint,
     entries: Entry[],
-    sync: boolean
+    sync: boolean,
   ): Promise<boolean> {
     const { hash } = await this.putEntries("", entries);
     const nextGen = await this.putRootHash(hash, gen);
@@ -1504,7 +1505,7 @@ class Remarkable implements RemarkableApi {
   /** high level api to create an entry */
   async create(
     entry: CollectionEntry,
-    { cache = true, sync = true }: CreateMoveOptions = {}
+    { cache = true, sync = true }: CreateMoveOptions = {},
   ): Promise<boolean> {
     const [root, gen] = await this.getRootHash({ cache });
     const rootEntries = await this.getEntries(root);
@@ -1516,7 +1517,7 @@ class Remarkable implements RemarkableApi {
   async move(
     documentId: string,
     dest: string,
-    { cache = true, sync = true }: CreateMoveOptions = {}
+    { cache = true, sync = true }: CreateMoveOptions = {},
   ): Promise<boolean> {
     const [root, gen] = await this.getRootHash({ cache });
     const rootEntries = await this.getEntries(root);
@@ -1534,7 +1535,7 @@ class Remarkable implements RemarkableApi {
       }
       const ents = await this.getEntries(entry.hash);
       const [meta] = ents.filter(
-        (ent) => ent.documentId === `${dest}.metadata`
+        (ent) => ent.documentId === `${dest}.metadata`,
       );
       if (!meta) {
         throw new Error(`destination id didn't have metadata: ${dest}`);
@@ -1558,7 +1559,7 @@ class Remarkable implements RemarkableApi {
     // get metadata from entry
     const docEnts = await this.getEntries(oldEntry!.hash);
     const metaInd = docEnts.findIndex(
-      (ent) => ent.documentId === `${documentId}.metadata`
+      (ent) => ent.documentId === `${documentId}.metadata`,
     );
     if (metaInd === -1) {
       throw new Error(`document didn't have metadata: ${documentId}`);
@@ -1598,7 +1599,7 @@ class Remarkable implements RemarkableApi {
   async #uploadFile(
     visibleName: string,
     buffer: ArrayBuffer,
-    contentType: `application/${"epub+zip" | "pdf"}`
+    contentType: `application/${"epub+zip" | "pdf"}`,
   ): Promise<UploadEntry> {
     const encoder = new TextEncoder();
     const meta = encoder.encode(JSON.stringify({ file_name: visibleName }));
@@ -1619,7 +1620,7 @@ class Remarkable implements RemarkableApi {
   /** upload an epub */
   async uploadEpub(
     visibleName: string,
-    buffer: ArrayBuffer
+    buffer: ArrayBuffer,
   ): Promise<UploadEntry> {
     return await this.#uploadFile(visibleName, buffer, "application/epub+zip");
   }
@@ -1627,7 +1628,7 @@ class Remarkable implements RemarkableApi {
   /** upload a pdf */
   async uploadPdf(
     visibleName: string,
-    buffer: ArrayBuffer
+    buffer: ArrayBuffer,
   ): Promise<UploadEntry> {
     // TODO why doesn't this work
     return await this.#uploadFile(visibleName, buffer, "application/pdf");
@@ -1639,8 +1640,8 @@ class Remarkable implements RemarkableApi {
       promises.push(
         prom.then(
           (val) => [hash, val] as const,
-          () => [hash, null]
-        )
+          () => [hash, null],
+        ),
       );
     }
     const entries = await Promise.all(promises);
@@ -1739,7 +1740,7 @@ export async function remarkable(
     syncHost = SYNC_HOST,
     cacheLimitBytes = 1048576,
     initCache = [],
-  }: RemarkableOptions = {}
+  }: RemarkableOptions = {},
 ): Promise<RemarkableApi> {
   if (!subtle) {
     throw new Error("subtle was missing, try specifying it manually");
@@ -1760,6 +1761,6 @@ export async function remarkable(
     subtle,
     syncHost,
     cacheLimitBytes,
-    initCache
+    initCache,
   );
 }

@@ -13,7 +13,7 @@ export class MockResponse implements ResponseLike {
     private readonly content: string = "",
     readonly status: number = 200,
     readonly statusText: string = "",
-    readonly mapHeaders: Record<string, string> = {}
+    readonly mapHeaders: Record<string, string> = {},
   ) {}
 
   get ok(): boolean {
@@ -51,7 +51,7 @@ export interface MockFetch extends FetchLike {
 const dec = new TextDecoder();
 
 function extractBodyText(
-  body: string | ArrayBuffer | undefined
+  body: string | ArrayBuffer | undefined,
 ): string | undefined {
   if (body === undefined) {
     return undefined;
@@ -72,7 +72,7 @@ export function createMockFetch(
 
   const mockFetch = async (
     url: string,
-    options?: RequestInitLike | undefined
+    options?: RequestInitLike | undefined,
   ): Promise<ResponseLike> => {
     pastRequests.push({
       url,

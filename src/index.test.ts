@@ -58,7 +58,7 @@ describe("register()", () => {
     const fetch = createMockFetch();
 
     await expect(register("", { fetch })).rejects.toThrow(
-      "code should be length 8, but was 0"
+      "code should be length 8, but was 0",
     );
   });
 
@@ -66,14 +66,14 @@ describe("register()", () => {
     const fetch = createMockFetch(new MockResponse("", 400, "custom error"));
 
     await expect(register("academic", { fetch })).rejects.toThrow(
-      "couldn't register api"
+      "couldn't register api",
     );
   });
 
   test("default", async () => {
     // can call with default syntax, even though this instance will fail
     await expect(register("academic")).rejects.toThrow(
-      "fetch is not a function"
+      "fetch is not a function",
     );
   });
 });
@@ -87,7 +87,7 @@ describe("remarkable", () => {
       expect(fetch.pastRequests.length).toBe(1);
       const [first] = fetch.pastRequests;
       expect(first?.headers?.["Authorization"]).toBe(
-        "Bearer custom device token"
+        "Bearer custom device token",
       );
     });
 
@@ -95,7 +95,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(new MockResponse("", 400));
 
       await expect(remarkable("", { fetch })).rejects.toThrow(
-        "couldn't fetch auth token"
+        "couldn't fetch auth token",
       );
     });
 
@@ -103,7 +103,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(new MockResponse("", 400));
 
       await expect(
-        remarkable("", { fetch, subtle: null as never })
+        remarkable("", { fetch, subtle: null as never }),
       ).rejects.toThrow("subtle was missing");
     });
 
@@ -116,12 +116,12 @@ describe("remarkable", () => {
     test("error", async () => {
       const fetch = createMockFetch(
         new MockResponse(),
-        new MockResponse("", 400)
+        new MockResponse("", 400),
       );
 
       const api = await remarkable("", { fetch });
       await expect(api.getRootHash()).rejects.toThrow(
-        "failed reMarkable request"
+        "failed reMarkable request",
       );
     });
   });
@@ -135,7 +135,7 @@ describe("remarkable", () => {
           "x-goog-generation": "123",
         }),
         new MockResponse(GET_URL),
-        new MockResponse("new hash", 200, "", { "x-goog-generation": "124" })
+        new MockResponse("new hash", 200, "", { "x-goog-generation": "124" }),
       );
 
       const api = await remarkable("", { fetch });
@@ -158,7 +158,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("custom hash")
+        new MockResponse("custom hash"),
       );
 
       const api = await remarkable("", { fetch });
@@ -172,7 +172,9 @@ describe("remarkable", () => {
         new MockResponse(),
         failedGet,
         new MockResponse(GET_URL),
-        new MockResponse("custom hash", 200, "", { "x-goog-generation": "123" })
+        new MockResponse("custom hash", 200, "", {
+          "x-goog-generation": "123",
+        }),
       );
 
       const api = await remarkable("", { fetch });
@@ -195,7 +197,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("custom error", 400, "bad request")
+        new MockResponse("custom error", 400, "bad request"),
       );
 
       const api = await remarkable("", { fetch });
@@ -209,7 +211,7 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       await expect(api.getRootHash()).rejects.toThrow(
-        "couldn't validate schema:"
+        "couldn't validate schema:",
       );
     });
   });
@@ -219,7 +221,9 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(PUT_URL),
-        new MockResponse("custom hash", 200, "", { "x-goog-generation": "123" })
+        new MockResponse("custom hash", 200, "", {
+          "x-goog-generation": "123",
+        }),
       );
 
       const api = await remarkable("", { fetch });
@@ -231,7 +235,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(PUT_URL),
-        new MockResponse("custom hash", 400)
+        new MockResponse("custom hash", 400),
       );
 
       const api = await remarkable("", { fetch });
@@ -242,7 +246,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(PUT_URL),
-        new MockResponse("custom hash", 412)
+        new MockResponse("custom hash", 412),
       );
 
       const api = await remarkable("", { fetch });
@@ -253,12 +257,12 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(PUT_URL),
-        new MockResponse("custom hash")
+        new MockResponse("custom hash"),
       );
 
       const api = await remarkable("", { fetch });
       await expect(api.putRootHash("", 0n)).rejects.toThrow(
-        "no generation header"
+        "no generation header",
       );
     });
   });
@@ -270,7 +274,7 @@ describe("remarkable", () => {
         new MockResponse(GET_URL),
         new MockResponse("custom text"),
         new MockResponse(GET_URL),
-        new MockResponse("different text")
+        new MockResponse("different text"),
       );
 
       const api = await remarkable("", { fetch, cacheLimitBytes: 0 });
@@ -287,7 +291,7 @@ describe("remarkable", () => {
         new MockResponse(GET_URL),
         new MockResponse("custom text"),
         new MockResponse(GET_URL),
-        new MockResponse("different text")
+        new MockResponse("different text"),
       );
 
       const api = await remarkable("", { fetch });
@@ -309,7 +313,7 @@ describe("remarkable", () => {
         new MockResponse(),
         failedGet,
         new MockResponse(GET_URL),
-        new MockResponse("custom text")
+        new MockResponse("custom text"),
       );
 
       const api = await remarkable("", { fetch });
@@ -331,7 +335,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("custom text")
+        new MockResponse("custom text"),
       );
 
       const api = await remarkable("", { fetch });
@@ -348,7 +352,7 @@ describe("remarkable", () => {
         new MockResponse(GET_URL),
         new MockResponse("custom text"),
         new MockResponse(GET_URL),
-        new MockResponse("other text")
+        new MockResponse("other text"),
       );
 
       const api = await remarkable("", { fetch, cacheLimitBytes: 0 });
@@ -372,8 +376,8 @@ describe("remarkable", () => {
             lastModified: TIMESTAMP,
             version: 1,
             synced: true,
-          })
-        )
+          }),
+        ),
       );
 
       const api = await remarkable("", { fetch });
@@ -389,13 +393,13 @@ describe("remarkable", () => {
           JSON.stringify({
             type: "CollectionType",
             visibleName: "title",
-          })
-        )
+          }),
+        ),
       );
 
       const api = await remarkable("", { fetch });
       await expect(api.getMetadata("hash")).rejects.toThrow(
-        "couldn't validate schema"
+        "couldn't validate schema",
       );
     });
   });
@@ -406,8 +410,8 @@ describe("remarkable", () => {
         new MockResponse(),
         new MockResponse(GET_URL),
         new MockResponse(
-          "3\n" + "hash:0:id:0:1234\n" + "other_hash:80000000:other_id:4:0\n"
-        )
+          "3\n" + "hash:0:id:0:1234\n" + "other_hash:80000000:other_id:4:0\n",
+        ),
       );
 
       const api = await remarkable("", { fetch });
@@ -429,8 +433,8 @@ describe("remarkable", () => {
         }),
         new MockResponse(GET_URL),
         new MockResponse(
-          "3\n" + "hash:0:id:0:1234\n" + "other_hash:80000000:other_id:4:0\n"
-        )
+          "3\n" + "hash:0:id:0:1234\n" + "other_hash:80000000:other_id:4:0\n",
+        ),
       );
 
       const api = await remarkable("", { fetch });
@@ -445,7 +449,7 @@ describe("remarkable", () => {
       const [, , , req] = fetch.pastRequests;
       expect(
         (JSON.parse(req?.bodyText ?? "") as { relative_path: string })
-          .relative_path
+          .relative_path,
       ).toBe("root hash");
     });
 
@@ -453,12 +457,12 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("3\nhash:0:id:0\n")
+        new MockResponse("3\nhash:0:id:0\n"),
       );
 
       const api = await remarkable("", { fetch });
       await expect(api.getEntries("")).rejects.toThrow(
-        "didn't contain five fields"
+        "didn't contain five fields",
       );
     });
 
@@ -466,12 +470,12 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("3\nhash:0:id:3:2\n")
+        new MockResponse("3\nhash:0:id:3:2\n"),
       );
 
       const api = await remarkable("", { fetch });
       await expect(api.getEntries("")).rejects.toThrow(
-        "file type entry had nonzero number of subfiles: 3"
+        "file type entry had nonzero number of subfiles: 3",
       );
     });
 
@@ -479,12 +483,12 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("3\nhash:1:id:3:2\n")
+        new MockResponse("3\nhash:1:id:3:2\n"),
       );
 
       const api = await remarkable("", { fetch });
       await expect(api.getEntries("")).rejects.toThrow(
-        "contained invalid type: 1"
+        "contained invalid type: 1",
       );
     });
 
@@ -492,12 +496,12 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("4\nhash:1:id:3:2\n")
+        new MockResponse("4\nhash:1:id:3:2\n"),
       );
 
       const api = await remarkable("", { fetch });
       await expect(api.getEntries("")).rejects.toThrow(
-        "unexpected schema version: 4"
+        "unexpected schema version: 4",
       );
     });
   });
@@ -507,7 +511,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(PUT_URL),
-        new MockResponse()
+        new MockResponse(),
       );
 
       const api = await remarkable("", { fetch });
@@ -533,7 +537,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(PUT_URL),
-        new MockResponse()
+        new MockResponse(),
       );
 
       const api = await remarkable("", { fetch });
@@ -555,7 +559,7 @@ describe("remarkable", () => {
     const fetch = createMockFetch(
       new MockResponse(),
       new MockResponse(PUT_URL),
-      new MockResponse()
+      new MockResponse(),
     );
 
     const api = await remarkable("", { fetch });
@@ -578,7 +582,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(PUT_URL),
-        new MockResponse()
+        new MockResponse(),
       );
 
       const api = await remarkable("", { fetch });
@@ -596,7 +600,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(PUT_URL),
-        new MockResponse()
+        new MockResponse(),
       );
 
       const api = await remarkable("", { fetch });
@@ -611,7 +615,7 @@ describe("remarkable", () => {
         new MockResponse(PUT_URL),
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("different text")
+        new MockResponse("different text"),
       );
 
       const api = await remarkable("", { fetch, cacheLimitBytes: 0 });
@@ -626,7 +630,7 @@ describe("remarkable", () => {
         new MockResponse(),
         failedPut,
         new MockResponse(PUT_URL),
-        new MockResponse()
+        new MockResponse(),
       );
 
       const api = await remarkable("", { fetch });
@@ -649,7 +653,7 @@ describe("remarkable", () => {
   test("#putCollection()", async () => {
     const fetch = createMockFetch(
       new MockResponse(),
-      ...PUT_COLLECTION_RESPONSES
+      ...PUT_COLLECTION_RESPONSES,
     );
 
     const api = await remarkable("", { fetch });
@@ -691,7 +695,7 @@ describe("remarkable", () => {
 
       const [, , , , , , content] = fetch.pastRequests;
       expect(
-        (JSON.parse(content?.bodyText ?? "") as { margins: number }).margins
+        (JSON.parse(content?.bodyText ?? "") as { margins: number }).margins,
       ).toEqual(180);
     });
   });
@@ -725,7 +729,7 @@ describe("remarkable", () => {
       const [, , , , , , content] = fetch.pastRequests;
       expect(
         (JSON.parse(content?.bodyText ?? "") as { coverPageNumber: number })
-          .coverPageNumber
+          .coverPageNumber,
       ).toEqual(-1);
     });
   });
@@ -738,7 +742,7 @@ describe("remarkable", () => {
 
     const [, req] = fetch.pastRequests;
     expect(req?.url).toBe(
-      "https://internal.cloud.remarkable.com/sync/v2/sync-complete"
+      "https://internal.cloud.remarkable.com/sync/v2/sync-complete",
     );
     expect(JSON.parse(req?.bodyText ?? "")).toEqual({ generation: 0 });
   });
@@ -753,7 +757,7 @@ describe("remarkable", () => {
       // entries
       new MockResponse(GET_URL),
       new MockResponse(
-        "3\n" + "hash:0:id:0:1234\n" + "other_hash:80000000:other_id:4:0\n"
+        "3\n" + "hash:0:id:0:1234\n" + "other_hash:80000000:other_id:4:0\n",
       ),
       // put entries
       new MockResponse(PUT_URL),
@@ -769,7 +773,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         ...CREATE_RESPONSES,
-        new MockResponse()
+        new MockResponse(),
       );
 
       const api = await remarkable("", { fetch });
@@ -789,7 +793,7 @@ describe("remarkable", () => {
         "3\n" +
           "create hash:80000000:docid:3:0\n" +
           "hash:0:id:0:1234\n" +
-          "other_hash:80000000:other_id:4:0\n"
+          "other_hash:80000000:other_id:4:0\n",
       );
       expect(JSON.parse(sync?.bodyText ?? "")).toEqual({ generation: 124 });
     });
@@ -799,7 +803,7 @@ describe("remarkable", () => {
         new MockResponse(),
         ...CREATE_RESPONSES,
         // sync failure
-        new MockResponse("", 400)
+        new MockResponse("", 400),
       );
 
       const api = await remarkable("", { fetch });
@@ -819,7 +823,7 @@ describe("remarkable", () => {
         "3\n" +
           "create hash:80000000:docid:3:0\n" +
           "hash:0:id:0:1234\n" +
-          "other_hash:80000000:other_id:4:0\n"
+          "other_hash:80000000:other_id:4:0\n",
       );
       expect(sync).toBeDefined();
     });
@@ -836,7 +840,7 @@ describe("remarkable", () => {
           subfiles: 3,
           size: 0n,
         },
-        { sync: false }
+        { sync: false },
       );
 
       expect(res).toBe(false);
@@ -847,7 +851,7 @@ describe("remarkable", () => {
         "3\n" +
           "create hash:80000000:docid:3:0\n" +
           "hash:0:id:0:1234\n" +
-          "other_hash:80000000:other_id:4:0\n"
+          "other_hash:80000000:other_id:4:0\n",
       );
       expect(sync).toBeUndefined();
     });
@@ -863,7 +867,7 @@ describe("remarkable", () => {
       // entries
       new MockResponse(GET_URL),
       new MockResponse(
-        "3\n" + "hash:80000000:id:1:0\n" + "other_hash:80000000:other_id:4:0\n"
+        "3\n" + "hash:80000000:id:1:0\n" + "other_hash:80000000:other_id:4:0\n",
       ),
     ];
     const MOVE_DEST_RESPONSES = [
@@ -880,7 +884,7 @@ describe("remarkable", () => {
           lastModified: TIMESTAMP,
           version: 1,
           synced: true,
-        })
+        }),
       ),
     ] as const;
     const MOVE_FINAL_RESPONSES = [
@@ -889,7 +893,7 @@ describe("remarkable", () => {
       new MockResponse(
         "3\n" +
           "meta_hash:0:id.metadata:0:1234\n" +
-          "content_hash:0:id.content:0:1234\n"
+          "content_hash:0:id.content:0:1234\n",
       ),
       // doc metadata
       new MockResponse(GET_URL),
@@ -901,7 +905,7 @@ describe("remarkable", () => {
           lastModified: TIMESTAMP,
           version: 1,
           synced: true,
-        })
+        }),
       ),
       // put metadata
       new MockResponse(PUT_URL),
@@ -925,7 +929,7 @@ describe("remarkable", () => {
         ...MOVE_INIT_RESPONSES,
         ...MOVE_DEST_RESPONSES,
         ...MOVE_FINAL_RESPONSES,
-        new MockResponse()
+        new MockResponse(),
       );
 
       const api = await remarkable("", { fetch });
@@ -937,17 +941,17 @@ describe("remarkable", () => {
         fetch.pastRequests.slice(14);
 
       expect(
-        (JSON.parse(meta?.bodyText ?? "") as { parent: string }).parent
+        (JSON.parse(meta?.bodyText ?? "") as { parent: string }).parent,
       ).toEqual("other_id");
       expect(docEnts?.bodyText).toBe(
         "3\n" +
           "content_hash:0:id.content:0:1234\n" +
-          "ff853ac97253cf6856770bcac4cce7802f237268c2df12ab9be2715cc9402cd6:0:id.metadata:0:132\n"
+          "ff853ac97253cf6856770bcac4cce7802f237268c2df12ab9be2715cc9402cd6:0:id.metadata:0:132\n",
       );
       expect(rootEnts?.bodyText).toBe(
         "3\n" +
           "e33dbfdf70fbb9a095aabf8296ec2ffbd963ab32df8f966686a81644068e967a:80000000:id:2:0\n" +
-          "other_hash:80000000:other_id:4:0\n"
+          "other_hash:80000000:other_id:4:0\n",
       );
       expect(JSON.parse(sync?.bodyText ?? "")).toEqual({ generation: 124 });
     });
@@ -956,7 +960,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         ...MOVE_INIT_RESPONSES,
-        ...MOVE_FINAL_RESPONSES
+        ...MOVE_FINAL_RESPONSES,
       );
 
       const api = await remarkable("", { fetch });
@@ -968,17 +972,17 @@ describe("remarkable", () => {
         fetch.pastRequests.slice(10);
 
       expect(
-        (JSON.parse(meta?.bodyText ?? "") as { parent: string }).parent
+        (JSON.parse(meta?.bodyText ?? "") as { parent: string }).parent,
       ).toEqual("trash");
       expect(docEnts?.bodyText).toBe(
         "3\n" +
           "content_hash:0:id.content:0:1234\n" +
-          "05466705d317771c1b3439d41e6e2bedfbf5e97a40e1617eaf05cbd8765c099a:0:id.metadata:0:129\n"
+          "05466705d317771c1b3439d41e6e2bedfbf5e97a40e1617eaf05cbd8765c099a:0:id.metadata:0:129\n",
       );
       expect(rootEnts?.bodyText).toBe(
         "3\n" +
           "72737117d50fb4caf947d26bbb3b70c4b1473a2b2115b090ed39dc33ae9be932:80000000:id:2:0\n" +
-          "other_hash:80000000:other_id:4:0\n"
+          "other_hash:80000000:other_id:4:0\n",
       );
       expect(sync).toBeUndefined();
     });
@@ -1002,14 +1006,14 @@ describe("remarkable", () => {
         // entries
         new MockResponse(GET_URL),
         new MockResponse(
-          "3\n" + "hash:80000000:id:1:0\n" + "other_hash:0:other_id:0:4\n"
-        )
+          "3\n" + "hash:80000000:id:1:0\n" + "other_hash:0:other_id:0:4\n",
+        ),
       );
 
       const api = await remarkable("", { fetch });
       const res = api.move("id", "other_id", { sync: false });
       await expect(res).rejects.toThrow(
-        "destination id was a raw file: other_id"
+        "destination id was a raw file: other_id",
       );
     });
 
@@ -1019,13 +1023,13 @@ describe("remarkable", () => {
         ...MOVE_INIT_RESPONSES,
         // dest entries
         new MockResponse(GET_URL),
-        new MockResponse("3\n" + "hash:0:other_id.content:0:1234\n")
+        new MockResponse("3\n" + "hash:0:other_id.content:0:1234\n"),
       );
 
       const api = await remarkable("", { fetch });
       const res = api.move("id", "other_id", { sync: false });
       await expect(res).rejects.toThrow(
-        "destination id didn't have metadata: other_id"
+        "destination id didn't have metadata: other_id",
       );
     });
 
@@ -1046,14 +1050,14 @@ describe("remarkable", () => {
             lastModified: TIMESTAMP,
             version: 1,
             synced: true,
-          })
-        )
+          }),
+        ),
       );
 
       const api = await remarkable("", { fetch });
       const res = api.move("id", "other_id", { sync: false });
       await expect(res).rejects.toThrow(
-        "destination id wasn't a collection: other_id"
+        "destination id wasn't a collection: other_id",
       );
     });
 
@@ -1076,8 +1080,8 @@ describe("remarkable", () => {
         // entries
         new MockResponse(GET_URL),
         new MockResponse(
-          "3\n" + "hash:80000000:id:1:0\n" + "other_hash:0:other_id:0:4\n"
-        )
+          "3\n" + "hash:80000000:id:1:0\n" + "other_hash:0:other_id:0:4\n",
+        ),
       );
 
       const api = await remarkable("", { fetch });
@@ -1091,7 +1095,7 @@ describe("remarkable", () => {
         ...MOVE_INIT_RESPONSES,
         // doc entries
         new MockResponse(GET_URL),
-        new MockResponse("3\n" + "content_hash:0:id.content:0:1234\n")
+        new MockResponse("3\n" + "content_hash:0:id.content:0:1234\n"),
       );
 
       const api = await remarkable("", { fetch });
@@ -1112,7 +1116,7 @@ describe("remarkable", () => {
     ];
     const fetch = createMockFetch(
       new MockResponse(),
-      new MockResponse(JSON.stringify(entries))
+      new MockResponse(JSON.stringify(entries)),
     );
 
     const api = await remarkable("", { fetch });
@@ -1124,7 +1128,7 @@ describe("remarkable", () => {
   test("#uploadEpub()", async () => {
     const fetch = createMockFetch(
       new MockResponse(),
-      new MockResponse(JSON.stringify({ docID: "epub id", hash: "epub hash" }))
+      new MockResponse(JSON.stringify({ docID: "epub id", hash: "epub hash" })),
     );
 
     const api = await remarkable("", { fetch });
@@ -1142,7 +1146,7 @@ describe("remarkable", () => {
   test("#uploadPdf()", async () => {
     const fetch = createMockFetch(
       new MockResponse(),
-      new MockResponse(JSON.stringify({ docID: "pdf id", hash: "pdf hash" }))
+      new MockResponse(JSON.stringify({ docID: "pdf id", hash: "pdf hash" })),
     );
 
     const api = await remarkable("", { fetch });
@@ -1167,7 +1171,7 @@ describe("remarkable", () => {
         new MockResponse(),
         new MockResponse(GET_URL),
         new MockResponse("text"),
-        failedGet
+        failedGet,
       );
 
       const api = await remarkable("", { fetch });
@@ -1188,7 +1192,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(
         new MockResponse(),
         new MockResponse(GET_URL),
-        new MockResponse("different")
+        new MockResponse("different"),
       );
 
       const api = await remarkable("", { fetch, initCache });
