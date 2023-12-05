@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `createdTime` to `DocumentType` metadata, and permissive parsing of metadata
+  going forward.
+
 ## [3.0.0] - 2023-01-03
 
 ### Added

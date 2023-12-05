@@ -246,6 +246,8 @@ export interface DocumentTypeMetadata extends CommonMetadata {
   lastOpened?: string;
   /** last opened page for documents */
   lastOpenedPage?: number;
+  /** created time */
+  createdTime?: string;
 }
 
 /**
@@ -300,6 +302,7 @@ const metadataSchema: JtdSchema<Metadata> = {
     CollectionType: {
       properties: commonProperties,
       optionalProperties: commonOptionalProperties,
+      additionalProperties: true,
     },
     DocumentType: {
       properties: commonProperties,
@@ -307,7 +310,9 @@ const metadataSchema: JtdSchema<Metadata> = {
         ...commonOptionalProperties,
         lastOpened: { type: "string" },
         lastOpenedPage: { type: "int32" },
+        createdTime: { type: "string" },
       },
+      additionalProperties: true,
     },
   },
 };
@@ -326,6 +331,7 @@ const metadataEntrySchema: JtdSchema<MetadataEntry> = {
         ...baseMetadataProperties,
       },
       optionalProperties: commonOptionalProperties,
+      additionalProperties: true,
     },
     DocumentType: {
       properties: {
@@ -337,7 +343,9 @@ const metadataEntrySchema: JtdSchema<MetadataEntry> = {
         ...commonOptionalProperties,
         lastOpened: { type: "string" },
         lastOpenedPage: { type: "int32" },
+        createdTime: { type: "string" },
       },
+      additionalProperties: true,
     },
   },
 };

@@ -385,6 +385,30 @@ describe("remarkable", () => {
       expect(meta.visibleName).toBe("title");
     });
 
+    test("issue #5", async () => {
+      const fetch = createMockFetch(
+        new MockResponse(),
+        new MockResponse(GET_URL),
+        new MockResponse(
+          JSON.stringify({
+            createdTime: "0",
+            lastModified: "1699795915954",
+            lastOpened: "1699795889468",
+            lastOpenedPage: 227,
+            // eslint-disable-next-line spellcheck/spell-checker
+            parent: "44b07ec7-8bd1-43a3-a1ba-cd32f3222585",
+            pinned: false,
+            type: "DocumentType",
+            visibleName: "Document",
+          }),
+        ),
+      );
+
+      const api = await remarkable("", { fetch });
+      const meta = await api.getMetadata("hash");
+      expect(meta.visibleName).toBe("Document");
+    });
+
     test("failure", async () => {
       const fetch = createMockFetch(
         new MockResponse(),
