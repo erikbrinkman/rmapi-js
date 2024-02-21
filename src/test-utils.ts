@@ -67,7 +67,7 @@ export type Awaitable<T> = T | Promise<T>;
 export function createMockFetch(
   ...nextResponses: Awaitable<MockResponse>[]
 ): MockFetch {
-  nextResponses.reverse();
+  void nextResponses.reverse();
   const pastRequests: LoggedRequest[] = [];
 
   const mockFetch = async (

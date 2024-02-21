@@ -736,7 +736,7 @@ export interface RemarkableApi {
   /**
    * create a new collection (folder)
    *
-   * @param documentId - the name of the new folder
+   * @param visibleName - the name of the new folder
    * @param parent - the documentId of the parent collection (folder)
    */
   putCollection(visibleName: string, parent?: string): Promise<CollectionEntry>;
@@ -835,7 +835,7 @@ export interface RemarkableApi {
    * ```
    *
    * @param entry - and entry, usually created by a `put*` method
-   * @param sync - whether to notify apps of a change (default: true)
+   * @param options - any extra options for creation
    * @returns synced - if sync was successful
    * @throws error - if any error occurred, in this case, nothing will be
    *   changed
@@ -872,7 +872,7 @@ export interface RemarkableApi {
    * @param dest - the new parent of this collection or document; this should
    *   be the document id of an existing collection, an empty string for root,
    *   or the string `"trash"` to move to the trash
-   * @param sync - whether to notify apps of a change (default: true)
+   * @param opts - any extra options for moving
    * @returns synced - true if synced successfully
    * @throws error - if any error occurred, in this case, nothing will be
    *   changed
