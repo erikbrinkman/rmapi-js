@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2024-04-03
+
+### Added
+
+- `verify` option to some calls to disable verifying that requests follow the
+  expected format. Note that disabling verification will break typescripts
+  guarantees, and so it's only recommend if you know what you're doing.
+
+### Modified
+
+- `lastModified` is now optional. This might break some code that replied on it
+  to be present.
+
 ## [3.1.0] - 2023-12-05
 
 ### Added
