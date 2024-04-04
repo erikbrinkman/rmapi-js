@@ -6,8 +6,9 @@ export type { JtdSchema };
 export function validate<T>(
   schema: JtdSchema<T>,
   obj: unknown,
+  verify: boolean = true,
 ): asserts obj is T {
-  const errors = jtdValidate(schema, obj);
+  const errors = verify ? jtdValidate(schema, obj) : [];
   if (errors.length) {
     // TODO better errors
     throw new Error(

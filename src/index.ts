@@ -1229,10 +1229,15 @@ class Remarkable implements RemarkableApi {
 
   /**
    * get metadata from hash
+   *
+   * Call with `verify: false` to disable checking the response.
    */
-  async getMetadata(hash: string): Promise<Metadata> {
+  async getMetadata(
+    hash: string,
+    { verify = true }: { verify?: boolean } = {},
+  ): Promise<Metadata> {
     const raw = await this.getJson(hash);
-    validate(metadataSchema, raw);
+    validate(metadataSchema, raw, verify);
     return raw;
   }
 
@@ -1587,7 +1592,9 @@ class Remarkable implements RemarkableApi {
   }
 
   /** get entries and metadata for all files */
-  async getEntriesMetadata(): Promise<MetadataEntry[]> {
+  async getEntriesMetadata({
+    verify = true,
+  }: { verify?: boolean } = {}): Promise<MetadataEntry[]> {
     const resp = await this.#authedFetch(`${this.#syncHost}/doc/v2/files`, {
       method: "GET",
       headers: {
@@ -1599,7 +1606,7 @@ class Remarkable implements RemarkableApi {
     const schema: JtdSchema<MetadataEntry[]> = {
       elements: metadataEntrySchema,
     };
-    validate(schema, res);
+    validate(schema, res, verify);
     return res;
   }
 
@@ -1608,6 +1615,7 @@ class Remarkable implements RemarkableApi {
     visibleName: string,
     buffer: ArrayBuffer,
     contentType: `application/${"epub+zip" | "pdf"}`,
+    verify: boolean,
   ): Promise<UploadEntry> {
     const encoder = new TextEncoder();
     const meta = encoder.encode(JSON.stringify({ file_name: visibleName }));
@@ -1621,7 +1629,7 @@ class Remarkable implements RemarkableApi {
     });
     const raw = await resp.text();
     const res = JSON.parse(raw) as unknown;
-    validate(uploadEntrySchema, res);
+    validate(uploadEntrySchema, res, verify);
     return res;
   }
 
@@ -1629,17 +1637,29 @@ class Remarkable implements RemarkableApi {
   async uploadEpub(
     visibleName: string,
     buffer: ArrayBuffer,
+    { verify = true }: { verify?: boolean } = {},
   ): Promise<UploadEntry> {
-    return await this.#uploadFile(visibleName, buffer, "application/epub+zip");
+    return await this.#uploadFile(
+      visibleName,
+      buffer,
+      "application/epub+zip",
+      verify,
+    );
   }
 
   /** upload a pdf */
   async uploadPdf(
     visibleName: string,
     buffer: ArrayBuffer,
+    { verify = true }: { verify?: boolean } = {},
   ): Promise<UploadEntry> {
     // TODO why doesn't this work
-    return await this.#uploadFile(visibleName, buffer, "application/pdf");
+    return await this.#uploadFile(
+      visibleName,
+      buffer,
+      "application/pdf",
+      verify,
+    );
   }
 
   async getCache(): Promise<Map<string, ArrayBuffer>> {
