@@ -217,7 +217,7 @@ export interface CommonMetadata {
   /** parent uuid (documentId) or "" for root or "trash" */
   parent?: string;
   /** last modified time */
-  lastModified: string;
+  lastModified?: string;
   /** unknown significance */
   version?: number;
   /** unknown significance */
@@ -283,10 +283,10 @@ export type MetadataEntry = CollectionMetadataEntry | DocumentMetadataEntry;
 
 const commonProperties = {
   visibleName: { type: "string" },
-  lastModified: { type: "string" },
 } as const;
 
 const commonOptionalProperties = {
+  lastModified: { type: "string" },
   version: { type: "int32" },
   pinned: { type: "boolean" },
   synced: { type: "boolean" },

@@ -416,7 +416,6 @@ describe("remarkable", () => {
         new MockResponse(
           JSON.stringify({
             type: "CollectionType",
-            visibleName: "title",
           }),
         ),
       );
