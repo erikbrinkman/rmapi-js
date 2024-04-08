@@ -633,6 +633,17 @@ export interface PutPdfOptions {
   lastTool?: string;
 }
 
+/** options for getting responses */
+export interface GetOptions {
+  /**
+   * whether to verify the types of the response
+   *
+   * Omitting will make the results always work, but they might nit return
+   * accurate types anymore.
+   */
+  verify?: boolean | undefined;
+}
+
 /**
  * the api for accessing remarkable functions
  */
@@ -692,7 +703,7 @@ export interface RemarkableApi {
   getJson(hash: string): Promise<unknown>;
 
   /** get metadata from hash */
-  getMetadata(hash: string): Promise<Metadata>;
+  getMetadata(hash: string, opts?: GetOptions): Promise<Metadata>;
 
   /**
    * get entries from a collection hash
@@ -889,7 +900,7 @@ export interface RemarkableApi {
    * @remarks this uses a newer api, that returns metadata associated with all
    * entries and their hash and documentId.
    */
-  getEntriesMetadata(): Promise<MetadataEntry[]>;
+  getEntriesMetadata(opts?: GetOptions): Promise<MetadataEntry[]>;
 
   /**
    * upload an epub
@@ -906,7 +917,11 @@ export interface RemarkableApi {
    * @param visibleName - the name to show for the uploaded epub
    * @param buffer - the epub contents
    */
-  uploadEpub(visibleName: string, buffer: ArrayBuffer): Promise<UploadEntry>;
+  uploadEpub(
+    visibleName: string,
+    buffer: ArrayBuffer,
+    opts?: GetOptions,
+  ): Promise<UploadEntry>;
 
   /**
    * upload a pdf
@@ -927,7 +942,11 @@ export interface RemarkableApi {
    * @param buffer - the epub contents
    * @experimental
    */
-  uploadPdf(visibleName: string, buffer: ArrayBuffer): Promise<UploadEntry>;
+  uploadPdf(
+    visibleName: string,
+    buffer: ArrayBuffer,
+    opts?: GetOptions,
+  ): Promise<UploadEntry>;
 
   /**
    * get the current state of the cache for persisting
@@ -1234,7 +1253,7 @@ class Remarkable implements RemarkableApi {
    */
   async getMetadata(
     hash: string,
-    { verify = true }: { verify?: boolean } = {},
+    { verify = true }: GetOptions = {},
   ): Promise<Metadata> {
     const raw = await this.getJson(hash);
     validate(metadataSchema, raw, verify);
@@ -1592,9 +1611,9 @@ class Remarkable implements RemarkableApi {
   }
 
   /** get entries and metadata for all files */
-  async getEntriesMetadata({
-    verify = true,
-  }: { verify?: boolean } = {}): Promise<MetadataEntry[]> {
+  async getEntriesMetadata({ verify = true }: GetOptions = {}): Promise<
+    MetadataEntry[]
+  > {
     const resp = await this.#authedFetch(`${this.#syncHost}/doc/v2/files`, {
       method: "GET",
       headers: {
@@ -1637,7 +1656,7 @@ class Remarkable implements RemarkableApi {
   async uploadEpub(
     visibleName: string,
     buffer: ArrayBuffer,
-    { verify = true }: { verify?: boolean } = {},
+    { verify = true }: GetOptions = {},
   ): Promise<UploadEntry> {
     return await this.#uploadFile(
       visibleName,
@@ -1651,7 +1670,7 @@ class Remarkable implements RemarkableApi {
   async uploadPdf(
     visibleName: string,
     buffer: ArrayBuffer,
-    { verify = true }: { verify?: boolean } = {},
+    { verify = true }: GetOptions = {},
   ): Promise<UploadEntry> {
     // TODO why doesn't this work
     return await this.#uploadFile(
