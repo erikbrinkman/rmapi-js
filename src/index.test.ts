@@ -923,7 +923,7 @@ describe("remarkable", () => {
       new MockResponse(
         JSON.stringify({
           type: "DocumentType",
-          visibleName: "movee",
+          visibleName: "movie",
           parent: "",
           lastModified: TIMESTAMP,
           version: 1,
@@ -969,11 +969,11 @@ describe("remarkable", () => {
       expect(docEnts?.bodyText).toBe(
         "3\n" +
           "content_hash:0:id.content:0:1234\n" +
-          "ff853ac97253cf6856770bcac4cce7802f237268c2df12ab9be2715cc9402cd6:0:id.metadata:0:132\n",
+          "f48bde1d019ee87cecfcd8ce6b92ba3a65618d43246db2e71d56467ec7285211:0:id.metadata:0:132\n",
       );
       expect(rootEnts?.bodyText).toBe(
         "3\n" +
-          "e33dbfdf70fbb9a095aabf8296ec2ffbd963ab32df8f966686a81644068e967a:80000000:id:2:0\n" +
+          "bd1cd5d8bbccec925ef5c76f1777b7daa149764bfa5f3f900fc1692ea3a28de2:80000000:id:2:0\n" +
           "other_hash:80000000:other_id:4:0\n",
       );
       expect(JSON.parse(sync?.bodyText ?? "")).toEqual({ generation: 124 });
@@ -1000,11 +1000,11 @@ describe("remarkable", () => {
       expect(docEnts?.bodyText).toBe(
         "3\n" +
           "content_hash:0:id.content:0:1234\n" +
-          "05466705d317771c1b3439d41e6e2bedfbf5e97a40e1617eaf05cbd8765c099a:0:id.metadata:0:129\n",
+          "a1d5afcc058c7f895fc9f99c6bc1e207312943ceca158493d68c5ea0b7f2bd65:0:id.metadata:0:129\n",
       );
       expect(rootEnts?.bodyText).toBe(
         "3\n" +
-          "72737117d50fb4caf947d26bbb3b70c4b1473a2b2115b090ed39dc33ae9be932:80000000:id:2:0\n" +
+          "f55aa7bd69ac2a173bf6e8270a506e9470cfc2b606c5716f2de8cb1e16894952:80000000:id:2:0\n" +
           "other_hash:80000000:other_id:4:0\n",
       );
       expect(sync).toBeUndefined();

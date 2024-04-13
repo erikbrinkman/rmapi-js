@@ -65,6 +65,7 @@ export type RequestMethod = "POST" | "GET" | "PUT" | "DELETE";
 export type TextAlignment = "justify" | "left";
 
 /** tool options */
+/* eslint-disable spellcheck/spell-checker */
 export const builtinTools = [
   "Ballpoint",
   "Ballpointv2",
@@ -87,8 +88,10 @@ export const builtinTools = [
   "SolidPen",
   "ZoomTool",
 ] as const;
+/* eslint-enable spellcheck/spell-checker */
 
 /** font name options */
+/* eslint-disable spellcheck/spell-checker */
 export const builtinFontNames = [
   "Maison Neue",
   "EB Garamond",
@@ -97,6 +100,7 @@ export const builtinFontNames = [
   "Noto Mono",
   "Noto Sans UI",
 ] as const;
+/* eslint-enable spellcheck/spell-checker */
 
 /** text scale options */
 export const builtinTextScales = {
