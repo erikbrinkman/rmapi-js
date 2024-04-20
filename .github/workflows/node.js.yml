@@ -10,18 +10,10 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        node-version: [19.x]
-        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
-
     steps:
     - uses: actions/checkout@v3
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-    - run: yarn install
-    - run: yarn lint
-    - run: yarn test
+    - uses: oven-sh/setup-bun@v1
+    - run: bun install
+    - run: bun fmt --check
+    - run: bun lint
+    - run: bun export

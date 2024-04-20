@@ -35,7 +35,8 @@ export class MockResponse implements ResponseLike {
 
   arrayBuffer(): Promise<ArrayBuffer> {
     const enc = new TextEncoder();
-    return Promise.resolve(enc.encode(this.content));
+    const encoded = enc.encode(this.content).buffer as ArrayBuffer;
+    return Promise.resolve(encoded);
   }
 }
 

@@ -467,7 +467,7 @@ export interface CacheLike {
 /** stripped down version of subtle crypto */
 export interface SubtleCryptoLike {
   /** a digest function */
-  digest(algorithm: "SHA-256", data: ArrayBuffer): Promise<ArrayBuffer>;
+  digest(algorithm: "SHA-256", data: BufferSource): Promise<ArrayBuffer>;
 }
 
 /** an error that results from a failed request */
@@ -1320,11 +1320,11 @@ class Remarkable implements RemarkableApi {
 
     const hashes = concatBuffers(entries.map((ent) => fromHex(ent.hash)));
     const digest = await this.#subtle.digest("SHA-256", hashes);
-    const hash = toHex(digest);
+    const hash = toHex(new Uint8Array(digest));
 
     const entryContents = entries.map(formatEntry).join("");
     const contents = `${SCHEMA_VERSION}\n${entryContents}`;
-    const buffer = enc.encode(contents);
+    const buffer = enc.encode(contents).buffer as ArrayBuffer;
     await this.#putHash(hash, buffer);
 
     return {
@@ -1339,7 +1339,7 @@ class Remarkable implements RemarkableApi {
   /** put a raw buffer in the cloud */
   async putBuffer(documentId: string, buffer: ArrayBuffer): Promise<FileEntry> {
     const digest = await this.#subtle.digest("SHA-256", buffer);
-    const hash = toHex(digest);
+    const hash = toHex(new Uint8Array(digest));
     await this.#putHash(hash, buffer);
     return {
       hash,
@@ -1353,7 +1353,8 @@ class Remarkable implements RemarkableApi {
   /** put text in the cloud */
   async putText(documentId: string, contents: string): Promise<FileEntry> {
     const enc = new TextEncoder();
-    return await this.putBuffer(documentId, enc.encode(contents));
+    const encoded = enc.encode(contents).buffer as ArrayBuffer;
+    return await this.putBuffer(documentId, encoded);
   }
 
   /** put json in the cloud */

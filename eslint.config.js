@@ -1,8 +1,5 @@
-// @ts-check
-
 import eslint from "@eslint/js";
 import configPrettier from "eslint-config-prettier";
-import jest from "eslint-plugin-jest";
 import spellcheck from "eslint-plugin-spellcheck";
 import tsdoc from "eslint-plugin-tsdoc";
 import tseslint from "typescript-eslint";
@@ -13,7 +10,6 @@ export default tseslint.config(
   ...tseslint.configs.recommendedTypeChecked,
   {
     plugins: {
-      jest,
       spellcheck,
       tsdoc,
     },

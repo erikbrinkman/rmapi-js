@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import { UploadEntry } from ".";
 import { JtdSchema, validate } from "./validate";
 

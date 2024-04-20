@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import { concatBuffers, fromHex, toHex } from "./utils";
 
 test("toHex()", () => {

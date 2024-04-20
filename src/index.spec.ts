@@ -1,5 +1,13 @@
-import { Entry, GenerationError, register, remarkable, ResponseError } from ".";
-import { createMockFetch, MockResponse, resolveTo } from "./test-utils";
+import { describe, expect, test } from "bun:test";
+import {
+  Entry,
+  GenerationError,
+  MetadataEntry,
+  ResponseError,
+  register,
+  remarkable,
+} from ".";
+import { MockResponse, createMockFetch, resolveTo } from "./test-utils";
 
 // make sure we can't use fetch
 global.fetch = undefined as never;
@@ -43,6 +51,11 @@ const PUT_FILE_RESPONSES = [
   ...PUT_COLLECTION_RESPONSES,
 ] as const;
 
+function encode(input: string): ArrayBuffer {
+  const encoder = new TextEncoder();
+  return encoder.encode(input).buffer as ArrayBuffer;
+}
+
 describe("register()", () => {
   test("success", async () => {
     const fetch = createMockFetch(new MockResponse("custom device token"));
@@ -57,6 +70,7 @@ describe("register()", () => {
   test("invalid", async () => {
     const fetch = createMockFetch();
 
+    // eslint-disable-next-line @typescript-eslint/await-thenable
     await expect(register("", { fetch })).rejects.toThrow(
       "code should be length 8, but was 0",
     );
@@ -65,6 +79,7 @@ describe("register()", () => {
   test("error", async () => {
     const fetch = createMockFetch(new MockResponse("", 400, "custom error"));
 
+    // eslint-disable-next-line @typescript-eslint/await-thenable
     await expect(register("academic", { fetch })).rejects.toThrow(
       "couldn't register api",
     );
@@ -72,6 +87,7 @@ describe("register()", () => {
 
   test("default", async () => {
     // can call with default syntax, even though this instance will fail
+    // eslint-disable-next-line @typescript-eslint/await-thenable
     await expect(register("academic")).rejects.toThrow(
       "fetch is not a function",
     );
@@ -94,6 +110,7 @@ describe("remarkable", () => {
     test("error", async () => {
       const fetch = createMockFetch(new MockResponse("", 400));
 
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(remarkable("", { fetch })).rejects.toThrow(
         "couldn't fetch auth token",
       );
@@ -102,12 +119,14 @@ describe("remarkable", () => {
     test("subtle error", async () => {
       const fetch = createMockFetch(new MockResponse("", 400));
 
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(
         remarkable("", { fetch, subtle: null as never }),
       ).rejects.toThrow("subtle was missing");
     });
 
     test("default", async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(remarkable("")).rejects.toThrow("fetch is not a function");
     });
   });
@@ -120,6 +139,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getRootHash()).rejects.toThrow(
         "failed reMarkable request",
       );
@@ -162,6 +182,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getRootHash()).rejects.toThrow("no generation header");
     });
 
@@ -182,6 +203,7 @@ describe("remarkable", () => {
       const second = api.getRootHash(); // succeeds
       const third = api.getRootHash(); // cached
       send(); // resolve first others waiting
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(first).rejects.toThrow("failed reMarkable request: err");
       const [shash, sgen] = await second;
       expect(shash).toBe("custom hash");
@@ -201,6 +223,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getRootHash()).rejects.toThrow("custom error");
     });
   });
@@ -210,6 +233,7 @@ describe("remarkable", () => {
       const fetch = createMockFetch(new MockResponse(), new MockResponse("{}"));
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getRootHash()).rejects.toThrow(
         "couldn't validate schema:",
       );
@@ -239,6 +263,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.putRootHash("", 0n)).rejects.toThrow(ResponseError);
     });
 
@@ -250,6 +275,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.putRootHash("", 0n)).rejects.toThrow(GenerationError);
     });
 
@@ -261,6 +287,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.putRootHash("", 0n)).rejects.toThrow(
         "no generation header",
       );
@@ -324,8 +351,11 @@ describe("remarkable", () => {
 
       send(); // finish first request
 
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(first).rejects.toThrow("failed reMarkable request: err");
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(second).resolves.toBe("custom text");
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(third).resolves.toBe("custom text");
     });
   });
@@ -421,6 +451,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getMetadata("hash")).rejects.toThrow(
         "couldn't validate schema",
       );
@@ -484,6 +515,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getEntries("")).rejects.toThrow(
         "didn't contain five fields",
       );
@@ -497,6 +529,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getEntries("")).rejects.toThrow(
         "file type entry had nonzero number of subfiles: 3",
       );
@@ -510,6 +543,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getEntries("")).rejects.toThrow(
         "contained invalid type: 1",
       );
@@ -523,6 +557,7 @@ describe("remarkable", () => {
       );
 
       const api = await remarkable("", { fetch });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(api.getEntries("")).rejects.toThrow(
         "unexpected schema version: 4",
       );
@@ -587,14 +622,14 @@ describe("remarkable", () => {
 
     const api = await remarkable("", { fetch });
     const buffer = new Uint8Array([0, 2, 5, 9, 100, 255]);
-    const entry = await api.putBuffer("doc id", buffer);
+    const entry = await api.putBuffer("doc id", buffer.buffer as ArrayBuffer);
 
     expect(entry.documentId).toBe("doc id");
     expect(entry.size).toBe(6n);
 
     const [, , req] = fetch.pastRequests;
     expect(req?.url).toBe("put url");
-    const sent = req?.body as Uint8Array;
+    const sent = new Uint8Array(req?.body as ArrayBuffer);
     for (const [i, v] of buffer.entries()) {
       expect(sent[i]).toBe(v);
     }
@@ -664,6 +699,7 @@ describe("remarkable", () => {
 
       send();
 
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(first).rejects.toThrow("failed reMarkable request: err");
       await second;
       await third;
@@ -691,10 +727,9 @@ describe("remarkable", () => {
     test("success", async () => {
       const fetch = createMockFetch(new MockResponse(), ...PUT_FILE_RESPONSES);
 
-      const enc = new TextEncoder();
       const epub = "fake epub content";
       const api = await remarkable("", { fetch });
-      await api.putEpub("doc name", enc.encode(epub));
+      await api.putEpub("doc name", encode(epub));
 
       const [, , doc, , metadata, , content, , collection] = fetch.pastRequests;
       expect(doc?.bodyText).toBe(epub);
@@ -706,10 +741,9 @@ describe("remarkable", () => {
     test("custom", async () => {
       const fetch = createMockFetch(new MockResponse(), ...PUT_FILE_RESPONSES);
 
-      const enc = new TextEncoder();
       const epub = "fake epub content";
       const api = await remarkable("", { fetch });
-      await api.putEpub("doc name", enc.encode(epub), {
+      await api.putEpub("doc name", encode(epub), {
         cover: "first",
         lineHeight: "lg",
         margins: "rr",
@@ -727,10 +761,9 @@ describe("remarkable", () => {
     test("success", async () => {
       const fetch = createMockFetch(new MockResponse(), ...PUT_FILE_RESPONSES);
 
-      const enc = new TextEncoder();
       const pdf = "fake pdf content";
       const api = await remarkable("", { fetch });
-      await api.putPdf("doc name", enc.encode(pdf));
+      await api.putPdf("doc name", encode(pdf));
 
       const [, , doc, , metadata, , content, , collection] = fetch.pastRequests;
       expect(doc?.bodyText).toBe(pdf);
@@ -742,10 +775,9 @@ describe("remarkable", () => {
     test("custom", async () => {
       const fetch = createMockFetch(new MockResponse(), ...PUT_FILE_RESPONSES);
 
-      const enc = new TextEncoder();
       const pdf = "fake pdf content";
       const api = await remarkable("", { fetch });
-      await api.putPdf("doc name", enc.encode(pdf), {
+      await api.putPdf("doc name", encode(pdf), {
         cover: "visited",
       });
 
@@ -1015,6 +1047,7 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       const res = api.move("id", "missing", { sync: false });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(res).rejects.toThrow("destination id not found: missing");
     });
 
@@ -1035,6 +1068,7 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       const res = api.move("id", "other_id", { sync: false });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(res).rejects.toThrow(
         "destination id was a raw file: other_id",
       );
@@ -1051,6 +1085,7 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       const res = api.move("id", "other_id", { sync: false });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(res).rejects.toThrow(
         "destination id didn't have metadata: other_id",
       );
@@ -1079,6 +1114,7 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       const res = api.move("id", "other_id", { sync: false });
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(res).rejects.toThrow(
         "destination id wasn't a collection: other_id",
       );
@@ -1089,6 +1125,7 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       const res = api.move("missing", "");
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(res).rejects.toThrow("document not found: missing");
     });
 
@@ -1109,6 +1146,7 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       const res = api.move("other_id", "");
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(res).rejects.toThrow("document was a raw file: other_id");
     });
 
@@ -1123,18 +1161,18 @@ describe("remarkable", () => {
 
       const api = await remarkable("", { fetch });
       const res = api.move("id", "");
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(res).rejects.toThrow("document didn't have metadata: id");
     });
   });
 
   test("#getEntriesMetadata()", async () => {
-    const entries = [
+    const entries: MetadataEntry[] = [
       {
         type: "CollectionType",
         id: "id",
         hash: "hash",
         visibleName: "name",
-        lastModified: "",
       },
     ];
     const fetch = createMockFetch(
@@ -1155,9 +1193,8 @@ describe("remarkable", () => {
     );
 
     const api = await remarkable("", { fetch });
-    const encoder = new TextEncoder();
     const content = "my epub content";
-    const res = await api.uploadEpub("my epub title", encoder.encode(content));
+    const res = await api.uploadEpub("my epub title", encode(content));
 
     expect(res.docID).toBe("epub id");
     expect(res.hash).toBe("epub hash");
@@ -1173,9 +1210,8 @@ describe("remarkable", () => {
     );
 
     const api = await remarkable("", { fetch });
-    const encoder = new TextEncoder();
     const content = "my pdf content";
-    const res = await api.uploadPdf("my pdf title", encoder.encode(content));
+    const res = await api.uploadPdf("my pdf title", encode(content));
 
     expect(res.docID).toBe("pdf id");
     expect(res.hash).toBe("pdf hash");
@@ -1208,6 +1244,7 @@ describe("remarkable", () => {
 
       initCache = await cache;
 
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await expect(second).rejects.toThrow("failed reMarkable request: err");
     }
 
