@@ -23,10 +23,9 @@
     "prepack": "bun lint && bun test --coverage && bun export"
   },
   "dependencies": {
-    "ajv": "^8.12.0",
     "base64-js": "^1.5.1",
     "json-stable-stringify": "^1.1.1",
-    "jtd": "^0.1.1",
+    "jtd-ts": "^0.1.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {

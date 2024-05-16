@@ -42,9 +42,20 @@
  */
 import { fromByteArray } from "base64-js";
 import stringify from "json-stable-stringify";
+import {
+  boolean,
+  discriminator,
+  elements,
+  enumeration,
+  float64,
+  int32,
+  properties,
+  string,
+  timestamp,
+  type CompiledSchema,
+} from "jtd-ts";
 import { v4 as uuid4 } from "uuid";
 import { concatBuffers, fromHex, toHex } from "./utils";
-import { JtdSchema, validate } from "./validate";
 
 const SCHEMA_VERSION = "3";
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
@@ -181,12 +192,10 @@ export interface UploadEntry {
   hash: string;
 }
 
-const uploadEntrySchema: JtdSchema<UploadEntry> = {
-  properties: {
-    docID: { type: "string" },
-    hash: { type: "string" },
-  },
-};
+const uploadEntry = properties({
+  docID: string(),
+  hash: string(),
+}) satisfies CompiledSchema<UploadEntry, unknown>;
 
 /** the response when fetching a signed url from google cloud */
 interface UrlResponse {
@@ -202,17 +211,17 @@ interface UrlResponse {
   maxuploadsize_bytes?: number;
 }
 
-const urlResponseSchema: JtdSchema<UrlResponse> = {
-  properties: {
-    relative_path: { type: "string" },
-    url: { type: "string" },
-    expires: { type: "timestamp" },
-    method: { enum: ["POST", "GET", "PUT", "DELETE"] },
+const urlResponse = properties(
+  {
+    relative_path: string(),
+    url: string(),
+    expires: timestamp(),
+    method: enumeration("POST", "GET", "PUT", "DELETE"),
   },
-  optionalProperties: {
-    maxuploadsize_bytes: { type: "float64" },
+  {
+    maxuploadsize_bytes: float64(),
   },
-};
+) satisfies CompiledSchema<UrlResponse, unknown>;
 
 /** common metadata for documents and collections */
 export interface CommonMetadata {
@@ -286,73 +295,65 @@ export interface DocumentMetadataEntry
 export type MetadataEntry = CollectionMetadataEntry | DocumentMetadataEntry;
 
 const commonProperties = {
-  visibleName: { type: "string" },
+  visibleName: string(),
 } as const;
 
 const commonOptionalProperties = {
-  lastModified: { type: "string" },
-  version: { type: "int32" },
-  pinned: { type: "boolean" },
-  synced: { type: "boolean" },
-  modified: { type: "boolean" },
-  deleted: { type: "boolean" },
-  metadatamodified: { type: "boolean" },
-  parent: { type: "string" },
+  lastModified: string(),
+  version: int32(),
+  pinned: boolean(),
+  synced: boolean(),
+  modified: boolean(),
+  deleted: boolean(),
+  metadatamodified: boolean(),
+  parent: string(),
 } as const;
 
-const metadataSchema: JtdSchema<Metadata> = {
-  discriminator: "type",
-  mapping: {
-    CollectionType: {
-      properties: commonProperties,
-      optionalProperties: commonOptionalProperties,
-      additionalProperties: true,
+const metadata = discriminator("type", {
+  CollectionType: properties(commonProperties, commonOptionalProperties, true),
+  DocumentType: properties(
+    commonProperties,
+    {
+      ...commonOptionalProperties,
+      lastOpened: string(),
+      lastOpenedPage: int32(),
+      createdTime: string(),
     },
-    DocumentType: {
-      properties: commonProperties,
-      optionalProperties: {
-        ...commonOptionalProperties,
-        lastOpened: { type: "string" },
-        lastOpenedPage: { type: "int32" },
-        createdTime: { type: "string" },
-      },
-      additionalProperties: true,
-    },
-  },
-};
+    true,
+  ),
+}) satisfies CompiledSchema<Metadata, unknown>;
 
 const baseMetadataProperties = {
-  id: { type: "string" },
-  hash: { type: "string" },
+  id: string(),
+  hash: string(),
 } as const;
 
-const metadataEntrySchema: JtdSchema<MetadataEntry> = {
-  discriminator: "type",
-  mapping: {
-    CollectionType: {
-      properties: {
+const metadataEntries = elements(
+  discriminator("type", {
+    CollectionType: properties(
+      {
         ...commonProperties,
         ...baseMetadataProperties,
       },
-      optionalProperties: commonOptionalProperties,
-      additionalProperties: true,
-    },
-    DocumentType: {
-      properties: {
+      commonOptionalProperties,
+      true,
+    ),
+    DocumentType: properties(
+      {
         ...commonProperties,
         ...baseMetadataProperties,
-        fileType: { enum: ["notebook", "epub", "pdf", ""] },
+        fileType: enumeration("notebook", "epub", "pdf", ""),
       },
-      optionalProperties: {
+      {
         ...commonOptionalProperties,
-        lastOpened: { type: "string" },
-        lastOpenedPage: { type: "int32" },
-        createdTime: { type: "string" },
+        lastOpened: string(),
+        lastOpenedPage: int32(),
+        createdTime: string(),
       },
-      additionalProperties: true,
-    },
-  },
-};
+      true,
+    ),
+  }),
+) satisfies CompiledSchema<MetadataEntry[], unknown>;
 
 /** extra content metadata */
 export type ExtraMetadata = Record<string, string | undefined>;
@@ -1118,8 +1119,13 @@ class Remarkable implements RemarkableApi {
     );
     const raw = await resp.text();
     const res = JSON.parse(raw) as unknown;
-    validate(urlResponseSchema, res);
-    return res;
+    if (urlResponse.guard(res)) {
+      return res;
+    } else {
+      throw new Error(
+        `couldn't validate schema: ${JSON.stringify(res)} didn't match schema ${JSON.stringify(urlResponse.schema())}`,
+      );
+    }
   }
 
   /**
@@ -1260,8 +1266,14 @@ class Remarkable implements RemarkableApi {
     { verify = true }: GetOptions = {},
   ): Promise<Metadata> {
     const raw = await this.getJson(hash);
-    validate(metadataSchema, raw, verify);
-    return raw;
+    if (!verify || metadata.guard(raw)) {
+      // NOTE can't verify if we bypass
+      return raw as Metadata;
+    } else {
+      throw new Error(
+        `couldn't validate schema: ${JSON.stringify(raw)} didn't match schema ${JSON.stringify(metadata.schema())}`,
+      );
+    }
   }
 
   /**
@@ -1627,11 +1639,13 @@ class Remarkable implements RemarkableApi {
     });
     const raw = await resp.text();
     const res = JSON.parse(raw) as unknown;
-    const schema: JtdSchema<MetadataEntry[]> = {
-      elements: metadataEntrySchema,
-    };
-    validate(schema, res, verify);
-    return res;
+    if (!verify || metadataEntries.guard(res)) {
+      return res as MetadataEntry[];
+    } else {
+      throw new Error(
+        `couldn't validate schema: ${JSON.stringify(res)} didn't match schema ${JSON.stringify(metadataEntries.schema())}`,
+      );
+    }
   }
 
   /** upload a file */
@@ -1653,8 +1667,13 @@ class Remarkable implements RemarkableApi {
     });
     const raw = await resp.text();
     const res = JSON.parse(raw) as unknown;
-    validate(uploadEntrySchema, res, verify);
-    return res;
+    if (!verify || uploadEntry.guard(res)) {
+      return res as UploadEntry;
+    } else {
+      throw new Error(
+        `couldn't validate schema: ${JSON.stringify(res)} didn't match schema ${JSON.stringify(uploadEntry.schema())}`,
+      );
+    }
   }
 
   /** upload an epub */
