@@ -7,7 +7,7 @@
  * {@link RemarkableApi | `RemarkableApi`}.
  *
  * @example
- * A simple fetch
+ * A simple rename
  * ```ts
  * import { register, remarkable } from "rmapi-js";
  *
@@ -15,17 +15,9 @@
  * const token = await register(code)
  * // persist token
  * const api = await remarkable(token);
- * const rootEntries = await api.getEntries();
- * for (const entry of rootEntries) {
- *   const children = await api.getEntries(entry.hash);
- *   for (const { hash, documentId } of children) {
- *     if (documentId.endsWith(".metadata")) {
- *       const meta = api.getMetadata(hash);
- *       // get metadata for entry
- *       console.log(meta);
- *     }
- *   }
- * }
+ * const [first, ...rest] = api.listfiles();
+ * // rename first file
+ * const api.rename(first.hash, "new name");
  * ```
  *
  * @example
@@ -38,31 +30,35 @@
  * await api.create(entry);
  * ```
  *
+ * @remarks
+ *
+ * The cloud api is essentially a collection of entries. Each entry has an id,
+ * which is a uuid4 and a hash, which indicates it's current state, and changes
+ * as the item mutates, where the id is constant. Most mutable operations take
+ * the initial hash so that merge conflicts can be resolved. Each entry has a
+ * number of properties, but a key is the `parent`, which represents its parent
+ * in the file structure. This will be another document id, or one of two
+ * special ids, "" (the empty string) for the root directory, or "trash" for the
+ * trash.
+ *
  * @packageDocumentation
  */
 import { fromByteArray } from "base64-js";
-import stringify from "json-stable-stringify";
 import {
   boolean,
   discriminator,
   elements,
   enumeration,
   float64,
-  int32,
   properties,
   string,
-  timestamp,
+  values,
   type CompiledSchema,
 } from "jtd-ts";
 import { v4 as uuid4 } from "uuid";
-import { concatBuffers, fromHex, toHex } from "./utils";
 
-const SCHEMA_VERSION = "3";
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
-const SYNC_HOST = "https://internal.cloud.remarkable.com";
-const GENERATION_HEADER = "x-goog-generation";
-const GENERATION_RACE_HEADER = "x-goog-if-generation-match";
-const CONTENT_LENGTH_RANGE_HEADER = "x-goog-content-length-range";
+const SYNC_HOST = "https://web.eu.tectonic.remarkable.com";
 
 // ------------ //
 // Request Info //
@@ -70,119 +66,82 @@ const CONTENT_LENGTH_RANGE_HEADER = "x-goog-content-length-range";
 // The section has all the types that are stored in the remarkable cloud.
 
 /** request types */
-export type RequestMethod = "POST" | "GET" | "PUT" | "DELETE";
+export type RequestMethod =
+  | "POST"
+  | "GET"
+  | "PUT"
+  | "DELETE"
+  | "PATCH"
+  | "OPTIONS";
 
-/** text alignment types */
-export type TextAlignment = "justify" | "left";
+const idReg =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}||trash)$/;
+const hashReg = /^[0-9a-f]{64}$/;
 
-/** tool options */
-/* eslint-disable spellcheck/spell-checker */
-export const builtinTools = [
-  "Ballpoint",
-  "Ballpointv2",
-  "Brush",
-  "Calligraphy",
-  "ClearPage",
-  "EraseSection",
-  "Eraser",
-  "Fineliner",
-  "Finelinerv2",
-  "Highlighter",
-  "Highlighterv2",
-  "Marker",
-  "Markerv2",
-  "Paintbrush",
-  "Paintbrushv2",
-  "Pencilv2",
-  "SharpPencil",
-  "SharpPencilv2",
-  "SolidPen",
-  "ZoomTool",
-] as const;
-/* eslint-enable spellcheck/spell-checker */
-
-/** font name options */
-/* eslint-disable spellcheck/spell-checker */
-export const builtinFontNames = [
-  "Maison Neue",
-  "EB Garamond",
-  "Noto Sans",
-  "Noto Serif",
-  "Noto Mono",
-  "Noto Sans UI",
-] as const;
-/* eslint-enable spellcheck/spell-checker */
-
-/** text scale options */
-export const builtinTextScales = {
-  /** the smallest */
-  xs: 0.7,
-  /** small */
-  sm: 0.8,
-  /** medium / default */
-  md: 1.0,
-  /** large */
-  lg: 1.2,
-  /** extra large */
-  xl: 1.5,
-  /** double extra large */
-  xx: 2.0,
-} as const;
-
-/** margin options */
-export const builtinMargins = {
-  /** small */
-  sm: 50,
-  /** medium */
-  md: 125,
-  /** default for read on remarkable */
-  rr: 180,
-  /** large */
-  lg: 200,
-} as const;
-
-/** line height options */
-export const builtinLineHeights = {
-  /** default */
-  df: -1,
-  /** normal */
-  md: 100,
-  /** half */
-  lg: 150,
-  /** double */
-  xl: 200,
-} as const;
-
-/** a remarkable entry for a cloud collection */
-export interface CollectionEntry {
-  /** collection type */
-  type: "80000000";
-  /** the hash of the collection this points to */
-  hash: string;
-  /** the unique id of the collection */
-  documentId: string;
-  /** the number of subfiles */
-  subfiles: number;
-  /** collections don't have sizes */
-  size: bigint;
+/** simple verification wrapper that allows for bypassing */
+function verification<T>(
+  res: unknown,
+  schema: CompiledSchema<T, unknown>,
+  verify: boolean,
+): T {
+  if (!verify || schema.guard(res)) {
+    return res as T;
+  } else {
+    throw new Error(
+      `couldn't validate schema: ${JSON.stringify(res)} didn't match schema ${JSON.stringify(schema.schema())}`,
+    );
+  }
 }
 
-/** a remarkable entry for cloud data */
-export interface FileEntry {
-  /** file type */
-  type: "0";
-  /** the hash of the file this points to */
+/** a tag for an entry */
+export interface Tag {
+  /** the name of the tag */
+  name: string;
+  /** the timestamp when this tag was added */
+  timestamp: number;
+}
+
+/** common properties shared by collections and documents */
+export interface EntryCommon {
+  /** the document id, a uuid4 */
+  id: string;
+  /** the current hash of the state of this entry */
   hash: string;
-  /** the unique id of the file */
-  documentId: string;
-  /** files don't have subfiles */
-  subfiles: 0;
-  /** size of the file */
-  size: bigint;
+  /** the visible display name of this entry */
+  visibleName: string;
+  /** the last modified timestamp */
+  lastModified: string;
+  /**
+   * the parent of this entry
+   *
+   * There are two special parents, "" (empty string) for the root directory,
+   * and "trash" for the trash
+   */
+  parent: string;
+  /** true if the entry is starred in most ui elements */
+  pinned: boolean;
+  /** the timestamp of the last time this entry was opened */
+  lastOpened: string;
+  /** any tags the entry might have */
+  tags?: Tag[];
+}
+
+/** a folder, referred to in the api as a collection */
+export interface CollectionEntry extends EntryCommon {
+  /** the key for this as a collection */
+  type: "CollectionType";
+}
+
+/** a file, referred to in the api as a document */
+export interface DocumentType extends EntryCommon {
+  /** the key to identify this as a document */
+  type: "DocumentType";
+  /** the type of the file */
+  fileType: "epub" | "pdf" | "notebook";
 }
 
 /** a remarkable entry for cloud items */
-export type Entry = CollectionEntry | FileEntry;
+export type Entry = CollectionEntry | DocumentType;
 
 /** an simple entry produced by the upload api */
 export interface UploadEntry {
@@ -197,221 +156,56 @@ const uploadEntry = properties({
   hash: string(),
 }) satisfies CompiledSchema<UploadEntry, unknown>;
 
-/** the response when fetching a signed url from google cloud */
-interface UrlResponse {
-  /** hash requested */
-  relative_path: string;
-  /** signed url */
-  url: string;
-  /** expiry time */
-  expires: string;
-  /** method for request */
-  method: RequestMethod;
-  /** max upload bytes */
-  maxuploadsize_bytes?: number;
-}
-
-const urlResponse = properties(
-  {
-    relative_path: string(),
-    url: string(),
-    expires: timestamp(),
-    method: enumeration("POST", "GET", "PUT", "DELETE"),
-  },
-  {
-    maxuploadsize_bytes: float64(),
-  },
-) satisfies CompiledSchema<UrlResponse, unknown>;
-
-/** common metadata for documents and collections */
-export interface CommonMetadata {
-  /** name of content */
-  visibleName: string;
-  /** parent uuid (documentId) or "" for root or "trash" */
-  parent?: string;
-  /** last modified time */
-  lastModified?: string;
-  /** unknown significance */
-  version?: number;
-  /** unknown significance */
-  pinned?: boolean;
-  /** unknown significance */
-  synced?: boolean;
-  /** unknown significance */
-  modified?: boolean;
-  /** if file is deleted */
-  deleted?: boolean;
-  /** unknown significance */
-  metadatamodified?: boolean;
-}
-
-/** metadata for collection types */
-export interface CollectionTypeMetadata extends CommonMetadata {
-  /** the key for collection types */
-  type: "CollectionType";
-}
-
-/** metadata for document types */
-export interface DocumentTypeMetadata extends CommonMetadata {
-  /** the key for document types */
-  type: "DocumentType";
-  /** last opened time for documents */
-  lastOpened?: string;
-  /** last opened page for documents */
-  lastOpenedPage?: number;
-  /** created time */
-  createdTime?: string;
-}
-
-/**
- * metadata for a document or collection (folder)
- *
- * This is found in the the `.metadata` file.
- */
-export type Metadata = CollectionTypeMetadata | DocumentTypeMetadata;
-
-/** fields common to all {@link MetadataEntry | MetadataEntries} */
-export interface BaseMetadataEntry {
-  /** the document id of the entry */
-  id: string;
-  /** the hash of the entry */
-  hash: string;
-}
-
-/** the metadata entry for a collection */
-export interface CollectionMetadataEntry
-  extends BaseMetadataEntry,
-    CollectionTypeMetadata {}
-
-/** the metadata entry for a document */
-export interface DocumentMetadataEntry
-  extends BaseMetadataEntry,
-    DocumentTypeMetadata {
-  /** the type of the document */
-  fileType: FileType;
-}
-
-/** a full metadata entry returned by {@link RemarkableApi.getEntriesMetadata} */
-export type MetadataEntry = CollectionMetadataEntry | DocumentMetadataEntry;
-
 const commonProperties = {
+  id: string(),
+  hash: string(),
   visibleName: string(),
+  lastModified: string(),
+  parent: string(),
+  pinned: boolean(),
+  lastOpened: string(),
 } as const;
 
 const commonOptionalProperties = {
-  lastModified: string(),
-  version: int32(),
-  pinned: boolean(),
-  synced: boolean(),
-  modified: boolean(),
-  deleted: boolean(),
-  metadatamodified: boolean(),
-  parent: string(),
+  tags: elements(
+    properties({
+      name: string(),
+      timestamp: float64(),
+    }),
+  ),
 } as const;
 
-const metadata = discriminator("type", {
+const entry = discriminator("type", {
   CollectionType: properties(commonProperties, commonOptionalProperties, true),
   DocumentType: properties(
-    commonProperties,
-    {
-      ...commonOptionalProperties,
-      lastOpened: string(),
-      lastOpenedPage: int32(),
-      createdTime: string(),
-    },
+    { ...commonProperties, fileType: enumeration("epub", "pdf", "notebook") },
+    commonOptionalProperties,
     true,
   ),
-}) satisfies CompiledSchema<Metadata, unknown>;
+}) satisfies CompiledSchema<Entry, unknown>;
 
-const baseMetadataProperties = {
-  id: string(),
-  hash: string(),
-} as const;
+const entries = elements(entry) satisfies CompiledSchema<Entry[], unknown>;
 
-const metadataEntries = elements(
-  discriminator("type", {
-    CollectionType: properties(
-      {
-        ...commonProperties,
-        ...baseMetadataProperties,
-      },
-      commonOptionalProperties,
-      true,
-    ),
-    DocumentType: properties(
-      {
-        ...commonProperties,
-        ...baseMetadataProperties,
-        fileType: enumeration("notebook", "epub", "pdf", ""),
-      },
-      {
-        ...commonOptionalProperties,
-        lastOpened: string(),
-        lastOpenedPage: int32(),
-        createdTime: string(),
-      },
-      true,
-    ),
-  }),
-) satisfies CompiledSchema<MetadataEntry[], unknown>;
-
-/** extra content metadata */
-export type ExtraMetadata = Record<string, string | undefined>;
-
-/** remarkable file type; empty for notebook */
-export type FileType = "notebook" | "pdf" | "epub" | "";
-
-/** document matrix transform */
-export type Transform = Record<`m${1 | 2 | 3}${1 | 2 | 3}`, number>;
-
-/** content document metadata */
-export interface DocumentMetadata {
-  /** document title */
-  title?: string;
-  /** document authors */
-  authors?: string[];
+/** the new hash of a modified entry */
+export interface HashEntry {
+  /** the actual hash */
+  hash: string;
 }
 
-/**
- * content metadata
- *
- * This is found in the `.content` file.
- */
-// TODO probably discriminant union on fileType
-export interface Content {
-  /** is this a dummy document */
-  dummyDocument: boolean;
-  /** document metadata */
-  documentMetadata?: DocumentMetadata;
-  /** extra metadata */
-  extraMetadata: ExtraMetadata;
-  /** file type */
-  fileType: FileType;
-  /** font */
-  fontName?: string;
-  /** last opened page */
-  lastOpenedPage: number;
-  /** line height */
-  lineHeight: number;
-  /** page margins in points */
-  margins: number;
-  /** orientation */
-  orientation?: "portrait" | "landscape";
-  /** number of pages */
-  pageCount: number;
-  /** page ids */
-  pages: string[];
-  /** number to use for the coverage page, -1 for last opened */
-  coverPageNumber: number;
-  /** text scale */
-  textScale: number;
-  /** page transform */
-  transform?: Transform;
-  /** format version */
-  formatVersion: number;
-  /** text alignment */
-  textAlignment?: TextAlignment;
+const hashEntry = properties({ hash: string() }) satisfies CompiledSchema<
+  HashEntry,
+  unknown
+>;
+
+/** the mapping from old hashes to new hashes after a bulk modify */
+export interface HashesEntry {
+  /** the mapping from old to new hashes */
+  hashes: Record<string, string>;
 }
+
+const hashesEntry = properties({
+  hashes: values(string()),
+}) satisfies CompiledSchema<HashesEntry, unknown>;
 
 // ------------ //
 // Request Info //
@@ -443,32 +237,14 @@ export interface ResponseLike {
   status: number;
   /** text associated with status */
   statusText: string;
-  /** headers in response */
-  headers: HeadersLike;
   /** get response body as text */
   text(): Promise<string>;
-  /** get response body as an array buffer */
-  arrayBuffer(): Promise<ArrayBuffer>;
 }
 
 /** stripped down version of fetch */
 export interface FetchLike {
   /** the rough interface to fetch */
   (url: string, options?: RequestInitLike | undefined): Promise<ResponseLike>;
-}
-
-/** async storage, map like */
-export interface CacheLike {
-  /** get value for key or undefined if missing */
-  get(key: string): Promise<string | undefined>;
-  /** set value for key */
-  set(key: string, value: string): Promise<void>;
-}
-
-/** stripped down version of subtle crypto */
-export interface SubtleCryptoLike {
-  /** a digest function */
-  digest(algorithm: "SHA-256", data: BufferSource): Promise<ArrayBuffer>;
 }
 
 /** an error that results from a failed request */
@@ -485,17 +261,17 @@ export class ResponseError extends Error {
   }
 }
 
-/**
- * an error that results from trying yp update the wrong generation.
- *
- * If we try to update the root hash of files, but the generation has changed
- * relative to the one we're updating from, this will fail.
- */
-export class GenerationError extends Error {
-  constructor() {
-    super(
-      "Generation preconditions failed. This means the current state is out of date with the cloud and needs to be re-synced.",
-    );
+/** an error that results from a failed request */
+export class ValidationError extends Error {
+  /** the response status number */
+  readonly field: string;
+  /** the response status text */
+  readonly regex: RegExp;
+
+  constructor(field: string, regex: RegExp, message: string) {
+    super(message);
+    this.field = field;
+    this.regex = regex;
   }
 }
 
@@ -573,71 +349,6 @@ export async function register(
   }
 }
 
-/** options for uploading an epub document */
-export interface PutEpubOptions {
-  /** the parent id, default to root */
-  parent?: string | undefined;
-  /** the margins of the epub 180 is good for articles, 125 for books */
-  margins?: number | keyof typeof builtinMargins | undefined;
-  /** the height of lines */
-  lineHeight?: number | keyof typeof builtinLineHeights | undefined;
-  /** the scale of text */
-  textScale?: number | keyof typeof builtinTextScales | undefined;
-  /** the page orientation */
-  orientation?: "portrait" | "landscape" | undefined;
-  /** the text alignment */
-  textAlignment?: TextAlignment | undefined;
-  /** which page should be shone as the cover */
-  cover?: "first" | "visited" | undefined;
-  /** the font name, should probably come from `builtinFontNames` */
-  fontName?: string | undefined;
-  /** the tool to have enabled by default */
-  lastTool?: string;
-}
-
-/**
- * options for {@link RemarkableApi.getRootHash | `getRootHash`}
- */
-export interface GetRootHashOptions {
-  /**
-   * whether to use the last known valid root hash
-   *
-   * @defaultValue true
-   */
-  cache?: boolean;
-}
-
-/**
- * options for {@link RemarkableApi.create | `create`} and
- * {@link RemarkableApi.move | `move`}
- */
-export interface CreateMoveOptions {
-  /**
-   * whether to use the last known valid root hash
-   *
-   * @defaultValue true
-   */
-  cache?: boolean;
-  /**
-   * whether broadcast syncing complete to other devices
-   *
-   * @defaultValue true
-   */
-  sync?: boolean;
-}
-
-/** options for uploading a pdf */
-export interface PutPdfOptions {
-  /** the parent id, default to root */
-  parent?: string | undefined;
-  /** the page orientation */
-  orientation?: "portrait" | "landscape" | undefined;
-  /** which page should be shone as the cover */
-  cover?: "first" | "visited" | undefined;
-  /** the tool to have enabled by default */
-  lastTool?: string;
-}
-
 /** options for getting responses */
 export interface GetOptions {
   /**
@@ -649,270 +360,30 @@ export interface GetOptions {
   verify?: boolean | undefined;
 }
 
+export interface UploadOptions extends GetOptions {
+  /** an optional parent id to set when uploading */
+  parent?: string;
+}
+
 /**
  * the api for accessing remarkable functions
  */
 export interface RemarkableApi {
   /**
-   * get the root hash and the current generation
+   * list all files
    *
-   * If this hasn't changed, then neither have any of the files.
-   */
-  getRootHash(options?: GetRootHashOptions): Promise<[string, bigint]>;
-
-  /**
-   * write the root hash, incrimenting from the current generation
-   *
-   * This will fail if the current generation isn't equal to the passed in
-   * generation. Use this to preven race conditions. If this rejects, refetch
-   * the root hash, resync the updates, and then try to put again.
-   *
-   * @remarks Updating the root hash can be dangerous as it changes the full
-   * state of what's on the the remarkable. However, it's also the only way to
-   * change what's actually visible. If you're unsure if you're doing the right
-   * thing, make sure to first save your inital root hash. Then you can always
-   * recover by doing:
+   * @example
+   * ```ts
+   * await api.listFiles();
    * ```
-   * let [, gen] = await api.getRootHash();
-   * await api.putRootHash(backup, gen);
-   * ```
-   *
-   * @param hash - the hash of the new root collection
-   * @param generation - the current generation this builds off of
-   * @returns the new generation
-   * @throws {@link GenerationError} if the current cloud generation didn't
-   * match the expected pushed generation.
    */
-  putRootHash(hash: string, generation: bigint): Promise<bigint>;
+  listFiles(ops?: GetOptions): Promise<Entry[]>;
 
-  /**
-   * get array buffer associated with a hash
-   *
-   * @param hash - the hash to get text data from
-   */
-  getBuffer(hash: string): Promise<ArrayBuffer>;
-
-  /**
-   * get text content associated with hash
-   *
-   * @param hash - the hash to get text data from
-   */
-  getText(hash: string): Promise<string>;
-
-  /**
-   * get a json object associated with a hash
-   *
-   * This is identical to `getText(hash).then(JSON.parse)` and is only provided
-   * for consistency with {@link RemarkableApi.putJson | `putJson`}.
-   */
-  getJson(hash: string): Promise<unknown>;
-
-  /** get metadata from hash */
-  getMetadata(hash: string, opts?: GetOptions): Promise<Metadata>;
-
-  /**
-   * get entries from a collection hash
-   *
-   * If omitted, this will use `getRootHash()`.
-   */
-  getEntries(hash?: string): Promise<Entry[]>;
-
-  /** put a reference to a set of entries into the cloud */
-  putEntries(documentId: string, entries: Entry[]): Promise<CollectionEntry>;
-
-  /** put a raw buffer in the cloud */
-  putBuffer(documentId: string, buffer: ArrayBuffer): Promise<FileEntry>;
-
-  /**
-   * put a raw text in the cloud encoded as utf-8
-   *
-   * this is no different than using `putBuffer(..., new TextEncoder().encode(contents))`
-   */
-  putText(documentId: string, contents: string): Promise<FileEntry>;
-
-  /**
-   * put json into the cloud
-   *
-   * This uses a stable (sorted keys) json serilization to preserve consistent
-   * hashes.
-   */
-  putJson(documentId: string, contents: object): Promise<FileEntry>;
-
-  /**
-   * put metadata into the cloud
-   *
-   * This is a small wrapper around {@link RemarkableApi.putText | `putText`}.
-   *
-   * @param documentId - this should be the documentId of the item that this is
-   *   metadata for; it should not end in `.metadata`
-   * @param metadata - the metadata to upload
-   */
-  putMetadata(documentId: string, metadata: Metadata): Promise<FileEntry>;
-
-  /**
-   * create a new collection (folder)
-   *
-   * @param visibleName - the name of the new folder
-   * @param parent - the documentId of the parent collection (folder)
-   */
-  putCollection(visibleName: string, parent?: string): Promise<CollectionEntry>;
+  /** create a folder */
+  createFolder(visibleName: string, opts?: UploadOptions): Promise<UploadEntry>;
 
   /**
    * upload an epub
-   *
-   * @remarks this only uploads the raw data and returns an entry that could be
-   * uploaded as part of a larger collection. To make sure devices know about
-   * it, you'll still need to update the root hash, and potentially notify
-   * other devices.
-   *
-   * @example
-   * This example shows a full process upload. Note that it may fail if other
-   * devices are simultaneously syncing content. See {@link putRootHash} for
-   * more information.
-   *
-   * ```ts
-   * const entry = await api.putEpub(...);
-   * await api.create(entry);
-   * ```
-   *
-   * @param visibleName - the name to show for the uploaded epub
-   * @param buffer - the epub contents
-   * @param opts - extra options you can specify at upload
-   */
-  putEpub(
-    visibleName: string,
-    buffer: ArrayBuffer,
-    opts?: PutEpubOptions,
-  ): Promise<CollectionEntry>;
-
-  /**
-   * upload a pdf
-   *
-   * @remarks this only uploads the raw data and returns an entry that could be
-   * uploaded as part of a larger collection. To make sure devices know about
-   * it, you'll still need to update the root hash, and potentially notify
-   * other devices.
-   *
-   * @example
-   * This example shows a full process upload. Note that it may fail if other
-   * devices are simultaneously syncing content. See {@link putRootHash} for
-   * more information.
-   *
-   * ```ts
-   * const entry = await api.putPdf(...);
-   * await api.create(entry);
-   * ```
-   *
-   * @param visibleName - the name to show for the uploaded pdf
-   * @param buffer - the pdf contents
-   * @param opts - extra options you can specify at upload
-   */
-  putPdf(
-    visibleName: string,
-    buffer: ArrayBuffer,
-    opts?: PutPdfOptions,
-  ): Promise<CollectionEntry>;
-
-  /**
-   * indicate that a sync is complete and push updates to other devices
-   *
-   * @remarks after successfully putting a new root hash, use this to indicate
-   * that other devices should pick up the change.
-   */
-  syncComplete(generation: bigint): Promise<void>;
-
-  /**
-   * high level api to create an entry
-   *
-   * After creating a collection entry with
-   * {@link RemarkableApi.putCollection | `putCollection`},
-   * {@link RemarkableApi.putEpub | `putEpub`}, or
-   * {@link RemarkableApi.putPdf | `putPdf`}, this is a high level API to try
-   * syncing the change to the remarkable.
-   *
-   * @remarks
-   * This API is provided to give a high level interface and to serve as an
-   * example of how to implement more advanced functionality, but it comes with
-   * a number of caveats:
-   * 1. For most use cases, it will repeat requests to remarkable's servers
-   *    (even with a cache) making it slower than implementing similar steps
-   *    manually.
-   * 2. It includes no handling of concurrent modification or other networking
-   *    errors, requiring repeat network requests if anything fails.
-   *
-   * However, with recent changes in the way this library caches results, it
-   * won't be terribly inefficient to just do multiple retries of create after
-   * uploading the file itself.
-   *
-   * @example
-   * ```ts
-   * const entry = await api.putEpub(...);
-   * await api.create(entry);
-   * ```
-   *
-   * @param entry - and entry, usually created by a `put*` method
-   * @param options - any extra options for creation
-   * @returns synced - if sync was successful
-   * @throws error - if any error occurred, in this case, nothing will be
-   *   changed
-   */
-  create(entry: CollectionEntry, options?: CreateMoveOptions): Promise<boolean>;
-
-  /**
-   * high level api to move a document / collection
-   *
-   * Use this as a high level api to move files in the document tree.
-   *
-   * @remarks
-   * This API is provided to give a high level interface and to serve as an
-   * example of how to implement more advanced functionality, but it comes with
-   * a number of caveats:
-   * 1. For most use cases, it will repeat requests to remarkable's servers
-   *    (even with a cache) making it slower than implementing similar steps
-   *    manually.
-   * 2. It includes no handling of concurrent modification or other networking
-   *    errors, requiring repeat network requests if anything fails.
-   *
-   * However, with changes to the way this caches results, it won't be terribly
-   * inefficient to just retry calling `move` if there's a failure.
-   *
-   * @example
-   * ```ts
-   * const [root] = await api.getRootHash();
-   * const entries = await api.getEntries(root);
-   * const { documentId } = entries.find(...);
-   * await api.move(documentId, "trash");
-   * ```
-   *
-   * @param documentId - the document id of the document or collection to move
-   * @param dest - the new parent of this collection or document; this should
-   *   be the document id of an existing collection, an empty string for root,
-   *   or the string `"trash"` to move to the trash
-   * @param opts - any extra options for moving
-   * @returns synced - true if synced successfully
-   * @throws error - if any error occurred, in this case, nothing will be
-   *   changed
-   */
-  move(
-    documentId: string,
-    dest: string,
-    opts?: CreateMoveOptions,
-  ): Promise<boolean>;
-
-  /**
-   * get metadata on all entries
-   *
-   * @remarks this uses a newer api, that returns metadata associated with all
-   * entries and their hash and documentId.
-   */
-  getEntriesMetadata(opts?: GetOptions): Promise<MetadataEntry[]>;
-
-  /**
-   * upload an epub
-   *
-   * @remarks this uses a newer api that performs a full upload and sync, but
-   * doesn't allow adding the same level of extra content data. Useful if you
-   * just want to upload a document with no fuss.
    *
    * @example
    * ```ts
@@ -925,18 +396,11 @@ export interface RemarkableApi {
   uploadEpub(
     visibleName: string,
     buffer: ArrayBuffer,
-    opts?: GetOptions,
+    opts?: UploadOptions,
   ): Promise<UploadEntry>;
 
   /**
    * upload a pdf
-   *
-   * this currently uploads invalid pdfs, but it's not clear why, which is why
-   * this is marked as experimental. Potentially some tweak in the formatting
-   * of buffer will fix it.
-   *
-   * @remarks this uses a newer api that performs a full upload and sync, but
-   * doesn't allow adding the same level of extra information.
    *
    * @example
    * ```ts
@@ -945,102 +409,96 @@ export interface RemarkableApi {
    *
    * @param visibleName - the name to show for the uploaded epub
    * @param buffer - the epub contents
-   * @experimental
    */
   uploadPdf(
     visibleName: string,
     buffer: ArrayBuffer,
-    opts?: GetOptions,
+    opts?: UploadOptions,
   ): Promise<UploadEntry>;
 
   /**
-   * get the current state of the cache for persisting
+   * move an entry
    *
-   * This won't include items that weren't cached because they were too big,
-   * meaning it won't prevent duplicate puts of large content across sessions.
+   * @example
+   * ```ts
+   * await api.move(doc.hash, dir.id);
+   * ```
+   *
+   * @param hash - the hash of the file to move
+   * @param parent - the id of the directory to move the entry to, "" (root) and "trash" are special parents
    */
-  getCache(): Promise<Map<string, ArrayBuffer>>;
-}
+  move(hash: string, parent: string, opts?: GetOptions): Promise<HashEntry>;
 
-/** format an entry */
-export function formatEntry({
-  hash,
-  type,
-  documentId,
-  subfiles,
-  size,
-}: Entry): string {
-  return `${hash}:${type}:${documentId}:${subfiles}:${size}\n`;
-}
+  /**
+   * delete an entry
+   *
+   * @example
+   * ```ts
+   * await api.delete(file.hash);
+   * ```
+   * @param hash - the hash of the entry to delete
+   */
+  delete(hash: string, opts?: GetOptions): Promise<HashEntry>;
 
-/** parse an entry */
-export function parseEntry(line: string): Entry {
-  const [hash, type, documentId, subfiles, size] = line.split(":");
-  if (
-    hash === undefined ||
-    type === undefined ||
-    documentId === undefined ||
-    subfiles === undefined ||
-    size === undefined
-  ) {
-    throw new Error(`entries line didn't contain five fields: '${line}'`);
-  }
-  if (type === "80000000") {
-    return {
-      hash,
-      type,
-      documentId,
-      subfiles: parseInt(subfiles),
-      size: BigInt(size),
-    };
-  } else if (type === "0") {
-    if (subfiles !== "0") {
-      throw new Error(
-        `file type entry had nonzero number of subfiles: ${subfiles}`,
-      );
-    } else {
-      return {
-        hash,
-        type,
-        documentId,
-        subfiles: 0,
-        size: BigInt(size),
-      };
-    }
-  } else {
-    throw new Error(`entries line contained invalid type: ${type}`);
-  }
+  /**
+   * rename an entry
+   *
+   * @example
+   * ```ts
+   * await api.rename(file.hash, "new name");
+   * ```
+   * @param hash - the hash of the entry to rename
+   * @param visibleName - the new name to assign
+   */
+  rename(
+    hash: string,
+    visibleName: string,
+    opts?: GetOptions,
+  ): Promise<HashEntry>;
+
+  /**
+   * move many entries
+   *
+   * @example
+   * ```ts
+   * await api.bulkMove([file.hash], dir.id);
+   * ```
+   *
+   * @param hashes - an array of entry hashes to move
+   * @param parent - the directory id to move the entries to, "" (root) and "trash" are special ids
+   */
+  bulkMove(
+    hashes: readonly string[],
+    parent: string,
+    opts?: GetOptions,
+  ): Promise<HashesEntry>;
+
+  /**
+   * delete many entries
+   *
+   * @example
+   * ```ts
+   * await api.bulkDelete([file.hash]);
+   * ```
+   *
+   * @param hashes - the hashes of the entries to delete
+   */
+  bulkDelete(
+    hashes: readonly string[],
+    opts?: GetOptions,
+  ): Promise<HashesEntry>;
 }
 
 /** the implementation of that api */
 class Remarkable implements RemarkableApi {
   readonly #userToken: string;
   readonly #fetch: FetchLike;
-  readonly #subtle: SubtleCryptoLike;
   readonly #syncHost: string;
-  // caches
-  readonly #cacheLimitBytes: number;
-  readonly #cache: Map<string, Promise<ArrayBuffer | null>> = new Map();
-  #rootCache: null | Promise<readonly [string, bigint]> = null;
 
-  constructor(
-    userToken: string,
-    fetch: FetchLike,
-    subtle: SubtleCryptoLike,
-    syncHost: string,
-    cacheLimitBytes: number,
-    initCache: Iterable<readonly [string, ArrayBuffer]>,
-  ) {
+  constructor(userToken: string, fetch: FetchLike, syncHost: string) {
     this.#userToken = userToken;
     this.#fetch = fetch;
-    this.#subtle = subtle;
     this.#syncHost = syncHost;
-    this.#cacheLimitBytes = cacheLimitBytes;
-
-    // set cache
-    for (const [hash, val] of initCache) {
-      this.#cache.set(hash, Promise.resolve(val));
-    }
   }
 
   /** make an authorized request to remarkable */
@@ -1076,613 +534,99 @@ class Remarkable implements RemarkableApi {
     }
   }
 
-  /** make a signed request to the cloud */
-  async #signedFetch(
-    { url, method, maxuploadsize_bytes }: UrlResponse,
-    body?: string | ArrayBuffer | undefined,
-    add_headers: Record<string, string> = {},
-  ): Promise<ResponseLike> {
-    const headers = maxuploadsize_bytes
-      ? {
-          ...add_headers,
-          [CONTENT_LENGTH_RANGE_HEADER]: `0,${maxuploadsize_bytes}`,
-        }
-      : add_headers;
-    const resp = await this.#fetch(url, {
-      method,
-      body,
-      headers,
-    });
-    if (!resp.ok) {
-      const msg = await resp.text();
-      throw new ResponseError(resp.status, resp.statusText, msg);
-    } else {
-      return resp;
-    }
-  }
-
-  /** get the details for how to make a signed request to remarkable cloud */
-  async #getUrl(
-    relativePath: string,
-    gen?: bigint | null | undefined,
-    rootHash?: string,
-  ): Promise<UrlResponse> {
-    const key = gen === undefined ? "downloads" : "uploads";
-    // NOTE this is done manually to serialize the bigints appropriately
-    const body =
-      rootHash && gen !== null && gen !== undefined
-        ? `{ "http_method": "PUT", "relative_path": "${relativePath}", "root_schema": "${rootHash}", "generation": ${gen} }`
-        : JSON.stringify({ http_method: "GET", relative_path: relativePath });
-    const resp = await this.#authedFetch(
-      `${this.#syncHost}/sync/v2/signed-urls/${key}`,
-      { body },
-    );
-    const raw = await resp.text();
-    const res = JSON.parse(raw) as unknown;
-    if (urlResponse.guard(res)) {
-      return res;
-    } else {
-      throw new Error(
-        `couldn't validate schema: ${JSON.stringify(res)} didn't match schema ${JSON.stringify(urlResponse.schema())}`,
-      );
-    }
-  }
-
-  /**
-   * get the root hash and the current generation
-   */
-  async getRootHash({ cache = true }: GetRootHashOptions = {}): Promise<
-    [string, bigint]
-  > {
-    if (cache) {
-      while (this.#rootCache) {
-        try {
-          const [hash, gen] = await this.#rootCache;
-          return [hash, gen];
-        } catch {
-          // noop
-        }
-      }
-    }
-    const prom = (async () => {
-      try {
-        const signed = await this.#getUrl("root");
-        const resp = await this.#signedFetch(signed);
-        const generation = resp.headers.get(GENERATION_HEADER);
-        if (!generation) {
-          throw new Error("no generation header in root hash");
-        } else {
-          return [await resp.text(), BigInt(generation)] as const;
-        }
-      } catch (ex) {
-        this.#rootCache = null;
-        throw ex;
-      }
-    })();
-    this.#rootCache = prom;
-    const [hash, gen] = await prom;
-    return [hash, gen];
-  }
-
-  /**
-   * write the root hash, incrementing from the current generation
-   */
-  async putRootHash(hash: string, generation: bigint): Promise<bigint> {
-    const signed = await this.#getUrl("root", generation, hash);
-    let resp;
-    try {
-      resp = await this.#signedFetch(signed, hash, {
-        [GENERATION_RACE_HEADER]: `${generation}`,
-      });
-    } catch (ex) {
-      if (ex instanceof ResponseError && ex.status === 412) {
-        this.#rootCache = null;
-        throw new GenerationError();
-      } else {
-        throw ex;
-      }
-    }
-    const genStr = resp.headers.get(GENERATION_HEADER);
-    if (!genStr) {
-      throw new Error("no generation header in root hash");
-    }
-    const gen = BigInt(genStr);
-    this.#rootCache = Promise.resolve([hash, gen]);
-    return gen;
-  }
-
-  /**
-   * get content associated with hash
-   */
-  async #getHash(hash: string): Promise<ArrayBuffer> {
-    let cached = this.#cache.get(hash);
-    while (cached) {
-      try {
-        const val = await cached;
-        if (val) {
-          return val;
-        } else {
-          cached = undefined; // break
-        }
-      } catch {
-        // try again if promise rejected
-        cached = this.#cache.get(hash);
-      }
-    }
-    const prom = (async () => {
-      const signed = await this.#getUrl(hash);
-      const resp = await this.#signedFetch(signed);
-      return await resp.arrayBuffer();
-    })();
-
-    // set cache with appropriate promise that cleans up on rejection
-    this.#cache.set(
-      hash,
-      prom.then(
-        (buff) => (buff.byteLength < this.#cacheLimitBytes ? buff : null),
-        (ex) => {
-          this.#cache.delete(hash);
-          throw ex;
-        },
-      ),
-    );
-
-    return await prom;
-  }
-
-  /**
-   * get text content associated with hash
-   */
-  async getBuffer(hash: string): Promise<ArrayBuffer> {
-    const buff = await this.#getHash(hash);
-    // copy if it is long enough to be cached to preven mutations
-    return buff.byteLength < this.#cacheLimitBytes ? buff.slice(0) : buff;
-  }
-
-  /**
-   * get text content associated with hash
-   */
-  async getText(hash: string): Promise<string> {
-    const buff = await this.#getHash(hash);
-    const decoder = new TextDecoder();
-    return decoder.decode(buff);
-  }
-
-  /**
-   * get json content associated with hash
-   */
-  async getJson(hash: string): Promise<unknown> {
-    const str = await this.getText(hash);
-    return JSON.parse(str) as unknown;
-  }
-
-  /**
-   * get metadata from hash
+  /** a generic request to the new files api
    *
-   * Call with `verify: false` to disable checking the response.
+   * @param meta - remarkable metadata to set, often json formatted or empty
+   * @param method - the http method to use
+   * @param contentType - the http content type to set
+   * @param body - body content, often raw bytes or json
+   * @param hash - the hash of a specific file to target
    */
-  async getMetadata(
-    hash: string,
-    { verify = true }: GetOptions = {},
-  ): Promise<Metadata> {
-    const raw = await this.getJson(hash);
-    if (!verify || metadata.guard(raw)) {
-      // NOTE can't verify if we bypass
-      return raw as Metadata;
-    } else {
-      throw new Error(
-        `couldn't validate schema: ${JSON.stringify(raw)} didn't match schema ${JSON.stringify(metadata.schema())}`,
-      );
-    }
-  }
-
-  /**
-   * get entries from a collection hash
-   */
-  async getEntries(hash?: string): Promise<Entry[]> {
-    if (hash === undefined) {
-      const [newHash] = await this.getRootHash({ cache: true });
-      hash = newHash;
-    }
-    const raw = await this.getText(hash);
-    // slice for trailing new line
-    const [schema, ...lines] = raw.slice(0, -1).split("\n");
-    if (schema !== SCHEMA_VERSION) {
-      throw new Error(`got unexpected schema version: ${schema!}`);
-    }
-
-    return lines.map(parseEntry);
-  }
-
-  /** upload data to hash */
-  async #putHash(hash: string, body: ArrayBuffer): Promise<void> {
-    // try cached version
-    const cached = this.#cache.get(hash);
-    if (cached) {
-      try {
-        await cached;
-        return;
-      } catch {
-        // noop
-      }
-    }
-    // if missing or rejected then put for real
-    const prom = (async () => {
-      try {
-        const signed = await this.#getUrl(hash, null);
-        await this.#signedFetch(signed, body);
-        return body.byteLength < this.#cacheLimitBytes ? body : null;
-      } catch (ex) {
-        this.#cache.delete(hash);
-        throw ex;
-      }
-    })();
-    this.#cache.set(hash, prom);
-    await prom;
-  }
-
-  /** put a reference to a set of entries into the cloud */
-  async putEntries(
-    documentId: string,
-    entries: Entry[],
-  ): Promise<CollectionEntry> {
-    // hash of a collection is the hash of all hashes in documentId order
-    const enc = new TextEncoder();
-    entries.sort((a, b) => a.documentId.localeCompare(b.documentId));
-
-    const hashes = concatBuffers(entries.map((ent) => fromHex(ent.hash)));
-    const digest = await this.#subtle.digest("SHA-256", hashes);
-    const hash = toHex(new Uint8Array(digest));
-
-    const entryContents = entries.map(formatEntry).join("");
-    const contents = `${SCHEMA_VERSION}\n${entryContents}`;
-    const buffer = enc.encode(contents).buffer as ArrayBuffer;
-    await this.#putHash(hash, buffer);
-
-    return {
-      hash,
-      type: "80000000",
-      documentId,
-      subfiles: entries.length,
-      size: 0n,
-    };
-  }
-
-  /** put a raw buffer in the cloud */
-  async putBuffer(documentId: string, buffer: ArrayBuffer): Promise<FileEntry> {
-    const digest = await this.#subtle.digest("SHA-256", buffer);
-    const hash = toHex(new Uint8Array(digest));
-    await this.#putHash(hash, buffer);
-    return {
-      hash,
-      type: "0",
-      documentId,
-      subfiles: 0,
-      size: BigInt(buffer.byteLength),
-    };
-  }
-
-  /** put text in the cloud */
-  async putText(documentId: string, contents: string): Promise<FileEntry> {
-    const enc = new TextEncoder();
-    const encoded = enc.encode(contents).buffer as ArrayBuffer;
-    return await this.putBuffer(documentId, encoded);
-  }
-
-  /** put json in the cloud */
-  async putJson(documentId: string, contents: object): Promise<FileEntry> {
-    return await this.putText(documentId, stringify(contents));
-  }
-
-  /** put metadata into the cloud */
-  async putMetadata(
-    documentId: string,
-    metadata: Metadata,
-  ): Promise<FileEntry> {
-    return await this.putJson(`${documentId}.metadata`, metadata);
-  }
-
-  /** put a new collection (folder) */
-  async putCollection(
-    visibleName: string,
-    parent: string = "",
-  ): Promise<CollectionEntry> {
-    const documentId = uuid4();
-    const lastModified = `${new Date().valueOf()}`;
-
-    const entryPromises: Promise<Entry>[] = [];
-
-    // upload metadata
-    const metadata: CollectionTypeMetadata = {
-      type: "CollectionType",
-      visibleName,
-      version: 0,
-      parent,
-      synced: true,
-      lastModified,
-    };
-    entryPromises.push(this.putMetadata(documentId, metadata));
-    entryPromises.push(this.putText(`${documentId}.content`, "{}"));
-
-    const entries = await Promise.all(entryPromises);
-    return await this.putEntries(documentId, entries);
-  }
-
-  /** upload a content file */
-  async #putContent(
-    visibleName: string,
-    buffer: ArrayBuffer,
-    fileType: "epub" | "pdf",
-    parent: string,
-    content: Content,
-  ): Promise<CollectionEntry> {
-    /* istanbul ignore if */
-    if (content.fileType !== fileType) {
-      throw new Error(
-        `internal error: fileTypes don't match: ${fileType}, ${content.fileType}`,
-      );
-    }
-
-    const documentId = uuid4();
-    const lastModified = `${new Date().valueOf()}`;
-
-    const entryPromises: Promise<Entry>[] = [];
-
-    // upload main document
-    entryPromises.push(this.putBuffer(`${documentId}.${fileType}`, buffer));
-
-    // upload metadata
-    const metadata: DocumentTypeMetadata = {
-      type: "DocumentType",
-      visibleName,
-      version: 0,
-      parent,
-      synced: true,
-      lastModified,
-    };
-    entryPromises.push(this.putMetadata(documentId, metadata));
-    entryPromises.push(
-      this.putText(`${documentId}.content`, JSON.stringify(content)),
+  async #fileRequest({
+    meta = "",
+    method = "GET",
+    // eslint-disable-next-line spellcheck/spell-checker
+    contentType = "text/plain;charset=UTF-8",
+    body,
+    hash,
+  }: {
+    meta?: string;
+    method?: RequestMethod;
+    contentType?: string;
+    body?: ArrayBuffer | string;
+    hash?: string;
+  } = {}): Promise<unknown> {
+    const encoder = new TextEncoder();
+    const encMeta = encoder.encode(meta);
+    const suffix = hash === undefined ? "" : `/${hash}`;
+    const resp = await this.#authedFetch(
+      `${this.#syncHost}/doc/v2/files${suffix}`,
+      {
+        body,
+        method,
+        headers: {
+          "content-type": contentType,
+          "rm-meta": fromByteArray(encMeta),
+          "rm-source": "WebLibrary",
+        },
+      },
     );
-
-    // NOTE we technically get the entries a bit earlier, so could upload this
-    // before all contents are uploaded, but this also saves us from uploading
-    // the contents entry before all have uploaded successfully
-    const entries = await Promise.all(entryPromises);
-    return await this.putEntries(documentId, entries);
-  }
-
-  /** upload an epub */
-  async putEpub(
-    visibleName: string,
-    buffer: ArrayBuffer,
-    {
-      parent = "",
-      margins = 125,
-      orientation,
-      textAlignment,
-      textScale = 1,
-      lineHeight = -1,
-      fontName = "",
-      cover = "visited",
-      lastTool,
-    }: PutEpubOptions = {},
-  ): Promise<CollectionEntry> {
-    // upload content file
-    const content: Content = {
-      dummyDocument: false,
-      extraMetadata: {
-        LastTool: lastTool,
-      },
-      fileType: "epub",
-      pageCount: 0,
-      lastOpenedPage: 0,
-      lineHeight:
-        typeof lineHeight === "string"
-          ? builtinLineHeights[lineHeight]
-          : lineHeight,
-      margins: typeof margins === "string" ? builtinMargins[margins] : margins,
-      textScale:
-        typeof textScale === "string"
-          ? builtinTextScales[textScale]
-          : textScale,
-      pages: [],
-      coverPageNumber: cover === "first" ? 0 : -1,
-      formatVersion: 1,
-      orientation,
-      textAlignment,
-      fontName,
-    };
-    return await this.#putContent(visibleName, buffer, "epub", parent, content);
-  }
-
-  /** upload a pdf */
-  async putPdf(
-    visibleName: string,
-    buffer: ArrayBuffer,
-    { parent = "", orientation, cover = "first", lastTool }: PutPdfOptions = {},
-  ): Promise<CollectionEntry> {
-    // upload content file
-    const content: Content = {
-      dummyDocument: false,
-      extraMetadata: {
-        LastTool: lastTool,
-      },
-      fileType: "pdf",
-      pageCount: 0,
-      lastOpenedPage: 0,
-      lineHeight: -1,
-      margins: 125,
-      textScale: 1,
-      pages: [],
-      coverPageNumber: cover === "first" ? 0 : -1,
-      formatVersion: 1,
-      orientation,
-    };
-    return await this.#putContent(visibleName, buffer, "pdf", parent, content);
-  }
-
-  /** send sync complete request */
-  async syncComplete(generation: bigint): Promise<void> {
-    // NOTE this is done manually to properly serialize the bigint
-    const body = `{ "generation": ${generation} }`;
-    await this.#authedFetch(`${this.#syncHost}/sync/v2/sync-complete`, {
-      body,
-    });
-  }
-
-  /** try to sync, always succeed */
-  async #tryPutRootEntries(
-    gen: bigint,
-    entries: Entry[],
-    sync: boolean,
-  ): Promise<boolean> {
-    const { hash } = await this.putEntries("", entries);
-    const nextGen = await this.putRootHash(hash, gen);
-    if (sync) {
-      try {
-        await this.syncComplete(nextGen);
-        return true;
-      } catch {
-        return false;
-      }
-    } else {
-      return false;
-    }
-  }
-
-  /** high level api to create an entry */
-  async create(
-    entry: CollectionEntry,
-    { cache = true, sync = true }: CreateMoveOptions = {},
-  ): Promise<boolean> {
-    const [root, gen] = await this.getRootHash({ cache });
-    const rootEntries = await this.getEntries(root);
-    rootEntries.push(entry);
-    return await this.#tryPutRootEntries(gen, rootEntries, sync);
-  }
-
-  /** high level api to move a document / collection */
-  async move(
-    documentId: string,
-    dest: string,
-    { cache = true, sync = true }: CreateMoveOptions = {},
-  ): Promise<boolean> {
-    const [root, gen] = await this.getRootHash({ cache });
-    const rootEntries = await this.getEntries(root);
-
-    // check if destination is a collection
-    if (!dest || dest === "trash") {
-      // fine
-    } else {
-      // TODO some of these could be done in parallel
-      const entry = rootEntries.find((ent) => ent.documentId === dest);
-      if (!entry) {
-        throw new Error(`destination id not found: ${dest}`);
-      } else if (entry.type !== "80000000") {
-        throw new Error(`destination id was a raw file: ${dest}`);
-      }
-      const ents = await this.getEntries(entry.hash);
-      const [meta] = ents.filter(
-        (ent) => ent.documentId === `${dest}.metadata`,
-      );
-      if (!meta) {
-        throw new Error(`destination id didn't have metadata: ${dest}`);
-      }
-      const metadata = await this.getMetadata(meta.hash);
-      if (metadata.type !== "CollectionType") {
-        throw new Error(`destination id wasn't a collection: ${dest}`);
-      }
-    }
-
-    // get entry to move from root
-    const ind = rootEntries.findIndex((ent) => ent.documentId === documentId);
-    if (ind === -1) {
-      throw new Error(`document not found: ${documentId}`);
-    }
-    const [oldEntry] = rootEntries.splice(ind, 1);
-    if (oldEntry!.type !== "80000000") {
-      throw new Error(`document was a raw file: ${documentId}`);
-    }
-
-    // get metadata from entry
-    const docEnts = await this.getEntries(oldEntry!.hash);
-    const metaInd = docEnts.findIndex(
-      (ent) => ent.documentId === `${documentId}.metadata`,
-    );
-    if (metaInd === -1) {
-      throw new Error(`document didn't have metadata: ${documentId}`);
-    }
-    const [metaEnt] = docEnts.splice(metaInd, 1);
-    const metadata = await this.getMetadata(metaEnt!.hash);
-
-    // update metadata
-    metadata.parent = dest;
-    const newMetaEnt = await this.putMetadata(documentId, metadata);
-    docEnts.push(newMetaEnt);
-
-    // update root entries
-    const newEntry = await this.putEntries(documentId, docEnts);
-    rootEntries.push(newEntry);
-    return await this.#tryPutRootEntries(gen, rootEntries, sync);
-  }
-
-  /** get entries and metadata for all files */
-  async getEntriesMetadata({ verify = true }: GetOptions = {}): Promise<
-    MetadataEntry[]
-  > {
-    const resp = await this.#authedFetch(`${this.#syncHost}/doc/v2/files`, {
-      method: "GET",
-      headers: {
-        "rm-source": "RoR-Browser",
-      },
-    });
     const raw = await resp.text();
-    const res = JSON.parse(raw) as unknown;
-    if (!verify || metadataEntries.guard(res)) {
-      return res as MetadataEntry[];
-    } else {
-      throw new Error(
-        `couldn't validate schema: ${JSON.stringify(res)} didn't match schema ${JSON.stringify(metadataEntries.schema())}`,
-      );
-    }
+    return JSON.parse(raw) as unknown;
+  }
+
+  /** list all files */
+  async listFiles({ verify = true }: GetOptions = {}): Promise<Entry[]> {
+    const res = await this.#fileRequest();
+    return verification(res, entries, verify);
   }
 
   /** upload a file */
   async #uploadFile(
+    parent: string,
     visibleName: string,
     buffer: ArrayBuffer,
-    contentType: `application/${"epub+zip" | "pdf"}`,
+    contentType: `application/${"epub+zip" | "pdf"}` | "folder",
     verify: boolean,
   ): Promise<UploadEntry> {
-    const encoder = new TextEncoder();
-    const meta = encoder.encode(JSON.stringify({ file_name: visibleName }));
-    const resp = await this.#authedFetch(`${this.#syncHost}/doc/v2/files`, {
-      body: buffer,
-      headers: {
-        "content-type": contentType,
-        "rm-meta": fromByteArray(meta),
-        "rm-source": "RoR-Browser",
-      },
-    });
-    const raw = await resp.text();
-    const res = JSON.parse(raw) as unknown;
-    if (!verify || uploadEntry.guard(res)) {
-      return res as UploadEntry;
-    } else {
-      throw new Error(
-        `couldn't validate schema: ${JSON.stringify(res)} didn't match schema ${JSON.stringify(uploadEntry.schema())}`,
+    if (verify && !idReg.test(parent)) {
+      throw new ValidationError(
+        parent,
+        idReg,
+        "parent must be a valid document id",
       );
     }
+    const res = await this.#fileRequest({
+      meta: JSON.stringify({ parent, file_name: visibleName }),
+      method: "POST",
+      contentType,
+      body: buffer,
+    });
+    return verification(res, uploadEntry, verify);
+  }
+
+  /** create a folder */
+  async createFolder(
+    visibleName: string,
+    { parent = "", verify = true }: UploadOptions = {},
+  ): Promise<UploadEntry> {
+    return await this.#uploadFile(
+      parent,
+      visibleName,
+      new ArrayBuffer(0),
+      "folder",
+      verify,
+    );
   }
 
   /** upload an epub */
   async uploadEpub(
     visibleName: string,
     buffer: ArrayBuffer,
-    { verify = true }: GetOptions = {},
+    { parent = "", verify = true }: UploadOptions = {},
   ): Promise<UploadEntry> {
     return await this.#uploadFile(
+      parent,
       visibleName,
       buffer,
       "application/epub+zip",
@@ -1694,10 +638,10 @@ class Remarkable implements RemarkableApi {
   async uploadPdf(
     visibleName: string,
     buffer: ArrayBuffer,
-    { verify = true }: GetOptions = {},
+    { parent = "", verify = true }: UploadOptions = {},
   ): Promise<UploadEntry> {
-    // TODO why doesn't this work
     return await this.#uploadFile(
+      parent,
       visibleName,
       buffer,
       "application/pdf",
@@ -1705,25 +649,109 @@ class Remarkable implements RemarkableApi {
     );
   }
 
-  async getCache(): Promise<Map<string, ArrayBuffer>> {
-    const promises = [];
-    for (const [hash, prom] of this.#cache) {
-      promises.push(
-        prom.then(
-          (val) => [hash, val] as const,
-          () => [hash, null],
-        ),
+  async #modify(
+    hash: string,
+    properties: Record<string, unknown>,
+    verify: boolean,
+  ): Promise<HashEntry> {
+    if (verify && !hashReg.test(hash)) {
+      throw new ValidationError(
+        hash,
+        hashReg,
+        "hash to modify was not a valid hash",
       );
     }
-    const entries = await Promise.all(promises);
-    const cache = new Map();
-    for (const [hash, val] of entries) {
-      if (val) {
-        cache.set(hash, val);
+    // this does not allow setting pinned, although I don't know why
+    const res = await this.#fileRequest({
+      hash,
+      body: JSON.stringify(properties),
+      method: "PATCH",
+    });
+    return verification(res, hashEntry, verify);
+  }
+
+  /** move an entry */
+  async move(
+    hash: string,
+    parent: string,
+    { verify = true }: GetOptions = {},
+  ): Promise<HashEntry> {
+    if (verify && !idReg.test(parent)) {
+      throw new ValidationError(
+        parent,
+        idReg,
+        "parent must be a valid document id",
+      );
+    }
+    return await this.#modify(hash, { parent }, verify);
+  }
+
+  /** delete an entry */
+  async delete(hash: string, opts: GetOptions = {}): Promise<HashEntry> {
+    return await this.move(hash, "trash", opts);
+  }
+
+  /** rename an entry */
+  async rename(
+    hash: string,
+    visibleName: string,
+    { verify = true }: GetOptions = {},
+  ): Promise<HashEntry> {
+    return await this.#modify(hash, { file_name: visibleName }, verify);
+  }
+
+  /** bulk modify hashes */
+  async #bulkModify(
+    hashes: readonly string[],
+    properties: Readonly<Record<string, unknown>>,
+    verify: boolean,
+  ): Promise<HashesEntry> {
+    if (verify) {
+      const invalidHashes = hashes.filter((hash) => !hashReg.test(hash));
+      if (invalidHashes.length) {
+        throw new ValidationError(
+          hashes.join(", "),
+          hashReg,
+          "hashes to modify were not a valid hashes",
+        );
       }
     }
-    return cache;
+    // this does not allow setting pinned, although I don't know why
+    const res = await this.#fileRequest({
+      body: JSON.stringify({
+        updates: properties,
+        hashes,
+      }),
+      method: "PATCH",
+    });
+    return verification(res, hashesEntry, verify);
   }
+
+  /** move many hashes */
+  async bulkMove(
+    hashes: readonly string[],
+    parent: string,
+    { verify = true }: GetOptions = {},
+  ): Promise<HashesEntry> {
+    if (verify && !idReg.test(parent)) {
+      throw new ValidationError(
+        parent,
+        idReg,
+        "parent must be a valid document id",
+      );
+    }
+    return await this.#bulkModify(hashes, { parent }, verify);
+  }
+
+  /** delete many hashes */
+  async bulkDelete(
+    hashes: readonly string[],
+    opts: GetOptions = {},
+  ): Promise<HashesEntry> {
+    return await this.bulkMove(hashes, "trash", opts);
+  }
+
+  // TODO ostensibly we could implement a bulk rename nut idk why
 }
 
 /** options for a remarkable instance */
@@ -1743,18 +771,6 @@ export interface RemarkableOptions {
   fetch?: FetchLike;
 
   /**
-   * a subtle-crypto-like object
-   *
-   * This should have a digest function like the api of `crypto.subtle`, it's
-   * default value.  In node try
-   * `import { webcrypto } from "crypto"; global.crypto = webcrypto` or pass in
-   * `webcrypto.subtle`.
-   *
-   * @defaultValue globalThis.crypto.subtle
-   */
-  subtle?: SubtleCryptoLike;
-
-  /**
    * the url for making authorization requests
    *
    * @defaultValue "https://webapp-prod.cloud.remarkable.engineering"
@@ -1767,29 +783,6 @@ export interface RemarkableOptions {
    * @defaultValue "https://internal.cloud.remarkable.com"
    */
   syncHost?: string;
-
-  /**
-   * the maximum size in bytes to cache the value of a stored object
-   *
-   * Since the remarkableApi is based around hashes, the value of a hash should
-   * never change (barring collisions in ASH256). Any known hash value that's
-   * less than this amount will be cached locally to prevent future network
-   * requests. In addition, all successful puts and gets will be cached to
-   * prevent duplicate puts in the future.
-   *
-   * To save memory and disable fetch caching, set to 0.
-   *
-   * @defaultValue 1 MiB
-   */
-  cacheLimitBytes?: number;
-
-  /**
-   * a set of values to use to initialize the cache
-   *
-   * If this is inaccurate, then you could encounter errors with other methods.
-   * Often this will come from {@link RemarkableApi.getCache | `getCache`}.
-   */
-  initCache?: Iterable<readonly [string, ArrayBuffer]>;
 }
 
 /**
@@ -1806,16 +799,10 @@ export async function remarkable(
   deviceToken: string,
   {
     fetch = globalThis.fetch,
-    subtle = globalThis.crypto?.subtle,
     authHost = AUTH_HOST,
     syncHost = SYNC_HOST,
-    cacheLimitBytes = 1048576,
-    initCache = [],
   }: RemarkableOptions = {},
 ): Promise<RemarkableApi> {
-  if (!subtle) {
-    throw new Error("subtle was missing, try specifying it manually");
-  }
   const resp = await fetch(`${authHost}/token/json/2/user/new`, {
     method: "POST",
     headers: {
@@ -1826,12 +813,5 @@ export async function remarkable(
     throw new Error(`couldn't fetch auth token: ${resp.statusText}`);
   }
   const userToken = await resp.text();
-  return new Remarkable(
-    userToken,
-    fetch,
-    subtle,
-    syncHost,
-    cacheLimitBytes,
-    initCache,
-  );
+  return new Remarkable(userToken, fetch, syncHost);
 }

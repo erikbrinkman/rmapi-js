@@ -1,12 +1,4 @@
-import { FetchLike, HeadersLike, RequestInitLike, ResponseLike } from ".";
-
-export function resolveTo<T>(val: T): [Promise<T>, () => void] {
-  let res: (val: T) => void;
-  const prom = new Promise<T>((resolve) => {
-    res = resolve;
-  });
-  return [prom, () => res(val)];
-}
+import { FetchLike, RequestInitLike, ResponseLike } from ".";
 
 export class MockResponse implements ResponseLike {
   constructor(
@@ -20,23 +12,8 @@ export class MockResponse implements ResponseLike {
     return 200 <= this.status && this.status < 300;
   }
 
-  get headers(): HeadersLike {
-    const { mapHeaders } = this;
-    return {
-      get(key: string): string | null {
-        return mapHeaders[key] ?? null;
-      },
-    };
-  }
-
   text(): Promise<string> {
     return Promise.resolve(this.content);
-  }
-
-  arrayBuffer(): Promise<ArrayBuffer> {
-    const enc = new TextEncoder();
-    const encoded = enc.encode(this.content).buffer as ArrayBuffer;
-    return Promise.resolve(encoded);
   }
 }
 
