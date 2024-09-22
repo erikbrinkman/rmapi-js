@@ -244,7 +244,7 @@ export interface ResponseLike {
 /** stripped down version of fetch */
 export interface FetchLike {
   /** the rough interface to fetch */
-  (url: string, options?: RequestInitLike | undefined): Promise<ResponseLike>;
+  (url: string, options?: RequestInitLike): Promise<ResponseLike>;
 }
 
 /** an error that results from a failed request */

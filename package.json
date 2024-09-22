@@ -26,22 +26,22 @@
     "base64-js": "^1.5.1",
     "json-stable-stringify": "^1.1.1",
     "jtd-ts": "^0.1.0",
-    "uuid": "^9.0.1"
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
-    "@types/bun": "^1.1.0",
+    "@eslint/js": "^9.11.0",
+    "@types/bun": "^1.1.10",
     "@types/json-stable-stringify": "^1.0.36",
-    "@types/uuid": "^9.0.8",
-    "@typescript-eslint/eslint-plugin": "^7.6.0",
-    "eslint": "^9.0.0",
+    "@types/uuid": "^10.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.6.0",
+    "eslint": "^9.11.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-spellcheck": "^0.0.20",
-    "eslint-plugin-tsdoc": "^0.2.17",
-    "prettier": "^3.2.5",
-    "prettier-plugin-organize-imports": "^3.2.4",
-    "typedoc": "^0.25.13",
-    "typescript": "^5.4.5",
-    "typescript-eslint": "^7.6.0"
+    "eslint-plugin-tsdoc": "^0.3.0",
+    "prettier": "^3.3.3",
+    "prettier-plugin-organize-imports": "^4.1.0",
+    "typedoc": "^0.26.7",
+    "typescript": "^5.6.2",
+    "typescript-eslint": "^8.6.0"
   }
 }

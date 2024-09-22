@@ -50,7 +50,7 @@ export function createMockFetch(
 
   const mockFetch = async (
     url: string,
-    options?: RequestInitLike | undefined,
+    options?: RequestInitLike,
   ): Promise<ResponseLike> => {
     pastRequests.push({
       url,
