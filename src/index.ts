@@ -111,17 +111,15 @@ export interface EntryCommon {
   visibleName: string;
   /** the last modified timestamp */
   lastModified: string;
+  /** true if the entry is starred in most ui elements */
+  pinned: boolean;
   /**
    * the parent of this entry
    *
    * There are two special parents, "" (empty string) for the root directory,
    * and "trash" for the trash
    */
-  parent: string;
-  /** true if the entry is starred in most ui elements */
-  pinned: boolean;
-  /** the timestamp of the last time this entry was opened */
-  lastOpened: string;
+  parent?: string;
   /** any tags the entry might have */
   tags?: Tag[];
 }
@@ -138,10 +136,45 @@ export interface DocumentType extends EntryCommon {
   type: "DocumentType";
   /** the type of the file */
   fileType: "epub" | "pdf" | "notebook";
+  /** the timestamp of the last time this entry was opened */
+  lastOpened: string;
 }
 
 /** a remarkable entry for cloud items */
 export type Entry = CollectionEntry | DocumentType;
+
+const commonProperties = {
+  id: string(),
+  hash: string(),
+  visibleName: string(),
+  lastModified: string(),
+  pinned: boolean(),
+} as const;
+
+const commonOptionalProperties = {
+  parent: string(),
+  tags: elements(
+    properties({
+      name: string(),
+      timestamp: float64(),
+    }),
+  ),
+} as const;
+
+const entry = discriminator("type", {
+  CollectionType: properties(commonProperties, commonOptionalProperties, true),
+  DocumentType: properties(
+    {
+      ...commonProperties,
+      lastOpened: string(),
+      fileType: enumeration("epub", "pdf", "notebook"),
+    },
+    commonOptionalProperties,
+    true,
+  ),
+}) satisfies CompiledSchema<Entry, unknown>;
+
+const entries = elements(entry) satisfies CompiledSchema<Entry[], unknown>;
 
 /** an simple entry produced by the upload api */
 export interface UploadEntry {
@@ -155,36 +188,6 @@ const uploadEntry = properties({
   docID: string(),
   hash: string(),
 }) satisfies CompiledSchema<UploadEntry, unknown>;
-
-const commonProperties = {
-  id: string(),
-  hash: string(),
-  visibleName: string(),
-  lastModified: string(),
-  parent: string(),
-  pinned: boolean(),
-  lastOpened: string(),
-} as const;
-
-const commonOptionalProperties = {
-  tags: elements(
-    properties({
-      name: string(),
-      timestamp: float64(),
-    }),
-  ),
-} as const;
-
-const entry = discriminator("type", {
-  CollectionType: properties(commonProperties, commonOptionalProperties, true),
-  DocumentType: properties(
-    { ...commonProperties, fileType: enumeration("epub", "pdf", "notebook") },
-    commonOptionalProperties,
-    true,
-  ),
-}) satisfies CompiledSchema<Entry, unknown>;
-
-const entries = elements(entry) satisfies CompiledSchema<Entry[], unknown>;
 
 /** the new hash of a modified entry */
 export interface HashEntry {
