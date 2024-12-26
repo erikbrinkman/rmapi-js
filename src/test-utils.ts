@@ -1,70 +1,102 @@
-import { FetchLike, RequestInitLike, ResponseLike } from ".";
-
-export class MockResponse implements ResponseLike {
+class MockResponse extends Response {
   constructor(
-    private readonly content: string = "",
-    readonly status: number = 200,
-    readonly statusText: string = "",
-    readonly mapHeaders: Record<string, string> = {},
-  ) {}
+    private readonly content: Uint8Array,
+    override readonly status: number,
+    override readonly statusText: string,
+  ) {
+    super();
+  }
 
-  get ok(): boolean {
+  override get ok(): boolean {
     return 200 <= this.status && this.status < 300;
   }
 
-  text(): Promise<string> {
-    return Promise.resolve(this.content);
+  override arrayBuffer(): Promise<ArrayBuffer> {
+    // NOTE this is a hack, but should be fine for our uses
+    return Promise.resolve(this.content.buffer as ArrayBuffer);
+  }
+
+  override text(): Promise<string> {
+    const dec = new TextDecoder();
+    return Promise.resolve(dec.decode(this.content));
   }
 }
 
-export interface LoggedRequest extends RequestInitLike {
+export function emptyResponse({
+  status = 200,
+  statusText = "",
+}: {
+  status?: number;
+  statusText?: string;
+} = {}): Response {
+  return new MockResponse(new Uint8Array(), status, statusText);
+}
+
+export function bytesResponse(
+  content: Uint8Array,
+  {
+    status = 200,
+    statusText = "",
+  }: {
+    status?: number;
+    statusText?: string;
+  } = {},
+): Response {
+  return new MockResponse(content, status, statusText);
+}
+
+export function textResponse(
+  content: string,
+  {
+    status = 200,
+    statusText = "",
+  }: {
+    status?: number;
+    statusText?: string;
+  } = {},
+): Response {
+  const enc = new TextEncoder();
+  return new MockResponse(enc.encode(content), status, statusText);
+}
+
+export function jsonResponse(
+  content: unknown,
+  opts: {
+    status?: number;
+    statusText?: string;
+  } = {},
+) {
+  return textResponse(JSON.stringify(content), opts);
+}
+
+export interface LoggedRequest {
   url: string;
   bodyText: string | undefined;
-}
-
-export interface MockFetch extends FetchLike {
-  pastRequests: LoggedRequest[];
-}
-
-const dec = new TextDecoder();
-
-function extractBodyText(
-  body: string | ArrayBuffer | undefined,
-): string | undefined {
-  if (body === undefined) {
-    return undefined;
-  } else if (typeof body === "string") {
-    return body;
-  } else {
-    return dec.decode(body);
-  }
 }
 
 export type Awaitable<T> = T | Promise<T>;
 
 export function createMockFetch(
-  ...nextResponses: Awaitable<MockResponse>[]
-): MockFetch {
+  ...nextResponses: Awaitable<Response>[]
+): (input: string | Request | URL, init?: RequestInit) => Promise<Response> {
   void nextResponses.reverse();
-  const pastRequests: LoggedRequest[] = [];
 
   const mockFetch = async (
-    url: string,
-    options?: RequestInitLike,
-  ): Promise<ResponseLike> => {
-    pastRequests.push({
-      url,
-      bodyText: extractBodyText(options?.body),
-      ...options,
-    });
+    url: string | Request | URL,
+    init?: RequestInit,
+  ): Promise<Response> => {
     const res = nextResponses.pop();
     /* istanbul ignore else */
     if (res) {
       return await res;
     } else {
-      throw new Error("didn't set next response");
+      const serialized = JSON.stringify(init, null, 2);
+      throw new Error(
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions
+        `didn't set next response to ${init?.method} ${url}:\n${serialized}`,
+      );
     }
   };
-  mockFetch.pastRequests = pastRequests;
+
   return mockFetch;
 }

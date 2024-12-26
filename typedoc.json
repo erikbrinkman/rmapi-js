@@ -2,7 +2,7 @@
   "entryPoints": ["src"],
   "out": "docs",
   "excludeInternal": true,
-  "exclude": "node_modules/**",
+  "exclude": ["node_modules/**"],
   "cleanOutputDir": true,
   "validation": true,
   "githubPages": true,

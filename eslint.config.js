@@ -9,6 +9,8 @@ export default tseslint.config(
   configPrettier,
   ...tseslint.configs.recommendedTypeChecked,
   {
+    // FIXME remove *.ts
+    ignores: ["eslint.config.js", "*.ts"],
     plugins: {
       spellcheck,
       tsdoc,
@@ -36,8 +38,10 @@ export default tseslint.config(
           identifiers: false,
           skipWords: [
             "Markable",
+            "apis",
             "authed",
             "bigints",
+            "customizable",
             "docid",
             "ebooks",
             "epub",

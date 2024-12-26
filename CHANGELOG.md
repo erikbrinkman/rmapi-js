@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `.raw` namespaced apis for low level access to the remarkable file structure
+- new high level apis that wrap these and expose them
+
+### Removed
+
+- the `verify` option as it violated typescript purity, instead users who want
+  to bypass verification should either use a lower level api that doesn't verify,
+  or use an `Unchecked` method if such a method exists.
+
+### Modified
+
+- changed `UploadEntry` to `SimpleEntry` and changed `docID` in it to just `id`
+  to be more consistent with the rest of the api.
+- changed `listFiles` to `listItems` to be semantically consistent.
+
 ## [6.0.0] - 2024-09-22
 
 ### Added
