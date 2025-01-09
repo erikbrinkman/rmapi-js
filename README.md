@@ -44,6 +44,19 @@ await api.uploadEpub("name", buffer);
 await api.uploadPdf("name", buffer);
 ```
 
+There are alos low level apis that more directly manipulate cloud storage.
+Using these apis is a little riskier since they can potentially result in data loss, but it does come with increased flexibility.
+
+```ts
+// ...
+
+// upload with custom line height not avilable through reMarkable
+await api.putEpub("name", buffer, { lineHeight: 180 })
+
+// fetch an uploaded pdf, using the hash (from listFiles)
+const buffer = await api.getEpub(hash)
+```
+
 ### Gotchas
 
 By default, all calls try to do their best to verify that the input and output
@@ -55,6 +68,11 @@ to access the raw text file and parse the result yourself.
 It seems that exporting happens within the apps themselves, which will require
 layout of the remarkable file structure. That's currently outside the scope of
 this project.
+
+## Users
+
+- [✉️ Send Via](https://sendvia.me/) [[github](https://github.com/PaulKinlan/send-to-remarkable)] - upload to reMarkable via email
+- [ⓡ rePub](https://chromewebstore.google.com/detail/repub/blkjpagbjaekkpojgcgdapmikoaolpbl) [[github](https://github.com/hafaio/repub)] - web clipper for reMarkable that supports images and customization
 
 ## Contributing
 
