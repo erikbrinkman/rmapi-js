@@ -73,6 +73,7 @@ this project.
 
 - [✉️ Send Via](https://sendvia.me/) [[github](https://github.com/PaulKinlan/send-to-remarkable)] - upload to reMarkable via email
 - [ⓡ rePub](https://chromewebstore.google.com/detail/repub/blkjpagbjaekkpojgcgdapmikoaolpbl) [[github](https://github.com/hafaio/repub)] - web clipper for reMarkable that supports images and customization
+- [reMarkable Digest](https://digest.ferrucc.io) - create and receive a daily digest on your reMarkable
 
 ## Contributing
 
