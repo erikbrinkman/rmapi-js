@@ -29,7 +29,6 @@
  *
  * const api = await remarkable(...);
  * const entry = await api.putEpub("document name", epubBuffer);
- * await api.create(entry);
  * ```
  *
  * @remarks
@@ -57,7 +56,6 @@ import CRC32C from "crc-32/crc32c";
 import JSZip from "jszip";
 import {
   boolean,
-  discriminator,
   elements,
   enumeration,
   float64,
@@ -76,7 +74,6 @@ import { LruCache } from "./lru";
 
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
-const SYNC_HOST = "https://web.eu.tectonic.remarkable.com";
 
 // ------------ //
 // Request Info //
@@ -231,43 +228,6 @@ export interface DocumentType extends EntryCommon {
 /** a remarkable entry for cloud items */
 export type Entry = CollectionEntry | DocumentType;
 
-const commonProperties = {
-  id: string(),
-  hash: string(),
-  visibleName: string(),
-  lastModified: string(),
-  pinned: boolean(),
-} as const;
-
-const commonOptionalProperties = {
-  parent: string(),
-  tags: elements(
-    properties(
-      {
-        name: string(),
-        timestamp: float64(),
-      },
-      undefined,
-      true,
-    ),
-  ),
-} as const;
-
-const entry = discriminator("type", {
-  CollectionType: properties(commonProperties, commonOptionalProperties, true),
-  DocumentType: properties(
-    {
-      ...commonProperties,
-      lastOpened: string(),
-      fileType: enumeration("epub", "pdf", "notebook"),
-    },
-    commonOptionalProperties,
-    true,
-  ),
-}) satisfies CompiledSchema<Entry, unknown>;
-
-const entries = elements(entry) satisfies CompiledSchema<Entry[], unknown>;
-
 /** an simple entry without any extra information */
 export interface SimpleEntry {
   /** the document id */
@@ -276,40 +236,17 @@ export interface SimpleEntry {
   hash: string;
 }
 
-const uploadEntry = properties(
-  {
-    docID: string(),
-    hash: string(),
-  },
-  undefined,
-  true,
-);
-
 /** the new hash of a modified entry */
 export interface HashEntry {
   /** the actual hash */
   hash: string;
 }
 
-const hashEntry = properties(
-  { hash: string() },
-  undefined,
-  true,
-) satisfies CompiledSchema<HashEntry, unknown>;
-
 /** the mapping from old hashes to new hashes after a bulk modify */
 export interface HashesEntry {
   /** the mapping from old to new hashes */
   hashes: Record<string, string>;
 }
-
-const hashesEntry = properties(
-  {
-    hashes: values(string()),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<HashesEntry, unknown>;
 
 /** An error that gets thrown when the backend while trying to update
  *
@@ -351,6 +288,17 @@ export class ValidationError extends Error {
     super(message);
     this.field = field;
     this.regex = regex;
+  }
+}
+
+/** an error that results while supplying a hash not found in the entries of the root hash */
+export class HashNotFoundError extends Error {
+  /** the hash that couldn't be found */
+  readonly hash: string;
+
+  constructor(hash: string) {
+    super(`'${hash}' not found in the root hash`);
+    this.hash = hash;
   }
 }
 
@@ -1158,9 +1106,14 @@ export interface RemarkableApi {
    * await api.listItems();
    * ```
    *
+   * @remarks
+   * This is now backed by the low level api, and you may notice some
+   * performance degradation if not taking advantage of the cache.
+   *
+   * @param refresh - if true, refresh the root hash before listing
    * @returns a list of all items with some metadata
    */
-  listItems(): Promise<Entry[]>;
+  listItems(refresh?: boolean): Promise<Entry[]>;
 
   /**
    * similar to {@link listItems | `listItems`} but backed by the low level api
@@ -1282,7 +1235,11 @@ export interface RemarkableApi {
   ): Promise<SimpleEntry>;
 
   /** create a folder */
-  createFolder(visibleName: string, opts?: UploadOptions): Promise<SimpleEntry>;
+  createFolder(
+    visibleName: string,
+    opts?: UploadOptions,
+    refresh?: boolean,
+  ): Promise<SimpleEntry>;
 
   /**
    * upload an epub
@@ -1291,6 +1248,9 @@ export interface RemarkableApi {
    * ```ts
    * await api.uploadEpub("My EPub", ...);
    * ```
+   *
+   * @remarks
+   * this is now simply a less powerful version of {@link putEpub | `putEpub`}.
    *
    * @param visibleName - the name to show for the uploaded epub
    * @param buffer - the epub contents
@@ -1308,6 +1268,9 @@ export interface RemarkableApi {
    * ```ts
    * await api.uploadPdf("My PDF", ...);
    * ```
+   *
+   * @remarks
+   * this is now simply a less powerful version of {@link putPdf | `putPdf`}.
    *
    * @param visibleName - the name to show for the uploaded epub
    * @param buffer - the epub contents
@@ -1329,7 +1292,7 @@ export interface RemarkableApi {
    * @param hash - the hash of the file to move
    * @param parent - the id of the directory to move the entry to, "" (root) and "trash" are special parents
    */
-  move(hash: string, parent: string): Promise<HashEntry>;
+  move(hash: string, parent: string, refresh?: boolean): Promise<HashEntry>;
 
   /**
    * delete an entry
@@ -1340,7 +1303,7 @@ export interface RemarkableApi {
    * ```
    * @param hash - the hash of the entry to delete
    */
-  delete(hash: string): Promise<HashEntry>;
+  delete(hash: string, refresh?: boolean): Promise<HashEntry>;
 
   /**
    * rename an entry
@@ -1352,7 +1315,11 @@ export interface RemarkableApi {
    * @param hash - the hash of the entry to rename
    * @param visibleName - the new name to assign
    */
-  rename(hash: string, visibleName: string): Promise<HashEntry>;
+  rename(
+    hash: string,
+    visibleName: string,
+    refresh?: boolean,
+  ): Promise<HashEntry>;
 
   /**
    * move many entries
@@ -1365,7 +1332,11 @@ export interface RemarkableApi {
    * @param hashes - an array of entry hashes to move
    * @param parent - the directory id to move the entries to, "" (root) and "trash" are special ids
    */
-  bulkMove(hashes: readonly string[], parent: string): Promise<HashesEntry>;
+  bulkMove(
+    hashes: readonly string[],
+    parent: string,
+    refresh?: boolean,
+  ): Promise<HashesEntry>;
 
   /**
    * delete many entries
@@ -1377,7 +1348,10 @@ export interface RemarkableApi {
    *
    * @param hashes - the hashes of the entries to delete
    */
-  bulkDelete(hashes: readonly string[]): Promise<HashesEntry>;
+  bulkDelete(
+    hashes: readonly string[],
+    refresh?: boolean,
+  ): Promise<HashesEntry>;
 
   /**
    * get the current cache value as a string
@@ -1763,7 +1737,6 @@ class RawRemarkable implements RawRemarkableApi {
 /** the implementation of that api */
 class Remarkable implements RemarkableApi {
   readonly #userToken: string;
-  readonly #syncHost: string;
   /** the same cache that underlies the raw api, allowing us to modify it */
   readonly #cache: Map<string, string | null>;
   readonly raw: RawRemarkable;
@@ -1771,12 +1744,10 @@ class Remarkable implements RemarkableApi {
 
   constructor(
     userToken: string,
-    syncHost: string,
     rawHost: string,
     cache: Map<string, string | null>,
   ) {
     this.#userToken = userToken;
-    this.#syncHost = syncHost;
     this.#cache = cache;
     this.raw = new RawRemarkable(
       (method, url, { body, headers } = {}) =>
@@ -1843,52 +1814,52 @@ class Remarkable implements RemarkableApi {
     }
   }
 
-  /** a generic request to the new files api
-   *
-   * @param meta - remarkable metadata to set, often json formatted or empty
-   * @param method - the http method to use
-   * @param contentType - the http content type to set
-   * @param body - body content, often raw bytes or json
-   * @param hash - the hash of a specific file to target
-   */
-  async #fileRequest({
-    meta = "",
-    method = "GET",
-    // eslint-disable-next-line spellcheck/spell-checker
-    contentType = "text/plain;charset=UTF-8",
-    body,
-    hash,
-  }: {
-    meta?: string;
-    method?: RequestMethod;
-    contentType?: string;
-    body?: Uint8Array | string;
-    hash?: string;
-  } = {}): Promise<unknown> {
-    const encoder = new TextEncoder();
-    const encMeta = encoder.encode(meta);
-    const suffix = hash === undefined ? "" : `/${hash}`;
-    const resp = await this.#authedFetch(
-      `${this.#syncHost}/doc/v2/files${suffix}`,
-      {
-        body,
-        method,
-        headers: {
-          "content-type": contentType,
-          "rm-meta": fromByteArray(encMeta),
-          "rm-source": "WebLibrary",
-        },
-      },
-    );
-    const raw = await resp.text();
-    return JSON.parse(raw) as unknown;
+  async #convertEntry({ hash, id }: SimpleEntry): Promise<Entry> {
+    const entries = await this.raw.getEntries(hash);
+    const metaEnt = entries.find((ent) => ent.id.endsWith(".metadata"));
+    const contentEnt = entries.find((ent) => ent.id.endsWith(".content"));
+    if (metaEnt === undefined) {
+      throw new Error(`couldn't find metadata for hash ${hash}`);
+    } else if (contentEnt === undefined) {
+      throw new Error(`couldn't find content for hash ${hash}`);
+    }
+
+    const [{ visibleName, lastModified, pinned, parent, lastOpened }, content] =
+      await Promise.all([
+        this.raw.getMetadata(metaEnt.hash),
+        this.raw.getContent(contentEnt.hash),
+      ]);
+    if (content.fileType === undefined) {
+      return {
+        id,
+        hash,
+        visibleName,
+        lastModified,
+        pinned,
+        parent,
+        tags: content.tags,
+        type: "CollectionType",
+      };
+    } else {
+      return {
+        id,
+        hash,
+        visibleName,
+        lastModified,
+        pinned,
+        parent,
+        tags: content.tags,
+        lastOpened: lastOpened ?? "",
+        fileType: content.fileType,
+        type: "DocumentType",
+      };
+    }
   }
 
   /** list all items */
-  async listItems(): Promise<Entry[]> {
-    const res = await this.#fileRequest();
-    if (!entries.guardAssert(res)) throw Error("invalid entries");
-    return res;
+  async listItems(refresh: boolean = false): Promise<Entry[]> {
+    const ids = await this.listIds(refresh);
+    return await Promise.all(ids.map((id) => this.#convertEntry(id)));
   }
 
   async listIds(refresh: boolean = false): Promise<SimpleEntry[]> {
@@ -1981,7 +1952,41 @@ class Remarkable implements RemarkableApi {
     }
     const id = uuid4();
     const now = new Date();
-    const enc = new TextEncoder();
+    const metadata: Metadata = {
+      parent,
+      pinned,
+      lastModified: (+now).toFixed(),
+      createdTime: (+now).toFixed(),
+      type: "DocumentType",
+      visibleName,
+      lastOpened: "0",
+      lastOpenedPage: 0,
+    };
+    const content: DocumentContent = {
+      coverPageNumber,
+      documentMetadata: { authors, title, publicationDate, publisher },
+      extraMetadata,
+      lineHeight,
+      margins,
+      orientation,
+      fileType,
+      formatVersion: 1,
+      tags: tags?.map((name) => ({ name, timestamp: +now })) ?? [],
+      fontName,
+      textAlignment,
+      textScale,
+      zoomMode,
+      viewBackgroundFilter,
+      // NOTE for some reason we need to "fake" the number of pages at 1, and
+      // create "valid" output for that
+      originalPageCount: 1,
+      pageCount: 1,
+      pageTags: [],
+      pages: [uuid4()],
+      redirectionPageMap: [0],
+      sizeInBytes: buffer.length.toFixed(),
+    };
+
     // upload raw files, and get root hash
     const [
       [contentEntry, uploadContent],
@@ -1990,42 +1995,10 @@ class Remarkable implements RemarkableApi {
       [fileEntry, uploadFile],
       [rootHash, generation],
     ] = await Promise.all([
-      this.raw.putContent(`${id}.content`, {
-        coverPageNumber,
-        documentMetadata: { authors, title, publicationDate, publisher },
-        extraMetadata,
-        lineHeight,
-        margins,
-        orientation,
-        fileType,
-        formatVersion: 1,
-        tags: tags?.map((name) => ({ name, timestamp: +now })) ?? [],
-        fontName,
-        textAlignment,
-        textScale,
-        zoomMode,
-        viewBackgroundFilter,
-        // NOTE for some reason we need to "fake" the number of pages at 1, and
-        // create "valid" output for that
-        originalPageCount: 1,
-        pageCount: 1,
-        pageTags: [],
-        pages: [uuid4()],
-        redirectionPageMap: [0],
-        sizeInBytes: buffer.length.toFixed(),
-      }),
-      this.raw.putMetadata(`${id}.metadata`, {
-        parent,
-        pinned,
-        lastModified: (+now).toFixed(),
-        createdTime: (+now).toFixed(),
-        type: "DocumentType",
-        visibleName,
-        lastOpened: "0",
-        lastOpenedPage: 0,
-      }),
+      this.raw.putContent(`${id}.content`, content),
+      this.raw.putMetadata(`${id}.metadata`, metadata),
       // eslint-disable-next-line spellcheck/spell-checker
-      this.raw.putFile(`${id}.pagedata`, enc.encode("\n")),
+      this.raw.putText(`${id}.pagedata`, "\n"),
       this.raw.putFile(`${id}.${fileType}`, buffer),
       this.#getRootHash(refresh),
     ]);
@@ -2059,11 +2032,19 @@ class Remarkable implements RemarkableApi {
       uploadRoot,
     ]);
 
+    // TODO we could return a full entry here, but we should probably decide
+    // what that should be, e.g. we could return more fields than the standard
+    // entry. Same for putFolder
+    // TODO we should also decide if the api should take hashes or ids...
     await this.#putRootHash(rootEntry.hash, generation);
     return { id, hash: collectionEntry.hash };
   }
 
-  async putPdf(visibleName: string, buffer: Uint8Array, opts: PutOptions = {}) {
+  async putPdf(
+    visibleName: string,
+    buffer: Uint8Array,
+    opts: PutOptions = {},
+  ): Promise<SimpleEntry> {
     return await this.#putFile(visibleName, "pdf", buffer, opts);
   }
 
@@ -2071,101 +2052,148 @@ class Remarkable implements RemarkableApi {
     visibleName: string,
     buffer: Uint8Array,
     opts: PutOptions = {},
-  ) {
-    return await this.#putFile(visibleName, "epub", buffer, opts);
-  }
-
-  /** upload a file */
-  async #uploadFile(
-    parent: string,
-    visibleName: string,
-    buffer: Uint8Array,
-    contentType: `application/${"epub+zip" | "pdf"}` | "folder",
   ): Promise<SimpleEntry> {
-    if (!idReg.test(parent)) {
-      throw new ValidationError(
-        parent,
-        idReg,
-        "parent must be a valid document id",
-      );
-    }
-    const res = await this.#fileRequest({
-      meta: JSON.stringify({ parent, file_name: visibleName }),
-      method: "POST",
-      contentType,
-      body: buffer,
-    });
-    this.#lastHashGen = undefined; // clear the hash gen since this will change it
-    if (!uploadEntry.guardAssert(res)) throw Error("invalid upload entry");
-    const { hash, docID: id } = res;
-    return { hash, id };
+    return await this.#putFile(visibleName, "epub", buffer, opts);
   }
 
   /** create a folder */
   async createFolder(
     visibleName: string,
     { parent = "" }: UploadOptions = {},
+    refresh: boolean = false,
   ): Promise<SimpleEntry> {
-    return await this.#uploadFile(
+    if (parent && !idReg.test(parent)) {
+      throw new ValidationError(
+        parent,
+        idReg,
+        "parent must be a valid document id",
+      );
+    }
+    const id = uuid4();
+    const now = new Date();
+    const content: CollectionContent = {
+      tags: [],
+    };
+    const metadata: Metadata = {
+      lastModified: (+now).toFixed(),
+      createdTime: (+now).toFixed(),
       parent,
+      pinned: false,
+      type: "CollectionType",
       visibleName,
-      new Uint8Array(0),
-      "folder",
+    };
+
+    // upload folder contents
+    const [
+      [contentEntry, uploadContent],
+      [metadataEntry, uploadMetadata],
+      [rootHash, generation],
+    ] = await Promise.all([
+      this.raw.putContent(`${id}.content`, content),
+      this.raw.putMetadata(`${id}.metadata`, metadata),
+      this.#getRootHash(refresh),
+    ]);
+
+    // now fetch root entries and upload this file entry
+    const [[collectionEntry, uploadCollection], rootEntries] =
+      await Promise.all([
+        this.raw.putEntries(id, [contentEntry, metadataEntry]),
+        this.raw.getEntries(rootHash),
+      ]);
+
+    // now upload a new root entry
+    rootEntries.push(collectionEntry);
+    const [rootEntry, uploadRoot] = await this.raw.putEntries(
+      "root",
+      rootEntries,
     );
+
+    // before updating the root hash, first upload everything
+    await Promise.all([
+      uploadContent,
+      uploadMetadata,
+      uploadCollection,
+      uploadRoot,
+    ]);
+
+    // put root hash and return
+    await this.#putRootHash(rootEntry.hash, generation);
+    return { id, hash: collectionEntry.hash };
   }
 
   /** upload an epub */
   async uploadEpub(
     visibleName: string,
     buffer: Uint8Array,
-    { parent = "" }: UploadOptions = {},
+    opts: UploadOptions = {},
   ): Promise<SimpleEntry> {
-    return await this.#uploadFile(
-      parent,
-      visibleName,
-      buffer,
-      "application/epub+zip",
-    );
+    return await this.putEpub(visibleName, buffer, opts);
   }
 
   /** upload a pdf */
   async uploadPdf(
     visibleName: string,
     buffer: Uint8Array,
-    { parent = "" }: UploadOptions = {},
+    opts: UploadOptions = {},
   ): Promise<SimpleEntry> {
-    return await this.#uploadFile(
-      parent,
-      visibleName,
-      buffer,
-      "application/pdf",
-    );
+    return await this.putPdf(visibleName, buffer, opts);
   }
 
-  async #modify(
+  async #editMetaRaw(
+    id: string,
     hash: string,
-    properties: Record<string, unknown>,
-  ): Promise<HashEntry> {
-    if (!hashReg.test(hash)) {
-      throw new ValidationError(
-        hash,
-        hashReg,
-        "hash to modify was not a valid hash",
-      );
+    update: Partial<Metadata>,
+  ): Promise<[RawListEntry, Promise<void>]> {
+    const entries = await this.raw.getEntries(hash);
+    const metaInd = entries.findIndex((ent) => ent.id.endsWith(".metadata"));
+    const metaEntry = entries[metaInd];
+    if (metaEntry === undefined) {
+      throw new Error("internal error: couldn't find metadata in entry hash");
     }
-    // this does not allow setting pinned, although I don't know why
-    const res = await this.#fileRequest({
+    const meta = await this.raw.getMetadata(metaEntry.hash);
+    Object.assign(meta, update);
+    const [newMetaEntry, uploadMeta] = await this.raw.putMetadata(
+      metaEntry.id,
+      meta,
+    );
+    entries[metaInd] = newMetaEntry;
+    const [result, uploadentries] = await this.raw.putEntries(id, entries);
+    const upload = Promise.all([uploadMeta, uploadentries]).then(() => {});
+    return [result, upload];
+  }
+
+  async #editMeta(
+    hash: string,
+    update: Partial<Metadata>,
+    refresh: boolean = false,
+  ): Promise<HashEntry> {
+    const [rootHash, generation] = await this.#getRootHash(refresh);
+    const entries = await this.raw.getEntries(rootHash);
+    const hashInd = entries.findIndex((ent) => ent.hash === hash);
+    const hashEnt = entries[hashInd];
+    if (hashEnt === undefined) {
+      throw new HashNotFoundError(hash);
+    }
+    const [newEnt, uploadEnt] = await this.#editMetaRaw(
+      hashEnt.id,
       hash,
-      body: JSON.stringify(properties),
-      method: "PATCH",
-    });
-    this.#lastHashGen = undefined; // clear the hash gen since this will change it
-    if (!hashEntry.guardAssert(res)) throw Error("invalid hash entry");
-    return res;
+      update,
+    );
+    entries[hashInd] = newEnt;
+    const [rootEntry, uploadRoot] = await this.raw.putEntries("root", entries);
+
+    await Promise.all([uploadEnt, uploadRoot]);
+
+    await this.#putRootHash(rootEntry.hash, generation);
+    return { hash: newEnt.hash };
   }
 
   /** move an entry */
-  async move(hash: string, parent: string): Promise<HashEntry> {
+  async move(
+    hash: string,
+    parent: string,
+    refresh: boolean = false,
+  ): Promise<HashEntry> {
     if (!idReg.test(parent)) {
       throw new ValidationError(
         parent,
@@ -2173,49 +2201,28 @@ class Remarkable implements RemarkableApi {
         "parent must be a valid document id",
       );
     }
-    return await this.#modify(hash, { parent });
+    return await this.#editMeta(hash, { parent }, refresh);
   }
 
   /** delete an entry */
-  async delete(hash: string): Promise<HashEntry> {
-    return await this.move(hash, "trash");
+  async delete(hash: string, refresh: boolean = false): Promise<HashEntry> {
+    return await this.move(hash, "trash", refresh);
   }
 
   /** rename an entry */
-  async rename(hash: string, visibleName: string): Promise<HashEntry> {
-    return await this.#modify(hash, { file_name: visibleName });
-  }
-
-  /** bulk modify hashes */
-  async #bulkModify(
-    hashes: readonly string[],
-    properties: Readonly<Record<string, unknown>>,
-  ): Promise<HashesEntry> {
-    const invalidHashes = hashes.filter((hash) => !hashReg.test(hash));
-    if (invalidHashes.length) {
-      throw new ValidationError(
-        hashes.join(", "),
-        hashReg,
-        "hashes to modify were not a valid hashes",
-      );
-    }
-    // this does not allow setting pinned, although I don't know why
-    const res = await this.#fileRequest({
-      body: JSON.stringify({
-        updates: properties,
-        hashes,
-      }),
-      method: "PATCH",
-    });
-    this.#lastHashGen = undefined; // clear the hash gen since this will change it
-    if (!hashesEntry.guardAssert(res)) throw Error("invalid hashes entry");
-    return res;
+  async rename(
+    hash: string,
+    visibleName: string,
+    refresh: boolean = false,
+  ): Promise<HashEntry> {
+    return await this.#editMeta(hash, { visibleName }, refresh);
   }
 
   /** move many hashes */
   async bulkMove(
     hashes: readonly string[],
     parent: string,
+    refresh: boolean = false,
   ): Promise<HashesEntry> {
     if (!idReg.test(parent)) {
       throw new ValidationError(
@@ -2224,15 +2231,47 @@ class Remarkable implements RemarkableApi {
         "parent must be a valid document id",
       );
     }
-    return await this.#bulkModify(hashes, { parent });
+
+    const [rootHash, generation] = await this.#getRootHash(refresh);
+    const entries = await this.raw.getEntries(rootHash);
+
+    const hashSet = new Set(hashes);
+    const toUpdate: RawEntry[] = [];
+    const newEntries: RawEntry[] = [];
+    for (const entry of entries) {
+      const part = hashSet.has(entry.hash) ? toUpdate : newEntries;
+      part.push(entry);
+    }
+
+    const resolved = await Promise.all(
+      toUpdate.map(({ id, hash }) => this.#editMetaRaw(id, hash, { parent })),
+    );
+    const uploads: Promise<void>[] = [];
+    const result: Record<string, string> = {};
+    for (const [i, [newEnt, upload]] of resolved.entries()) {
+      newEntries.push(newEnt);
+      uploads.push(upload);
+      result[toUpdate[i]!.hash] = newEnt.hash;
+    }
+
+    const [rootEntry, uploadRoot] = await this.raw.putEntries(
+      "root",
+      newEntries,
+    );
+    uploads.push(uploadRoot);
+    await Promise.all(uploads);
+
+    await this.#putRootHash(rootEntry.hash, generation);
+    return { hashes: result };
   }
 
   /** delete many hashes */
-  async bulkDelete(hashes: readonly string[]): Promise<HashesEntry> {
-    return await this.bulkMove(hashes, "trash");
+  async bulkDelete(
+    hashes: readonly string[],
+    refresh: boolean = false,
+  ): Promise<HashesEntry> {
+    return await this.bulkMove(hashes, "trash", refresh);
   }
-
-  // TODO ostensibly we could implement a bulk rename but idk why
 
   /** dump the raw cache */
   dumpCache(): string {
@@ -2335,7 +2374,6 @@ export async function remarkable(
   deviceToken: string,
   {
     authHost = AUTH_HOST,
-    syncHost = SYNC_HOST,
     rawHost = RAW_HOST,
     cache,
     maxCacheSize = Infinity,
@@ -2358,7 +2396,7 @@ export async function remarkable(
       maxCacheSize === Infinity
         ? new Map(entries)
         : new LruCache(maxCacheSize, entries);
-    return new Remarkable(userToken, syncHost, rawHost, cache);
+    return new Remarkable(userToken, rawHost, cache);
   } else {
     throw new Error(
       "cache was not a valid cache (json string mapping); your cache must be corrupted somehow. Either initialize remarkable without a cache, or fix its format.",

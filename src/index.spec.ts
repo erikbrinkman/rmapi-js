@@ -1,5 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
-import { Content, Metadata, ValidationError, register, remarkable } from ".";
+import {
+  Content,
+  DocumentContent,
+  Entry,
+  Metadata,
+  register,
+  remarkable,
+} from ".";
 import {
   bytesResponse,
   createMockFetch,
@@ -63,24 +70,71 @@ describe("remarkable", () => {
   });
 
   test("#listItems()", async () => {
-    const file = {
-      type: "DocumentType",
-      fileType: "pdf",
-      id: "uuid4",
-      hash: "hash",
-      visibleName: "name",
-      lastModified: "0",
+    const docId = "document";
+    const entryHash = repHash("1");
+    const metaHash = repHash("2");
+    const contentHash = repHash("3");
+    const rootEntries = `3
+${entryHash}:80000000:${docId}:4:3
+`;
+    const docEntries = `3
+${contentHash}:0:${docId}.content:0:1
+${metaHash}:0:${docId}.metadata:0:1
+fake_hash:0:${docId}.epub:0:1
+`;
+    const content: DocumentContent = {
+      coverPageNumber: 0,
+      documentMetadata: {},
+      extraMetadata: {},
+      fileType: "epub",
+      fontName: "",
+      formatVersion: 0,
+      lineHeight: 0,
+      margins: 0,
+      orientation: "portrait",
+      pageCount: 0,
+      sizeInBytes: "",
+      textAlignment: "justify",
+      textScale: 0,
+    };
+    const metadata: Metadata = {
+      lastModified: "",
       parent: "",
       pinned: false,
-      lastOpened: "0",
-    } as const;
+      type: "DocumentType",
+      visibleName: "doc name",
+    };
+    const expected: Entry = {
+      id: docId,
+      hash: entryHash,
+      pinned: metadata.pinned,
+      type: metadata.type,
+      lastOpened: "",
+      lastModified: metadata.lastModified,
+      fileType: content.fileType,
+      visibleName: metadata.visibleName,
+      parent: metadata.parent,
+      tags: content.tags,
+    };
+
     globalThis.fetch = mock(
-      createMockFetch(emptyResponse(), jsonResponse([file])),
+      createMockFetch(
+        emptyResponse(),
+        jsonResponse({
+          hash: repHash("0"),
+          generation: 0,
+          schemaVersion: 3,
+        }),
+        textResponse(rootEntries),
+        textResponse(docEntries),
+        jsonResponse(metadata),
+        jsonResponse(content),
+      ),
     );
 
     const api = await remarkable("");
     const [loaded] = await api.listItems();
-    expect(loaded).toEqual(file);
+    expect(loaded).toEqual(expected);
   });
 
   test("#listIds()", async () => {
@@ -261,6 +315,39 @@ ${epubHash}:0:doc.epub:0:1
     expect(bytes.length).toBeGreaterThan(0);
   });
 
+  test("#uploadPdf()", async () => {
+    const enc = new TextEncoder();
+    const pdf = enc.encode("pdf content");
+    globalThis.fetch = mock(
+      createMockFetch(
+        emptyResponse(),
+        jsonResponse({
+          hash: repHash("abcd0123"),
+          generation: 0,
+          schemaVersion: 3,
+        }),
+        emptyResponse(), // .content
+        emptyResponse(), // .metadata
+        // eslint-disable-next-line spellcheck/spell-checker
+        emptyResponse(), // .pagedata
+        emptyResponse(), // .pdf
+        textResponse("3\n"),
+        emptyResponse(), // .docSchema
+        emptyResponse(), // root.docSchema
+        jsonResponse({
+          hash: repHash("1"),
+          generation: 1,
+        }), // root hash
+      ),
+    );
+
+    const api = await remarkable("");
+    const res = await api.uploadPdf("new name", pdf);
+
+    expect(res.id).toHaveLength(36);
+    expect(res.hash).toHaveLength(64);
+  });
+
   test("#putPdf()", async () => {
     const enc = new TextEncoder();
     const pdf = enc.encode("pdf content");
@@ -288,7 +375,43 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    await api.putPdf("new name", pdf);
+    const res = await api.putPdf("new name", pdf);
+
+    expect(res.id).toHaveLength(36);
+    expect(res.hash).toHaveLength(64);
+  });
+
+  test("#uploadEpub()", async () => {
+    const enc = new TextEncoder();
+    const epub = enc.encode("epub content");
+    globalThis.fetch = mock(
+      createMockFetch(
+        emptyResponse(),
+        jsonResponse({
+          hash: repHash("abcd0123"),
+          generation: 0,
+          schemaVersion: 3,
+        }),
+        emptyResponse(), // .content
+        emptyResponse(), // .metadata
+        // eslint-disable-next-line spellcheck/spell-checker
+        emptyResponse(), // .pagedata
+        emptyResponse(), // .epub
+        textResponse("3\n"),
+        emptyResponse(), // .docSchema
+        emptyResponse(), // root.docSchema
+        jsonResponse({
+          hash: repHash("1"),
+          generation: 1,
+        }), // root hash
+      ),
+    );
+
+    const api = await remarkable("");
+    const res = await api.uploadEpub("new name", epub);
+
+    expect(res.id).toHaveLength(36);
+    expect(res.hash).toHaveLength(64);
   });
 
   test("#putEpub()", async () => {
@@ -318,125 +441,252 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    await api.putEpub("new name", epub);
+    const res = await api.putEpub("new name", epub);
+
+    expect(res.id).toHaveLength(36);
+    expect(res.hash).toHaveLength(64);
   });
 
   test("#createFolder()", async () => {
     globalThis.fetch = mock(
       createMockFetch(
         emptyResponse(),
-        jsonResponse({ docID: "folder id", hash: "folder hash" }),
+        jsonResponse({
+          hash: repHash("abcd0123"),
+          generation: 0,
+          schemaVersion: 3,
+        }),
+        emptyResponse(), // .content
+        emptyResponse(), // .metadata
+        textResponse("3\n"),
+        emptyResponse(), // .docSchema
+        emptyResponse(), // root.docSchema
+        jsonResponse({
+          hash: repHash("1"),
+          generation: 1,
+        }), // root hash
       ),
     );
 
     const api = await remarkable("");
     const res = await api.createFolder("new folder");
 
-    expect(res.id).toBe("folder id");
-    expect(res.hash).toBe("folder hash");
-  });
-
-  test("#uploadEpub()", async () => {
-    const fetch = mock(
-      createMockFetch(
-        emptyResponse(),
-        jsonResponse({ docID: "epub id", hash: "epub hash" }),
-      ),
-    );
-    globalThis.fetch = fetch;
-
-    const api = await remarkable("");
-    const enc = new TextEncoder();
-    const content = enc.encode("my epub content");
-    const res = await api.uploadEpub("my epub title", content);
-
-    expect(res.id).toBe("epub id");
-    expect(res.hash).toBe("epub hash");
-
-    const [, req] = fetch.mock.calls;
-    const [, init] = req ?? [];
-    expect(init?.body).toBe(content);
-  });
-
-  test("#uploadPdf()", async () => {
-    const fetch = mock(
-      createMockFetch(
-        emptyResponse(),
-        jsonResponse({ docID: "pdf id", hash: "pdf hash" }),
-      ),
-    );
-    globalThis.fetch = fetch;
-
-    const api = await remarkable("");
-    const enc = new TextEncoder();
-    const content = enc.encode("my pdf content");
-    const res = await api.uploadPdf("my pdf title", content);
-
-    expect(res.id).toBe("pdf id");
-    expect(res.hash).toBe("pdf hash");
-
-    const [, req] = fetch.mock.calls;
-    const [, init] = req ?? [];
-    expect(init?.body).toBe(content);
+    expect(res.id).toHaveLength(36);
+    expect(res.hash).toHaveLength(64);
   });
 
   test("#move()", async () => {
-    globalThis.fetch = mock(
-      createMockFetch(emptyResponse(), jsonResponse({ hash: "hash" })),
-    );
+    const moveHash = repHash("1");
+    const oldMeta: Metadata = {
+      lastModified: "",
+      visibleName: "test",
+      parent: "",
+      pinned: false,
+      type: "DocumentType",
+    };
 
-    const api = await remarkable("");
-    const res = await api.move(repHash("1234abcd"), "");
-
-    expect(res.hash).toBe("hash");
-  });
-
-  test("#delete()", async () => {
-    globalThis.fetch = mock(
-      createMockFetch(emptyResponse(), jsonResponse({ hash: "hash" })),
-    );
-
-    const api = await remarkable("");
-    const res = await api.delete(repHash("1234abcd"));
-
-    expect(res.hash).toBe("hash");
-  });
-
-  test("#rename()", async () => {
-    globalThis.fetch = mock(
-      createMockFetch(emptyResponse(), jsonResponse({ hash: "hash" })),
-    );
-
-    const api = await remarkable("");
-    const res = await api.rename(repHash("1234abcd"), "new name");
-
-    expect(res.hash).toBe("hash");
-  });
-
-  test("#bulkMove()", async () => {
     globalThis.fetch = mock(
       createMockFetch(
         emptyResponse(),
-        jsonResponse({ hashes: { oldHash: "newHash" } }),
+        jsonResponse({
+          hash: repHash("0"),
+          generation: 0,
+          schemaVersion: 3,
+        }), // root hash
+        textResponse(`3\n${moveHash}:80000000:fake_id:2:123\n`), // root entries
+        textResponse(
+          `3\n${repHash("2")}:0:fake_id.metadata:0:1\n${repHash("3")}:0:fake_id.content:0:122\n`,
+        ), // item entries
+        jsonResponse(oldMeta), // get metadata
+        emptyResponse(), // put metadata
+        emptyResponse(), // put entries
+        emptyResponse(), // put root entries
+        jsonResponse({
+          hash: repHash("1"),
+          generation: 1,
+        }), // root hash
       ),
     );
 
     const api = await remarkable("");
-    const res = await api.bulkMove([repHash("1234abcd")], "");
+    const res = await api.move(moveHash, "trash");
 
-    expect("oldHash" in res.hashes).toBeTrue();
+    expect(res.hash).toHaveLength(64);
   });
 
-  test("#bulkDelete()", async () => {
-    globalThis.fetch = createMockFetch(
-      emptyResponse(),
-      jsonResponse({ hashes: { oldHash: "newHash" } }),
+  test("#move() failure", async () => {
+    globalThis.fetch = mock(
+      createMockFetch(
+        emptyResponse(),
+        jsonResponse({
+          hash: repHash("0"),
+          generation: 0,
+          schemaVersion: 3,
+        }), // root hash
+        textResponse("3\n"), // root entries
+      ),
     );
 
     const api = await remarkable("");
-    const res = await api.bulkDelete([repHash("1234abcd")]);
+    expect(api.move(repHash("23"), "trash")).rejects.toThrow(
+      "not found in the root hash",
+    );
+  });
 
-    expect("oldHash" in res.hashes).toBeTrue();
+  test("#delete()", async () => {
+    const deleteHash = repHash("1");
+    const oldMeta: Metadata = {
+      lastModified: "",
+      visibleName: "test",
+      parent: "",
+      pinned: false,
+      type: "DocumentType",
+    };
+
+    globalThis.fetch = mock(
+      createMockFetch(
+        emptyResponse(),
+        jsonResponse({
+          hash: repHash("0"),
+          generation: 0,
+          schemaVersion: 3,
+        }), // root hash
+        textResponse(`3\n${deleteHash}:80000000:fake_id:2:123\n`), // root entries
+        textResponse(
+          `3\n${repHash("2")}:0:fake_id.metadata:0:1\n${repHash("3")}:0:fake_id.content:0:122\n`,
+        ), // item entries
+        jsonResponse(oldMeta), // get metadata
+        emptyResponse(), // put metadata
+        emptyResponse(), // put entries
+        emptyResponse(), // put root entries
+        jsonResponse({
+          hash: repHash("1"),
+          generation: 1,
+        }), // root hash
+      ),
+    );
+
+    const api = await remarkable("");
+    const res = await api.delete(deleteHash);
+
+    expect(res.hash).toHaveLength(64);
+  });
+
+  test("#rename()", async () => {
+    const moveHash = repHash("1");
+    const oldMeta: Metadata = {
+      lastModified: "",
+      visibleName: "test",
+      parent: "",
+      pinned: false,
+      type: "DocumentType",
+    };
+
+    globalThis.fetch = mock(
+      createMockFetch(
+        emptyResponse(),
+        jsonResponse({
+          hash: repHash("0"),
+          generation: 0,
+          schemaVersion: 3,
+        }), // root hash
+        textResponse(`3\n${moveHash}:80000000:fake_id:2:123\n`), // root entries
+        textResponse(
+          `3\n${repHash("2")}:0:fake_id.metadata:0:1\n${repHash("3")}:0:fake_id.content:0:122\n`,
+        ), // item entries
+        jsonResponse(oldMeta), // get metadata
+        emptyResponse(), // put metadata
+        emptyResponse(), // put entries
+        emptyResponse(), // put root entries
+        jsonResponse({
+          hash: repHash("1"),
+          generation: 1,
+        }), // root hash
+      ),
+    );
+
+    const api = await remarkable("");
+    const res = await api.rename(moveHash, "renamed");
+
+    expect(res.hash).toHaveLength(64);
+  });
+
+  test("#bulkMove()", async () => {
+    const moveHash = repHash("1");
+    const oldMeta: Metadata = {
+      lastModified: "",
+      visibleName: "test",
+      parent: "",
+      pinned: false,
+      type: "DocumentType",
+    };
+
+    globalThis.fetch = mock(
+      createMockFetch(
+        emptyResponse(),
+        jsonResponse({
+          hash: repHash("0"),
+          generation: 0,
+          schemaVersion: 3,
+        }), // root hash
+        textResponse(`3\n${moveHash}:80000000:fake_id:2:123\n`), // root entries
+        textResponse(
+          `3\n${repHash("2")}:0:fake_id.metadata:0:1\n${repHash("3")}:0:fake_id.content:0:122\n`,
+        ), // item entries
+        jsonResponse(oldMeta), // get metadata
+        emptyResponse(), // put metadata
+        emptyResponse(), // put entries
+        emptyResponse(), // put root entries
+        jsonResponse({
+          hash: repHash("1"),
+          generation: 1,
+        }), // root hash
+      ),
+    );
+
+    const api = await remarkable("");
+    const res = await api.bulkMove([moveHash], "");
+
+    expect(moveHash in res.hashes).toBeTrue();
+  });
+
+  test("#bulkDelete()", async () => {
+    const moveHash = repHash("1");
+    const oldMeta: Metadata = {
+      lastModified: "",
+      visibleName: "test",
+      parent: "",
+      pinned: false,
+      type: "DocumentType",
+    };
+
+    globalThis.fetch = mock(
+      createMockFetch(
+        emptyResponse(),
+        jsonResponse({
+          hash: repHash("0"),
+          generation: 0,
+          schemaVersion: 3,
+        }), // root hash
+        textResponse(`3\n${moveHash}:80000000:fake_id:2:123\n`), // root entries
+        textResponse(
+          `3\n${repHash("2")}:0:fake_id.metadata:0:1\n${repHash("3")}:0:fake_id.content:0:122\n`,
+        ), // item entries
+        jsonResponse(oldMeta), // get metadata
+        emptyResponse(), // put metadata
+        emptyResponse(), // put entries
+        emptyResponse(), // put root entries
+        jsonResponse({
+          hash: repHash("1"),
+          generation: 1,
+        }), // root hash
+      ),
+    );
+
+    const api = await remarkable("");
+    const res = await api.bulkDelete([moveHash]);
+
+    expect(moveHash in res.hashes).toBeTrue();
   });
 
   test("#pruneCache()", async () => {
@@ -490,6 +740,27 @@ hash2:80000000:other:0:2
     expect(api.dumpCache()).toHaveLength(2);
   });
 
+  test("validation fail", async () => {
+    globalThis.fetch = createMockFetch(emptyResponse());
+
+    const api = await remarkable("");
+    expect(api.createFolder("test", { parent: "invalid" })).rejects.toThrow(
+      "parent must be a valid document id",
+    );
+  });
+
+  test("generation fail", async () => {
+    globalThis.fetch = createMockFetch(
+      emptyResponse(),
+      textResponse('{"message":"precondition failed"}\n', { status: 400 }),
+    );
+
+    const api = await remarkable("");
+    expect(api.raw.putRootHash(repHash("ab01"), 0)).rejects.toThrow(
+      "root generation was stale; try put again",
+    );
+  });
+
   test("request fail", async () => {
     globalThis.fetch = createMockFetch(emptyResponse(), jsonResponse([{}]));
 
@@ -515,9 +786,4 @@ hash2:80000000:other:0:2
     const api = await remarkable("");
     expect(api.listItems()).rejects.toThrow("Validation errors:");
   });
-});
-
-test("ValidationError()", () => {
-  const error = new ValidationError("incorrect hash", /./, "message");
-  expect(error.field).toBe("incorrect hash");
 });

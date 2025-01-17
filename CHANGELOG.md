@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Modified
+
+- all of the high level api methods are now backed by the low level api methods,
+  this now means that they can throw GenerationErrors
+
 ## [7.0.0] - 2025-01-09
 
 ### Added
