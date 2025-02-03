@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0] - 2025-02-02
+
+### Added
+
+- `main` entry in `package.json` which may help with resolution in node
+
+## [8.0.0] - 2025-01-17
+
 ### Modified
 
 - all of the high level api methods are now backed by the low level api methods,
