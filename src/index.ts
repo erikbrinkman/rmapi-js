@@ -786,7 +786,7 @@ const metadata = properties(
     lastModified: string(),
     parent: string(),
     pinned: boolean(),
-    type: enumeration("DocumentType", "CollectionType"),
+    type: enumeration("DocumentType", "CollectionType", "TemplateType"),
     visibleName: string(),
   },
   {
