@@ -718,7 +718,7 @@ export interface TemplateContent {
   supportedScreens: ("rm2" | "rmPP")[];
   /** constant values used by the commands in `items` */
   constants?: { [name: string]: number }[];
-  /** the template definition */
+  /** the template definition, an SVG-like DSL in JSON */
   items: object[];
 }
 
