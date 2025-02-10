@@ -210,40 +210,82 @@ hash2:80000000:other:0:2
     });
   });
 
-  test("#getContent()", async () => {
-    const realHash = repHash("1");
-    const file = `3
+  describe("#getContent()", () => {
+    test("DocumentType", async () => {
+      const realHash = repHash("1");
+      const file = `3
 ${realHash}:0:doc.content:0:1
 hash:0:doc.metadata:0:1
 hash:0:doc.epub:0:1
 hash:0:doc.pdf:0:1
 `;
-    const content: Content = {
-      fileType: "pdf",
-      coverPageNumber: -1,
-      documentMetadata: {},
-      extraMetadata: {},
-      fontName: "",
-      formatVersion: 0,
-      lineHeight: -1,
-      margins: 125,
-      orientation: "portrait",
-      pageCount: 1,
-      sizeInBytes: "1",
-      textAlignment: "left",
-      textScale: 1,
-    };
-    globalThis.fetch = mock(
-      createMockFetch(
-        emptyResponse(),
-        textResponse(file),
-        jsonResponse(content),
-      ),
-    );
+      const content: Content = {
+        fileType: "pdf",
+        coverPageNumber: -1,
+        documentMetadata: {},
+        extraMetadata: {},
+        fontName: "",
+        formatVersion: 0,
+        lineHeight: -1,
+        margins: 125,
+        orientation: "portrait",
+        pageCount: 1,
+        sizeInBytes: "1",
+        textAlignment: "left",
+        textScale: 1,
+      };
+      globalThis.fetch = mock(
+        createMockFetch(
+          emptyResponse(),
+          textResponse(file),
+          jsonResponse(content),
+        ),
+      );
 
-    const api = await remarkable("");
-    const cont = await api.getContent(repHash("0"));
-    expect(cont).toEqual(content);
+      const api = await remarkable("");
+      const cont = await api.getContent(repHash("0"));
+      expect(cont).toEqual(content);
+    });
+
+    test("TemplateType", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:tpl.content:0:1
+hash:0:tpl.metadata:0:1
+hash:0:tpl.template:0:1
+`;
+      const content: TemplateContent = {
+        author: "",
+        categories: ["a", "b"],
+        formatVersion: 1,
+        iconData: "",
+        labels: [],
+        name: "Template",
+        orientation: "portrait",
+        supportedScreens: ["rm2", "rmPP"],
+        templateVersion: "0.0.1",
+        constants: [{ a: 1 }],
+        items: [
+          {
+            type: "group",
+            id: "a",
+            boundingBox: { x: 0, y: 0, width: 1, height: 1 },
+            children: [],
+          },
+        ],
+      };
+      globalThis.fetch = mock(
+        createMockFetch(
+          emptyResponse(),
+          textResponse(file),
+          jsonResponse(content),
+        ),
+      );
+
+      const api = await remarkable("");
+      const cont = await api.getContent(repHash("0"));
+      expect(cont).toEqual(content);
+    });
   });
 
   test("#getMetadata()", async () => {
