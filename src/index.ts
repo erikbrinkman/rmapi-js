@@ -56,8 +56,8 @@ import CRC32C from "crc-32/crc32c";
 import JSZip from "jszip";
 import {
   boolean,
-  discriminator,
   elements,
+  empty,
   enumeration,
   float64,
   int32,
@@ -68,7 +68,6 @@ import {
   uint32,
   uint8,
   values,
-  empty,
   type CompiledSchema,
 } from "jtd-ts";
 import { v4 as uuid4 } from "uuid";
@@ -231,6 +230,8 @@ export interface DocumentType extends EntryCommon {
 export interface TemplateType extends EntryCommon {
   /** the key to identify this as a template */
   type: "TemplateType";
+  /** the timestamp of when the template was added/created */
+  createdTime?: string;
   /** where this template was installed from */
   source?: string;
   /** indicates if this is a newly-installed template */
@@ -691,7 +692,7 @@ export interface DocumentContent {
  * This largely contains description of how to render the document, rather than
  * metadata about it.
  */
-export interface TemplateContent<Constants extends string = BaseConstants> {
+export interface TemplateContent {
   /** the template name */
   name: string;
   /** the template's author */
@@ -703,7 +704,7 @@ export interface TemplateContent<Constants extends string = BaseConstants> {
   /** labels associated with this template (eg: "Project management") */
   labels: string[];
   /** the orientation of this template */
-  orientation: 'portrait' | 'landscape';
+  orientation: "portrait" | "landscape";
   /** semantic version for this template */
   templateVersion: string;
   /** template configuration format version (currently just `1`) */
@@ -714,136 +715,12 @@ export interface TemplateContent<Constants extends string = BaseConstants> {
    * - `rm2`: reMarkable 2
    * - `rmPP`: reMarkable Paper Pro
    */
-  supportedScreens: ('rm2' | 'rmPP')[];
+  supportedScreens: ("rm2" | "rmPP")[];
   /** constant values used by the commands in `items` */
-  constants?: {[name in Constants]?: number}[]
+  constants?: { [name: string]: number }[];
   /** the template definition */
-  items: TemplateItem<Constants & BaseConstants>[];
+  items: object[];
 }
-
-export interface TemplateItemCommon {
-  type: 'group' | 'path' | 'text';
-}
-
-/** A group, similar to SVG <group> */
-export interface TemplateGroupItem<Constants extends BaseConstants> extends TemplateItemCommon {
-  /** group node */
-  type: 'group';
-  /** a unique ID for this group */
-  id: string;
-  /** the containing dimensions, used for repeat (and clipping?) */
-  boundingBox: {
-    /** the x coordinate for the left side of the box */
-    x: TemplatePositionValue<Constants>;
-    /** the y coordinate for the top side of the box */
-    y: TemplatePositionValue<Constants>;
-    /** the box width, in pixels */
-    width: TemplatePositionValue<Constants>;
-    /** the box height, in pixels */
-    height: TemplatePositionValue<Constants>;
-  };
-  /** optionally repeat drawing of this group vertically or horizontally */
-  repeat?: {
-    /** repeat vertically this number of times */
-    rows?: number;
-    /** repeat horizontally this number of times */
-    cols?: number;
-  },
-  /** the template nodes to render within this group (offset by the box coordinates) */
-  children: TemplateItem<Constants>[];
-}
-
-/** A path, similar to SVG <path> */
-export interface TemplatePathItem<Constants extends BaseConstants> extends TemplateItemCommon {
-  /** path node */
-  type: 'path';
-  /** a unique ID for this path */
-  id: string;
-  /** optional stroke width in pixels */
-  strokeWidth?: number;
-  /**
-   * the path definition, defined using SVG path syntax
-   * See https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/d
-   */
-  data: TemplateItemPathEntry<Constants>[];
-}
-
-export type TemplateItemPathEntry<Constants extends BaseConstants = BaseConstants> = 'M' | 'L' | TemplatePositionValue<Constants>;
-
-export type BaseConstants = 'templateWidth' | 'templateHeight';
-
-export type TemplatePositionBaseValue<Constants extends BaseConstants> = number | Constants;
-
-export type Operator = '+' | '-' | '*' | '/';
-
-export type TemplatePositionValue<
-  Constants extends BaseConstants = BaseConstants,
-  V extends TemplatePositionBaseValue<Constants> = TemplatePositionBaseValue<Constants>
-> =
-  | V
-  | `${V} ${Operator} ${V}`
-  | `${V} ${Operator} ${V} ${Operator} ${V}`
-  | `${V} ${Operator} ${V} ${Operator} ${V} ${Operator} ${V}`;
-
-/** A text node, similar to SVG <text> */
-export interface TemplateTextItem<Constants extends BaseConstants> extends TemplateItemCommon {
-  /** text node */
-  type: 'text';
-  /** the text to render */
-  text: string;
-  /** optional font size in pixels */
-  fontSize?: number;
-  /** optional stroke width in pixels */
-  strokeWidth?: number;
-  /** should the text be bolded */
-  bold?: boolean;
-  /** the position at which to draw (aligned to top+left) */
-  position: {
-    /** the x coordinate at which to begin drawing */
-    x: TemplatePositionValue<Constants>;
-    /** the y coordinate at which to begin drawing */
-    y: TemplatePositionValue<Constants>;
-  };
-}
-
-/** Represents a single template drawing/implementation item */
-export type TemplateItem<Constants extends BaseConstants = BaseConstants> = TemplateGroupItem<Constants> | TemplatePathItem<Constants> | TemplateTextItem<Constants>;
-
-const templateItem = discriminator('type', {
-    group: properties({
-      id: string(),
-      boundingBox: properties({
-        x: empty() as CompiledSchema<TemplatePositionValue, unknown>,
-        y: empty() as CompiledSchema<TemplatePositionValue, unknown>,
-        width: empty() as CompiledSchema<TemplatePositionValue, unknown>,
-        height: empty() as CompiledSchema<TemplatePositionValue, unknown>,
-      }),
-      /** TS JTD cannot express cyclical definitions */
-      children: elements(empty() as CompiledSchema<TemplateItem, unknown>),
-    }, {
-      repeat: properties(undefined, {
-        rows: uint8(),
-        cols: uint8(),
-      }),
-    }),
-    path: properties({
-      id: string(),
-      data: elements(empty() as CompiledSchema<TemplateItemPathEntry, unknown>),
-    }, {
-      strokeWidth: uint8(),
-    }),
-    text: properties({
-      text: string(),
-      position: properties({
-        x: empty() as CompiledSchema<TemplatePositionValue, unknown>,
-        y: empty() as CompiledSchema<TemplatePositionValue, unknown>,
-      }),
-    }, {
-      fontSize: uint8(),
-      strokeWidth: uint8(),
-      bold: boolean(),
-    })
-}) satisfies CompiledSchema<TemplateItem, unknown>;
 
 const templateContent = properties({
   name: string(),
@@ -854,9 +731,9 @@ const templateContent = properties({
   orientation: enumeration("portrait", "landscape"),
   templateVersion: string(),
   formatVersion: uint8(),
-  supportedScreens: elements(enumeration('rm2', 'rmPP')),
+  supportedScreens: elements(enumeration("rm2", "rmPP")),
   constants: elements(values(int32())),
-  items: elements(templateItem)
+  items: elements(empty() as CompiledSchema<object, unknown>),
 }) satisfies CompiledSchema<TemplateContent, unknown>;
 
 /** content metadata for any item */
@@ -965,7 +842,7 @@ export interface Metadata {
   new?: boolean;
   /**
    * the provider from which this item was obtained/installed
-   * 
+   *
    * Example: a template from "com.remarkable.methods".
    */
   source?: string;
@@ -1153,7 +1030,7 @@ export interface RawRemarkableApi {
    * these are hashed differently than files.
 
    * @param hash - the hash to get entries for
-   * @returns the entries 
+   * @returns the entries
    */
   getEntries(hash: string): Promise<RawEntry[]>;
 
@@ -1757,9 +1634,9 @@ class RawRemarkable implements RawRemarkableApi {
     // the full error for the richer content.
     if (collectionContent.guard(loaded)) {
       return loaded;
-    } else if (documentContent.guardAssert(loaded)) {
+    } else if (templateContent.guard(loaded)) {
       return loaded;
-    } else if (templateContent.guardAssert(loaded)) {
+    } else if (documentContent.guardAssert(loaded)) {
       return loaded;
     } else {
       throw Error("invalid content");
@@ -2020,12 +1897,22 @@ class Remarkable implements RemarkableApi {
       throw new Error(`couldn't find content for hash ${hash}`);
     }
 
-    const [{ visibleName, lastModified, pinned, parent, lastOpened, new: isNew, source }, content] =
-      await Promise.all([
-        this.raw.getMetadata(metaEnt.hash),
-        this.raw.getContent(contentEnt.hash),
-      ]);
-    if ('templateVersion' in content) {
+    const [
+      {
+        visibleName,
+        lastModified,
+        pinned,
+        parent,
+        lastOpened,
+        new: isNew,
+        source,
+      },
+      content,
+    ] = await Promise.all([
+      this.raw.getMetadata(metaEnt.hash),
+      this.raw.getContent(contentEnt.hash),
+    ]);
+    if ("templateVersion" in content) {
       return {
         id,
         hash,
@@ -2035,7 +1922,7 @@ class Remarkable implements RemarkableApi {
         pinned,
         source,
         parent,
-        type: "TemplateType"
+        type: "TemplateType",
       };
     } else if (content.fileType === undefined) {
       return {
