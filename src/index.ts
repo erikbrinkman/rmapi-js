@@ -57,6 +57,7 @@ import JSZip from "jszip";
 import {
   boolean,
   elements,
+  empty,
   enumeration,
   float64,
   int32,
@@ -225,8 +226,20 @@ export interface DocumentType extends EntryCommon {
   lastOpened: string;
 }
 
+/** a template, such as from methods.remarkable.com */
+export interface TemplateType extends EntryCommon {
+  /** the key to identify this as a template */
+  type: "TemplateType";
+  /** the timestamp of when the template was added/created */
+  createdTime?: string;
+  /** where this template was installed from */
+  source?: string;
+  /** indicates if this is a newly-installed template */
+  new?: boolean;
+}
+
 /** a remarkable entry for cloud items */
-export type Entry = CollectionEntry | DocumentType;
+export type Entry = CollectionEntry | DocumentType | TemplateType;
 
 /** an simple entry without any extra information */
 export interface SimpleEntry {
@@ -673,8 +686,58 @@ export interface DocumentContent {
   viewBackgroundFilter?: BackgroundFilter;
 }
 
+/**
+ * content metadata, stored with the "content" extension
+ *
+ * This largely contains description of how to render the document, rather than
+ * metadata about it.
+ */
+export interface TemplateContent {
+  /** the template name */
+  name: string;
+  /** the template's author */
+  author: string;
+  /** Base64-encoded SVG icon image */
+  iconData: string;
+  /** category names this template belongs to (eg: "Planning", "Productivity") */
+  categories: string[];
+  /** labels associated with this template (eg: "Project management") */
+  labels: string[];
+  /** the orientation of this template */
+  orientation: "portrait" | "landscape";
+  /** semantic version for this template */
+  templateVersion: string;
+  /** template configuration format version (currently just `1`) */
+  formatVersion: number;
+  /**
+   * which screens the template supports:
+   *
+   * - `rm2`: reMarkable 2
+   * - `rmPP`: reMarkable Paper Pro
+   */
+  supportedScreens: ("rm2" | "rmPP")[];
+  /** constant values used by the commands in `items` */
+  constants?: { [name: string]: number }[];
+  /** the template definition, an SVG-like DSL in JSON */
+  items: object[];
+}
+
+const templateContent = properties({
+  name: string(),
+  author: string(),
+  iconData: string(),
+  categories: elements(string()),
+  labels: elements(string()),
+  orientation: enumeration("portrait", "landscape"),
+  templateVersion: string(),
+  formatVersion: uint8(),
+  supportedScreens: elements(enumeration("rm2", "rmPP")),
+  constants: elements(values(int32())),
+  items: elements(empty() as CompiledSchema<object, unknown>),
+}) satisfies CompiledSchema<TemplateContent, unknown>;
+
 /** content metadata for any item */
-export type Content = CollectionContent | DocumentContent;
+export type Content = CollectionContent | DocumentContent | TemplateContent;
 
 const documentContent = properties(
   {
@@ -774,7 +837,15 @@ export interface Metadata {
    * DocumentType is a document, an epub, pdf, or notebook, CollectionType is a
    * folder.
    */
-  type: "DocumentType" | "CollectionType";
+  type: "DocumentType" | "CollectionType" | "TemplateType";
+  /** whether this is this a newly-installed template */
+  new?: boolean;
+  /**
+   * the provider from which this item was obtained/installed
+   *
+   * Example: a template from "com.remarkable.methods".
+   */
+  source?: string;
   /** [speculative] metadata version, always 0 */
   version?: number;
   /** the visible name of the item, what it's called on the reMarkable */
@@ -786,7 +857,7 @@ const metadata = properties(
     lastModified: string(),
     parent: string(),
     pinned: boolean(),
-    type: enumeration("DocumentType", "CollectionType"),
+    type: enumeration("DocumentType", "CollectionType", "TemplateType"),
     visibleName: string(),
   },
   {
@@ -959,7 +1030,7 @@ export interface RawRemarkableApi {
    * these are hashed differently than files.
 
    * @param hash - the hash to get entries for
-   * @returns the entries 
+   * @returns the entries
    */
   getEntries(hash: string): Promise<RawEntry[]>;
 
@@ -1563,6 +1634,8 @@ class RawRemarkable implements RawRemarkableApi {
     // the full error for the richer content.
     if (collectionContent.guard(loaded)) {
       return loaded;
+    } else if (templateContent.guard(loaded)) {
+      return loaded;
     } else if (documentContent.guardAssert(loaded)) {
       return loaded;
     } else {
@@ -1824,12 +1897,34 @@ class Remarkable implements RemarkableApi {
       throw new Error(`couldn't find content for hash ${hash}`);
     }
 
-    const [{ visibleName, lastModified, pinned, parent, lastOpened }, content] =
-      await Promise.all([
-        this.raw.getMetadata(metaEnt.hash),
-        this.raw.getContent(contentEnt.hash),
-      ]);
-    if (content.fileType === undefined) {
+    const [
+      {
+        visibleName,
+        lastModified,
+        pinned,
+        parent,
+        lastOpened,
+        new: isNew,
+        source,
+      },
+      content,
+    ] = await Promise.all([
+      this.raw.getMetadata(metaEnt.hash),
+      this.raw.getContent(contentEnt.hash),
+    ]);
+    if ("templateVersion" in content) {
+      return {
+        id,
+        hash,
+        visibleName,
+        lastModified,
+        new: isNew,
+        pinned,
+        source,
+        parent,
+        type: "TemplateType",
+      };
+    } else if (content.fileType === undefined) {
       return {
         id,
         hash,
