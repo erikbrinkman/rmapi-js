@@ -286,6 +286,25 @@ hash:0:tpl.template:0:1
       const cont = await api.getContent(repHash("0"));
       expect(cont).toEqual(content);
     });
+
+    test("Validation Error", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:doc.content:0:1
+hash:0:doc.metadata:0:1
+hash:0:doc.epub:0:1
+`;
+      globalThis.fetch = mock(
+        createMockFetch(
+          emptyResponse(),
+          textResponse(file),
+          jsonResponse({ foo: "bar" }),
+        ),
+      );
+
+      const api = await remarkable("");
+      expect(api.getContent(repHash("0"))).rejects.toThrow("\nor\n");
+    });
   });
 
   test("#getMetadata()", async () => {

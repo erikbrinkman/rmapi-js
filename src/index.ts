@@ -1628,19 +1628,24 @@ class RawRemarkable implements RawRemarkableApi {
   async getContent(hash: string): Promise<Content> {
     const raw = await this.getText(hash);
     const loaded = JSON.parse(raw) as unknown;
+
     // jtd can't verify non-discriminated unions, in this case, we have fileType
-    // defined or not. As a result, we only do a normal guard for the presence
-    // of tags (e.g. empty content or only specify tags). Otherwise we'll throw
-    // the full error for the richer content.
-    if (collectionContent.guard(loaded)) {
-      return loaded;
-    } else if (templateContent.guard(loaded)) {
-      return loaded;
-    } else if (documentContent.guardAssert(loaded)) {
-      return loaded;
-    } else {
-      throw Error("invalid content");
+    // defined or not. As a result, we try each, and concatenate the errors at the end
+    const errors: string[] = [];
+    for (const [name, valid] of [
+      ["collection", collectionContent],
+      ["template", templateContent],
+      ["document", documentContent],
+    ] as const) {
+      try {
+        if (valid.guardAssert(loaded)) return loaded;
+      } catch (ex) {
+        const msg = ex instanceof Error ? ex.message : "unknown error type";
+        errors.push(`Couldn't validate as ${name} because:\n${msg}`);
+      }
     }
+    const joined = errors.join("\n\nor\n\n");
+    throw new Error(`invalid content: ${joined}`);
   }
 
   async getMetadata(hash: string): Promise<Metadata> {
