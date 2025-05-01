@@ -630,7 +630,7 @@ export interface DocumentContent {
    * The reMarkable uses three built-in margins: 50, 125, 200, but other margins
    * are possible. The reMarkable used to default to margins of 180.
    */
-  margins: number;
+  margins?: number;
   /** the document orientation */
   orientation: Orientation;
   /** this specifies the number of pages, it's not clear how this is different than pageCount */
@@ -748,7 +748,6 @@ const documentContent = properties(
     fontName: string(),
     formatVersion: uint8(),
     lineHeight: int32(),
-    margins: uint32(),
     orientation: enumeration("portrait", "landscape"),
     pageCount: uint32(),
     sizeInBytes: string(),
@@ -773,6 +772,7 @@ const documentContent = properties(
       true,
     ),
     lastOpenedPage: uint32(),
+    margins: uint32(),
     originalPageCount: int32(),
     pages: elements(string()),
     pageTags: elements(pageTag),
