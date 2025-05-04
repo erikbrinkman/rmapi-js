@@ -1,3 +1,5 @@
+import { Mock, mock } from "bun:test";
+
 class MockResponse extends Response {
   constructor(
     private readonly content: Uint8Array,
@@ -76,9 +78,13 @@ export interface LoggedRequest {
 
 export type Awaitable<T> = T | Promise<T>;
 
+export interface MockFetch {
+  (input: string | Request | URL, init?: RequestInit): Promise<Response>;
+}
+
 export function createMockFetch(
   ...nextResponses: Awaitable<Response>[]
-): (input: string | Request | URL, init?: RequestInit) => Promise<Response> {
+): MockFetch {
   void nextResponses.reverse();
 
   const mockFetch = async (
@@ -99,4 +105,12 @@ export function createMockFetch(
   };
 
   return mockFetch;
+}
+
+export function mockFetch(
+  ...nextResponses: Awaitable<Response>[]
+): Mock<MockFetch> {
+  const mocked = mock(createMockFetch(...nextResponses));
+  globalThis.fetch = mocked as unknown as typeof globalThis.fetch;
+  return mocked;
 }
