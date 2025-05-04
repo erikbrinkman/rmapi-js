@@ -1353,6 +1353,57 @@ export interface RemarkableApi {
   ): Promise<SimpleEntry>;
 
   /**
+   * update content metadata for a document
+   *
+   * @example
+   * ```ts
+   * await api.updateDocument(doc.hash, { textAlignment: "left" });
+   * ```
+   *
+   * @param hash - the hash of the file to update
+   * @param content - the fields of content to update
+   */
+  updateDocument(
+    hash: string,
+    content: Partial<DocumentContent>,
+    refresh?: boolean,
+  ): Promise<HashEntry>;
+
+  /**
+   * update content metadata for a collection
+   *
+   * @example
+   * ```ts
+   * await api.updateCollection(doc.hash, { textAlignment: "left" });
+   * ```
+   *
+   * @param hash - the hash of the file to update
+   * @param content - the fields of content to update
+   */
+  updateCollection(
+    hash: string,
+    content: Partial<CollectionContent>,
+    refresh?: boolean,
+  ): Promise<HashEntry>;
+
+  /**
+   * update content metadata for a template
+   *
+   * @example
+   * ```ts
+   * await api.updateTemplate(doc.hash, { textAlignment: "left" });
+   * ```
+   *
+   * @param hash - the hash of the file to update
+   * @param content - the fields of content to update
+   */
+  updateTemplate(
+    hash: string,
+    content: Partial<TemplateContent>,
+    refresh?: boolean,
+  ): Promise<HashEntry>;
+
+  /**
    * move an entry
    *
    * @example
@@ -1391,6 +1442,18 @@ export interface RemarkableApi {
     visibleName: string,
     refresh?: boolean,
   ): Promise<HashEntry>;
+
+  /**
+   * set if an entry is stared
+   *
+   * @example
+   * ```ts
+   * await api.stared(file.hash, true);
+   * ```
+   * @param hash - the hash of the entry to rename
+   * @param stared - whether the entry should be stared or not
+   */
+  stared(hash: string, stared: boolean, refresh?: boolean): Promise<HashEntry>;
 
   /**
    * move many entries
@@ -2239,11 +2302,95 @@ class Remarkable implements RemarkableApi {
     return await this.putPdf(visibleName, buffer, opts);
   }
 
+  /** edit just a content entry */
+  async #editContentRaw(
+    id: string,
+    hash: string,
+    update: Partial<Content>,
+  ): Promise<[RawListEntry, Promise<[void, void]>]> {
+    const entries = await this.raw.getEntries(hash);
+    const contInd = entries.findIndex((ent) => ent.id.endsWith(".content"));
+    const contEntry = entries[contInd];
+    if (contEntry === undefined) {
+      throw new Error("internal error: couldn't find content in entry hash");
+    }
+    const cont = await this.raw.getContent(contEntry.hash);
+    Object.assign(cont, update);
+    const [newContEntry, uploadCont] = await this.raw.putContent(
+      contEntry.id,
+      cont,
+    );
+    entries[contInd] = newContEntry;
+    const [result, uploadEntries] = await this.raw.putEntries(id, entries);
+    const upload = Promise.all([uploadCont, uploadEntries]);
+    return [result, upload];
+  }
+
+  /** fully sync a content edit */
+  async #editContent(
+    hash: string,
+    update: Partial<Content>,
+    expectedType: "DocumentType" | "CollectionType" | "TemplateType",
+    refresh: boolean,
+  ): Promise<HashEntry> {
+    const [rootHash, generation] = await this.#getRootHash(refresh);
+    const entries = await this.raw.getEntries(rootHash);
+    const hashInd = entries.findIndex((ent) => ent.hash === hash);
+    const hashEnt = entries[hashInd];
+    if (hashEnt === undefined) {
+      throw new HashNotFoundError(hash);
+    }
+
+    const [[newEnt, uploadEnt], meta] = await Promise.all([
+      this.#editContentRaw(hashEnt.id, hash, update),
+      this.getMetadata(hash),
+    ]);
+    if (meta.type !== expectedType) {
+      throw new Error(
+        `expected type ${expectedType} but got ${meta.type} for hash ${hash}`,
+      );
+    }
+
+    entries[hashInd] = newEnt;
+    const [rootEntry, uploadRoot] = await this.raw.putEntries("root", entries);
+
+    await Promise.all([uploadEnt, uploadRoot]);
+    await this.#putRootHash(rootEntry.hash, generation);
+    return { hash: newEnt.hash };
+  }
+
+  /** update document content */
+  async updateDocument(
+    hash: string,
+    content: Partial<DocumentContent>,
+    refresh: boolean = false,
+  ): Promise<HashEntry> {
+    return await this.#editContent(hash, content, "DocumentType", refresh);
+  }
+
+  /** update collection content */
+  async updateCollection(
+    hash: string,
+    content: Partial<CollectionContent>,
+    refresh: boolean = false,
+  ): Promise<HashEntry> {
+    return await this.#editContent(hash, content, "CollectionType", refresh);
+  }
+
+  /** update template content */
+  async updateTemplate(
+    hash: string,
+    content: Partial<TemplateContent>,
+    refresh: boolean = false,
+  ): Promise<HashEntry> {
+    return await this.#editContent(hash, content, "TemplateType", refresh);
+  }
+
   async #editMetaRaw(
     id: string,
     hash: string,
     update: Partial<Metadata>,
-  ): Promise<[RawListEntry, Promise<void>]> {
+  ): Promise<[RawListEntry, Promise<[void, void]>]> {
     const entries = await this.raw.getEntries(hash);
     const metaInd = entries.findIndex((ent) => ent.id.endsWith(".metadata"));
     const metaEntry = entries[metaInd];
@@ -2257,8 +2404,8 @@ class Remarkable implements RemarkableApi {
       meta,
     );
     entries[metaInd] = newMetaEntry;
-    const [result, uploadentries] = await this.raw.putEntries(id, entries);
-    const upload = Promise.all([uploadMeta, uploadentries]).then(() => {});
+    const [result, uploadEntries] = await this.raw.putEntries(id, entries);
+    const upload = Promise.all([uploadMeta, uploadEntries]);
     return [result, upload];
   }
 
@@ -2318,6 +2465,15 @@ class Remarkable implements RemarkableApi {
     return await this.#editMeta(hash, { visibleName }, refresh);
   }
 
+  /** stared */
+  async stared(
+    hash: string,
+    stared: boolean,
+    refresh: boolean = false,
+  ): Promise<HashEntry> {
+    return await this.#editMeta(hash, { pinned: stared }, refresh);
+  }
+
   /** move many hashes */
   async bulkMove(
     hashes: readonly string[],
@@ -2346,7 +2502,7 @@ class Remarkable implements RemarkableApi {
     const resolved = await Promise.all(
       toUpdate.map(({ id, hash }) => this.#editMetaRaw(id, hash, { parent })),
     );
-    const uploads: Promise<void>[] = [];
+    const uploads: Promise<[void, void]>[] = [];
     const result: Record<string, string> = {};
     for (const [i, [newEnt, upload]] of resolved.entries()) {
       newEntries.push(newEnt);
@@ -2358,8 +2514,7 @@ class Remarkable implements RemarkableApi {
       "root",
       newEntries,
     );
-    uploads.push(uploadRoot);
-    await Promise.all(uploads);
+    await Promise.all([Promise.all(uploads), uploadRoot]);
 
     await this.#putRootHash(rootEntry.hash, generation);
     return { hashes: result };

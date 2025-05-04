@@ -534,6 +534,43 @@ ${epubHash}:0:doc.epub:0:1
     expect(res.hash).toHaveLength(64);
   });
 
+  test("#stared()", async () => {
+    const moveHash = repHash("1");
+    const oldMeta: Metadata = {
+      lastModified: "",
+      visibleName: "test",
+      parent: "",
+      pinned: false,
+      type: "DocumentType",
+    };
+
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(`3\n${moveHash}:80000000:fake_id:2:123\n`), // root entries
+      textResponse(
+        `3\n${repHash("2")}:0:fake_id.metadata:0:1\n${repHash("3")}:0:fake_id.content:0:122\n`,
+      ), // item entries
+      jsonResponse(oldMeta), // get metadata
+      emptyResponse(), // put metadata
+      emptyResponse(), // put entries
+      emptyResponse(), // put root entries
+      jsonResponse({
+        hash: repHash("1"),
+        generation: 1,
+      }), // root hash
+    );
+
+    const api = await remarkable("");
+    const res = await api.stared(moveHash, true);
+
+    expect(res.hash).toHaveLength(64);
+  });
+
   test("#move()", async () => {
     const moveHash = repHash("1");
     const oldMeta: Metadata = {
