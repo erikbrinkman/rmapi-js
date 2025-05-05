@@ -337,6 +337,18 @@ export interface PutOptions {
   textAlignment?: TextAlignment;
   /** the text scale of the document */
   textScale?: number;
+  /** [speculative] the center of the zoom for zoomed in documents */
+  customZoomCenterX?: number;
+  /** [speculative] the center of the zoom for zoomed in documents */
+  customZoomCenterY?: number;
+  /** [speculative] the orientation */
+  customZoomOrientation?: Orientation;
+  /** [speculative] the zoom height for zoomed in pages */
+  customZoomPageHeight?: number;
+  /** [speculative] the zoom width for zoomed in pages */
+  customZoomPageWidth?: number;
+  /** [speculative] the scale for zoomed in pages */
+  customZoomScale?: number;
   /** the document zoom mode */
   zoomMode?: ZoomMode;
   /** the contrast filter setting */
@@ -942,6 +954,12 @@ class Remarkable implements RemarkableApi {
       refresh,
       parent = "",
       pinned = false,
+      customZoomCenterX,
+      customZoomCenterY,
+      customZoomOrientation,
+      customZoomPageHeight,
+      customZoomPageWidth,
+      customZoomScale,
       zoomMode = "bestFit",
       viewBackgroundFilter,
       textScale = 1,
@@ -991,6 +1009,12 @@ class Remarkable implements RemarkableApi {
       fontName,
       textAlignment,
       textScale,
+      customZoomCenterX,
+      customZoomCenterY,
+      customZoomOrientation,
+      customZoomPageHeight,
+      customZoomPageWidth,
+      customZoomScale,
       zoomMode,
       viewBackgroundFilter,
       // NOTE for some reason we need to "fake" the number of pages at 1, and
