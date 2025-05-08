@@ -384,17 +384,37 @@ export interface DocumentContent {
    * values outside of this range are valid.
    */
   textScale: number;
-  /** [speculative] the center of the zoom for zoomed in documents */
+  /**
+   * the center of the zoom for customFit zoom
+   *
+   * This is an absolute offset from the center of the page. Negative numbers
+   * indicate shifted left and positive numbers indicate shifted right. The
+   * units are relative to the document pixels, but it's not sure how the
+   * document size is calculated.
+   */
   customZoomCenterX?: number;
-  /** [speculative] the center of the zoom for zoomed in documents */
+  /**
+   * the center of the zoom for customFit documents
+   *
+   * This is an absolute number relative to the top of the page. Negative
+   * numbers indicate shifted up, while positive numbers indicate shifted down.
+   * The units are relative to the document pixels, but it's not sure how the
+   * document size is calculated.
+   */
   customZoomCenterY?: number;
-  /** [speculative] the orientation */
+  /** this seems unused */
   customZoomOrientation?: Orientation;
-  /** [speculative] the zoom height for zoomed in pages */
+  /** this seems unused */
   customZoomPageHeight?: number;
-  /** [speculative] the zoom width for zoomed in pages */
+  /** this seems unused */
   customZoomPageWidth?: number;
-  /** [speculative] the scale for zoomed in pages */
+  /**
+   * the scale for customFit documents
+   *
+   * 1 indicates no zoom, smaller numbers indicate zoomed out, larger numbers
+   * indicate zoomed in. reMarkable generally allows setting this from 0.5 to 5,
+   * but values outside that bound are still supported.
+   */
   customZoomScale?: number;
   /** what zoom mode is set for the page */
   zoomMode?: ZoomMode;
