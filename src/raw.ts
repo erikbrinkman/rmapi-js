@@ -340,7 +340,7 @@ export interface DocumentContent {
    */
   fontName: string;
   /** the format version, this should always be 1 */
-  formatVersion: number;
+  formatVersion?: number;
   /** the last opened page, starts at zero */
   lastOpenedPage?: number;
   /**
@@ -440,7 +440,6 @@ const documentContent = properties(
     extraMetadata: values(string()),
     fileType: enumeration("epub", "notebook", "pdf"),
     fontName: string(),
-    formatVersion: uint8(),
     lineHeight: int32(),
     orientation: enumeration("portrait", "landscape"),
     pageCount: uint32(),
@@ -457,6 +456,7 @@ const documentContent = properties(
     customZoomPageWidth: float64(),
     customZoomScale: float64(),
     dummyDocument: boolean(),
+    formatVersion: uint8(),
     keyboardMetadata: properties(
       {
         count: uint32(),
@@ -516,7 +516,7 @@ export interface TemplateContent {
   /** semantic version for this template */
   templateVersion: string;
   /** template configuration format version (currently just `1`) */
-  formatVersion: number;
+  formatVersion?: number;
   /**
    * which screens the template supports:
    *
@@ -530,19 +530,23 @@ export interface TemplateContent {
   items: object[];
 }
 
-const templateContent = properties({
-  name: string(),
-  author: string(),
-  iconData: string(),
-  categories: elements(string()),
-  labels: elements(string()),
-  orientation: enumeration("portrait", "landscape"),
-  templateVersion: string(),
-  formatVersion: uint8(),
-  supportedScreens: elements(enumeration("rm2", "rmPP")),
-  constants: elements(values(int32())),
-  items: elements(empty() as CompiledSchema<object, unknown>),
-}) satisfies CompiledSchema<TemplateContent, unknown>;
+const templateContent = properties(
+  {
+    name: string(),
+    author: string(),
+    iconData: string(),
+    categories: elements(string()),
+    labels: elements(string()),
+    orientation: enumeration("portrait", "landscape"),
+    templateVersion: string(),
+    supportedScreens: elements(enumeration("rm2", "rmPP")),
+    constants: elements(values(int32())),
+    items: elements(empty() as CompiledSchema<object, unknown>),
+  },
+  {
+    formatVersion: uint8(),
+  },
+) satisfies CompiledSchema<TemplateContent, unknown>;
 
 /** content metadata for any item */
 export type Content = CollectionContent | DocumentContent | TemplateContent;
