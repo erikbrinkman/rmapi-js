@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.3.0] - 2025-06-01
+
 ### Changed
 
 - `formatVersion` is now optional on documents and templates
