@@ -226,13 +226,13 @@ export interface RegisterOptions {
    * Using an improper one will results in the registration being rejected.
    */
   deviceDesc?:
-    | "desktop-windows"
-    | "desktop-macos"
-    | "desktop-linux"
-    | "mobile-android"
-    | "mobile-ios"
-    | "browser-chrome"
-    | "remarkable";
+  | "desktop-windows"
+  | "desktop-macos"
+  | "desktop-linux"
+  | "mobile-android"
+  | "mobile-ios"
+  | "browser-chrome"
+  | "remarkable";
   /**
    * the unique id of this device
    *
@@ -1379,6 +1379,38 @@ class Remarkable implements RemarkableApi {
     refresh: boolean = false,
   ): Promise<HashesEntry> {
     return await this.bulkMove(hashes, "trash", refresh);
+  }
+
+
+  /** permanent delete many hashes */
+  async bulkPurge(
+    hashes: readonly string[],
+    refresh: boolean = false,
+  ): Promise<SimpleEntry[]> {
+    const [rootHash, generation] = await this.#getRootHash(refresh);
+    // Get the raw text of the root entry
+
+    const lines = rootHash.split("\n");
+    if (lines[0]?.startsWith("3")) {
+      // Remove lines that start with any hash + ":"
+      const hashSet = new Set(hashes.map(h => h + ":"));
+      const filtered = lines.filter(line => {
+        for (const prefix of hashSet) {
+          if (line.startsWith(prefix)) return false;
+        }
+        return true;
+      });
+      // Join the remaining lines
+      const newRootText = filtered.join("\n");
+      // Upload the new root entry
+      await this.#putRootHash(newRootText, generation);
+
+      const entries = await this.raw.getEntries(newRootText);
+      return entries.map(({ id, hash }) => ({ id, hash }));
+    } else {
+      // Not a v3 root, do nothing or throw
+      throw new Error("Root entry is not version 3, cannot purge.");
+    }
   }
 
   /** dump the raw cache */
