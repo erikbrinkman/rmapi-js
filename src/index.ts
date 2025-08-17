@@ -68,9 +68,11 @@ import {
   type RawListEntry,
   type RawRemarkableApi,
   type RequestMethod,
+  type SimpleEntry,
   type Tag,
   type TemplateContent,
   type TextAlignment,
+  type UploadOptions,
   type ZoomMode,
 } from "./raw";
 export { HashNotFoundError, ValidationError } from "./error";
@@ -88,20 +90,24 @@ export type {
   FileType,
   KeyboardMetadata,
   Metadata,
+  MimeType,
   Orientation,
   PageTag,
   RawEntry,
   RawFileEntry,
   RawListEntry,
   RawRemarkableApi,
+  SimpleEntry,
   Tag,
   TemplateContent,
   TextAlignment,
+  UploadOptions,
   ZoomMode,
 } from "./raw";
 
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
+const UPLOAD_HOST = "https://internal.cloud.remarkable.com";
 
 // ------------ //
 // Request Info //
@@ -164,14 +170,6 @@ export interface TemplateType extends EntryCommon {
 
 /** a remarkable entry for cloud items */
 export type Entry = CollectionEntry | DocumentType | TemplateType;
-
-/** an simple entry without any extra information */
-export interface SimpleEntry {
-  /** the document id */
-  id: string;
-  /** the document hash */
-  hash: string;
-}
 
 /** the new hash of a modified entry */
 export interface HashEntry {
@@ -283,12 +281,6 @@ export async function register(
   } else {
     return await resp.text();
   }
-}
-
-/** options available when uploading a document */
-export interface UploadOptions {
-  /** an optional parent id to set when uploading */
-  parent?: string;
 }
 
 /**
@@ -528,7 +520,7 @@ export interface RemarkableApi {
    * ```
    *
    * @remarks
-   * this is now simply a less powerful version of {@link putEpub | `putEpub`}.
+   * this uses a simpler api that works even with schema version 4.
    *
    * @param visibleName - the name to show for the uploaded epub
    * @param buffer - the epub contents
@@ -548,7 +540,7 @@ export interface RemarkableApi {
    * ```
    *
    * @remarks
-   * this is now simply a less powerful version of {@link putPdf | `putPdf`}.
+   * this uses a simpler api that works even with schema version 4.
    *
    * @param visibleName - the name to show for the uploaded epub
    * @param buffer - the epub contents
@@ -739,6 +731,7 @@ class Remarkable implements RemarkableApi {
   constructor(
     userToken: string,
     rawHost: string,
+    uploadHost: string,
     cache: Map<string, string | null>,
   ) {
     this.#userToken = userToken;
@@ -748,6 +741,7 @@ class Remarkable implements RemarkableApi {
         this.#authedFetch(url, { method, body, headers }),
       cache,
       rawHost,
+      uploadHost,
     );
   }
 
@@ -815,8 +809,6 @@ class Remarkable implements RemarkableApi {
     const contentEnt = entries.find((ent) => ent.id.endsWith(".content"));
     if (metaEnt === undefined) {
       throw new Error(`couldn't find metadata for hash ${hash}`);
-    } else if (contentEnt === undefined) {
-      throw new Error(`couldn't find content for hash ${hash}`);
     }
 
     const [
@@ -832,7 +824,10 @@ class Remarkable implements RemarkableApi {
       content,
     ] = await Promise.all([
       this.raw.getMetadata(metaEnt.hash),
-      this.raw.getContent(contentEnt.hash),
+      // collections don't always have content, since content only lists tags
+      contentEnt === undefined
+        ? Promise.resolve({ fileType: undefined, tags: undefined })
+        : this.raw.getContent(contentEnt.hash),
     ]);
     if ("templateVersion" in content) {
       return {
@@ -1142,9 +1137,14 @@ class Remarkable implements RemarkableApi {
   async uploadEpub(
     visibleName: string,
     buffer: Uint8Array,
-    opts: UploadOptions = {},
+    opts?: UploadOptions,
   ): Promise<SimpleEntry> {
-    return await this.putEpub(visibleName, buffer, opts);
+    return await this.raw.uploadFile(
+      visibleName,
+      buffer,
+      "application/epub+zip",
+      opts,
+    );
   }
 
   /** upload a pdf */
@@ -1153,7 +1153,12 @@ class Remarkable implements RemarkableApi {
     buffer: Uint8Array,
     opts: UploadOptions = {},
   ): Promise<SimpleEntry> {
-    return await this.putPdf(visibleName, buffer, opts);
+    return await this.raw.uploadFile(
+      visibleName,
+      buffer,
+      "application/pdf",
+      opts,
+    );
   }
 
   /** edit just a content entry */
@@ -1438,6 +1443,13 @@ export interface RemarkableOptions {
   syncHost?: string;
 
   /**
+   * the base url for making upload requests
+   *
+   * @defaultValue "https://internal.cloud.remarkable.com"
+   */
+  uploadHost?: string;
+
+  /**
    * the url for making requests using the low-level api
    *
    * @defaultValue "https://eu.tectonic.remarkable.com"
@@ -1484,6 +1496,7 @@ export async function remarkable(
   {
     authHost = AUTH_HOST,
     rawHost = RAW_HOST,
+    uploadHost = UPLOAD_HOST,
     cache,
     maxCacheSize = Infinity,
   }: RemarkableOptions = {},
@@ -1505,7 +1518,7 @@ export async function remarkable(
       maxCacheSize === Infinity
         ? new Map(entries)
         : new LruCache(maxCacheSize, entries);
-    return new Remarkable(userToken, rawHost, cache);
+    return new Remarkable(userToken, rawHost, uploadHost, cache);
   } else {
     throw new Error(
       "cache was not a valid cache (json string mapping); your cache must be corrupted somehow. Either initialize remarkable without a cache, or fix its format.",
