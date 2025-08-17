@@ -790,7 +790,8 @@ class Remarkable implements RemarkableApi {
         Authorization: `Bearer ${this.#userToken}`,
         ...headers,
       },
-      body,
+      // fetch works correctly with uint8 arrays, but is not hinted correctly
+      body: body as unknown as ArrayBuffer,
     });
     if (!resp.ok) {
       const msg = await resp.text();

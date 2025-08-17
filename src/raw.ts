@@ -653,7 +653,11 @@ const rootHash = properties(
 ) satisfies CompiledSchema<RootHash, unknown>;
 
 async function digest(buff: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", buff);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    // NOTE this is type hinted wrong, but it does work correctly on a uint8 view
+    buff as unknown as ArrayBuffer,
+  );
   return [...new Uint8Array(digest)]
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
