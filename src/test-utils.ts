@@ -22,6 +22,9 @@ class MockResponse extends Response {
     const dec = new TextDecoder();
     return Promise.resolve(dec.decode(this.content));
   }
+  override async json(): Promise<object> {
+    return JSON.parse(await this.text()) as object;
+  }
 }
 
 export function emptyResponse({
