@@ -28,6 +28,20 @@ export type RequestMethod =
   | "PATCH"
   | "OPTIONS";
 
+/** the supported upload mime types */
+export type UploadMimeType =
+  | "application/pdf"
+  | "application/epub+zip"
+  | "folder";
+
+/** an simple entry without any extra information */
+export interface SimpleEntry {
+  /** the document id */
+  id: string;
+  /** the document hash */
+  hash: string;
+}
+
 /**
  * the low-level entry corresponding to a collection of files
  *
@@ -652,6 +666,20 @@ const rootHash = properties(
   true,
 ) satisfies CompiledSchema<RootHash, unknown>;
 
+interface NativeSimpleEntry {
+  docID: string;
+  hash: string;
+}
+
+const NativeSimpleEntry = properties(
+  {
+    docID: string(),
+    hash: string(),
+  },
+  undefined,
+  true,
+) satisfies CompiledSchema<NativeSimpleEntry, unknown>;
+
 async function digest(buff: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -856,12 +884,32 @@ export interface RawRemarkableApi {
    * @param id - the id of the list to upload - this should be the item id if
    *   uploading an item list, or "root" if uploading a new root list.
    * @param entries - the entries to upload
+   *
    * @returns the new list entry and a promise to finish the upload
    */
   putEntries(
     id: string,
     entries: RawEntry[],
   ): Promise<[RawListEntry, Promise<void>]>;
+
+  /**
+   * upload a file to the reMarkable cloud using the simple api
+   *
+   * This api is the same as used by the native reMarkable extension and works
+   * even if the backend schema version is version 4. Setting mime to "folder"
+   * allows folder creation.
+   *
+   * @param visibleName - the name of the file as it should appear on the reMarkable
+   * @param bytes - the bytes of the file to upload
+   * @param mime - the mime type of the file to upload
+   
+   * @returns a simple entry with the id and hash of the uploaded file
+   */
+  uploadFile(
+    visibleName: string,
+    bytes: Uint8Array,
+    mime: UploadMimeType,
+  ): Promise<SimpleEntry>;
 
   /**
    * dump the current cache to a string to preserve between session
@@ -885,6 +933,7 @@ interface AuthedFetch {
 export class RawRemarkable implements RawRemarkableApi {
   readonly #authedFetch: AuthedFetch;
   readonly #rawHost: string;
+  readonly #uploadHost: string;
   /**
    * a cache of all hashes we know exist
    *
@@ -900,10 +949,12 @@ export class RawRemarkable implements RawRemarkableApi {
     authedFetch: AuthedFetch,
     cache: Map<string, string | null>,
     rawHost: string,
+    uploadHost: string,
   ) {
     this.#authedFetch = authedFetch;
     this.#cache = cache;
     this.#rawHost = rawHost;
+    this.#uploadHost = uploadHost;
   }
   /** make an authorized request to remarkable */
 
@@ -1182,6 +1233,34 @@ export class RawRemarkable implements RawRemarkableApi {
       // NOTE when monitoring requests, this had the extension .docSchema appended, but I'm not entirely sure why
       this.#putFile(hash, `${id}.docSchema`, enc.encode(records.join(""))),
     ];
+  }
+
+  async uploadFile(
+    visibleName: string,
+    bytes: Uint8Array,
+    mime: UploadMimeType,
+  ): Promise<SimpleEntry> {
+    const enc = new TextEncoder();
+    const meta = fromByteArray(
+      enc.encode(JSON.stringify({ file_name: visibleName })),
+    );
+    const resp = await this.#authedFetch(
+      "POST",
+      `${this.#uploadHost}/doc/v2/files`,
+      {
+        body: bytes,
+        headers: {
+          "Content-Type": mime,
+          "rm-meta": meta,
+          "rm-source": "RoR-Browser",
+        },
+      },
+    );
+    const loaded = (await resp.json()) as unknown;
+    if (!NativeSimpleEntry.guardAssert(loaded))
+      throw Error("invalid upload response");
+    const { docID, hash } = loaded;
+    return { id: docID, hash };
   }
 
   dumpCache(): string {

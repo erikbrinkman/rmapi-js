@@ -390,28 +390,15 @@ ${epubHash}:0:doc.epub:0:1
     mockFetch(
       emptyResponse(),
       jsonResponse({
-        hash: repHash("abcd0123"),
-        generation: 0,
-        schemaVersion: 3,
-      }),
-      emptyResponse(), // .content
-      emptyResponse(), // .metadata
-      // eslint-disable-next-line spellcheck/spell-checker
-      emptyResponse(), // .pagedata
-      emptyResponse(), // .pdf
-      textResponse("3\n"),
-      emptyResponse(), // .docSchema
-      emptyResponse(), // root.docSchema
-      jsonResponse({
         hash: repHash("1"),
-        generation: 1,
-      }), // root hash
+        docID: "fake pdf id",
+      }),
     );
 
     const api = await remarkable("");
     const res = await api.uploadPdf("new name", pdf);
 
-    expect(res.id).toHaveLength(36);
+    expect(res.id).toBe("fake pdf id");
     expect(res.hash).toHaveLength(64);
   });
 
@@ -452,28 +439,15 @@ ${epubHash}:0:doc.epub:0:1
     mockFetch(
       emptyResponse(),
       jsonResponse({
-        hash: repHash("abcd0123"),
-        generation: 0,
-        schemaVersion: 3,
-      }),
-      emptyResponse(), // .content
-      emptyResponse(), // .metadata
-      // eslint-disable-next-line spellcheck/spell-checker
-      emptyResponse(), // .pagedata
-      emptyResponse(), // .epub
-      textResponse("3\n"),
-      emptyResponse(), // .docSchema
-      emptyResponse(), // root.docSchema
-      jsonResponse({
         hash: repHash("1"),
-        generation: 1,
-      }), // root hash
+        docID: "fake epub id",
+      }),
     );
 
     const api = await remarkable("");
     const res = await api.uploadEpub("new name", epub);
 
-    expect(res.id).toHaveLength(36);
+    expect(res.id).toBe("fake epub id");
     expect(res.hash).toHaveLength(64);
   });
 
@@ -528,7 +502,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.createFolder("new folder");
+    const res = await api.putFolder("new folder");
 
     expect(res.id).toHaveLength(36);
     expect(res.hash).toHaveLength(64);
@@ -824,7 +798,7 @@ hash2:80000000:other:0:2
     mockFetch(emptyResponse());
 
     const api = await remarkable("");
-    expect(api.createFolder("test", { parent: "invalid" })).rejects.toThrow(
+    expect(api.putFolder("test", { parent: "invalid" })).rejects.toThrow(
       "parent must be a valid document id",
     );
   });
