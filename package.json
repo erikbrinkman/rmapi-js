@@ -32,19 +32,19 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.26.0",
-    "@types/bun": "^1.2.11",
+    "@eslint/js": "^9.33.0",
+    "@types/bun": "^1.2.20",
     "@types/json-stable-stringify": "^1.2.0",
     "@types/uuid": "^10.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.31.1",
-    "eslint": "^9.26.0",
-    "eslint-config-prettier": "^10.1.2",
+    "@typescript-eslint/eslint-plugin": "^8.39.1",
+    "eslint": "^9.33.0",
+    "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-spellcheck": "^0.0.20",
     "eslint-plugin-tsdoc": "^0.4.0",
-    "prettier": "^3.5.3",
-    "prettier-plugin-organize-imports": "^4.1.0",
-    "typedoc": "^0.28.4",
-    "typescript": "~5.8.3",
-    "typescript-eslint": "^8.31.1"
+    "prettier": "^3.6.2",
+    "prettier-plugin-organize-imports": "^4.2.0",
+    "typedoc": "^0.28.10",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.39.1"
   }
 }

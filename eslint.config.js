@@ -52,6 +52,7 @@ export default tseslint.config(
             "macos",
             "rmapi",
             "subfiles",
+            "uint",
             "urls",
             "webcrypto",
           ],
