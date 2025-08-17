@@ -57,7 +57,9 @@ import { v4 as uuid4 } from "uuid";
 import { HashNotFoundError, ValidationError } from "./error";
 import { LruCache } from "./lru";
 import {
+  Entries,
   RawRemarkable,
+  SchemaVersion,
   type BackgroundFilter,
   type CollectionContent,
   type Content,
@@ -65,7 +67,6 @@ import {
   type Metadata,
   type Orientation,
   type RawEntry,
-  type RawListEntry,
   type RawRemarkableApi,
   type RequestMethod,
   type SimpleEntry,
@@ -86,15 +87,15 @@ export type {
   CPageUUID,
   DocumentContent,
   DocumentMetadata,
+  Entries,
   FileType,
   KeyboardMetadata,
   Metadata,
   Orientation,
   PageTag,
   RawEntry,
-  RawFileEntry,
-  RawListEntry,
   RawRemarkableApi,
+  SchemaVersion,
   SimpleEntry,
   Tag,
   TemplateContent,
@@ -405,7 +406,7 @@ export interface RemarkableApi {
    * @remarks
    * If this fails validation and you still want to get the content, you can use
    * the low-level api to get the raw text of the `.content` file in the
-   * `RawListEntry` for this hash.
+   * `RawEntry` for this hash.
    *
    * @param hash - the hash of the item to get content for
    * @returns the content
@@ -421,7 +422,7 @@ export interface RemarkableApi {
    * @remarks
    * If this fails validation and you still want to get the content, you can use
    * the low-level api to get the raw text of the `.metadata` file in the
-   * `RawListEntry` for this hash.
+   * `RawEntry` for this hash.
    *
    * @param hash - the hash of the item to get metadata for
    * @returns the metadata
@@ -725,7 +726,7 @@ class Remarkable implements RemarkableApi {
   /** the same cache that underlies the raw api, allowing us to modify it */
   readonly #cache: Map<string, string | null>;
   readonly raw: RawRemarkable;
-  #lastHashGen: readonly [string, number] | undefined;
+  #lastHashGen: readonly [string, number, SchemaVersion] | undefined;
 
   constructor(
     userToken: string,
@@ -746,7 +747,7 @@ class Remarkable implements RemarkableApi {
 
   async #getRootHash(
     refresh: boolean = false,
-  ): Promise<readonly [string, number]> {
+  ): Promise<readonly [string, number, SchemaVersion]> {
     if (refresh || this.#lastHashGen === undefined) {
       this.#lastHashGen = await this.raw.getRootHash();
     }
@@ -755,7 +756,9 @@ class Remarkable implements RemarkableApi {
 
   async #putRootHash(hash: string, generation: number): Promise<void> {
     try {
-      this.#lastHashGen = await this.raw.putRootHash(hash, generation);
+      const [rootHash, gen] = await this.raw.putRootHash(hash, generation);
+      const [, , schemaVersion] = this.#lastHashGen!; // guaranteed to be set
+      this.#lastHashGen = [rootHash, gen, schemaVersion];
     } catch (ex) {
       // if we hit a generation error, invalidate our cached generation
       if (ex instanceof GenerationError) {
@@ -803,7 +806,7 @@ class Remarkable implements RemarkableApi {
   }
 
   async #convertEntry({ hash, id }: SimpleEntry): Promise<Entry> {
-    const entries = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(hash);
     const metaEnt = entries.find((ent) => ent.id.endsWith(".metadata"));
     const contentEnt = entries.find((ent) => ent.id.endsWith(".content"));
     if (metaEnt === undefined) {
@@ -875,12 +878,12 @@ class Remarkable implements RemarkableApi {
 
   async listIds(refresh: boolean = false): Promise<SimpleEntry[]> {
     const [hash] = await this.#getRootHash(refresh);
-    const entries = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(hash);
     return entries.map(({ id, hash }) => ({ id, hash }));
   }
 
   async getContent(hash: string): Promise<Content> {
-    const entries = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(hash);
     const [cont] = entries.filter((e) => e.id.endsWith(".content"));
     if (cont === undefined) {
       throw new Error(`couldn't find contents for hash ${hash}`);
@@ -890,7 +893,7 @@ class Remarkable implements RemarkableApi {
   }
 
   async getMetadata(hash: string): Promise<Metadata> {
-    const entries = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(hash);
     const [meta] = entries.filter((e) => e.id.endsWith(".metadata"));
     if (meta === undefined) {
       throw new Error(`couldn't find metadata for hash ${hash}`);
@@ -900,7 +903,7 @@ class Remarkable implements RemarkableApi {
   }
 
   async getPdf(hash: string): Promise<Uint8Array> {
-    const entries = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(hash);
     const [pdf] = entries.filter((e) => e.id.endsWith(".pdf"));
     if (pdf === undefined) {
       throw new Error(`couldn't find pdf for hash ${hash}`);
@@ -910,7 +913,7 @@ class Remarkable implements RemarkableApi {
   }
 
   async getEpub(hash: string): Promise<Uint8Array> {
-    const entries = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(hash);
     const [epub] = entries.filter((e) => e.id.endsWith(".epub"));
     if (epub === undefined) {
       throw new Error(`couldn't find epub for hash ${hash}`);
@@ -920,7 +923,7 @@ class Remarkable implements RemarkableApi {
   }
 
   async getDocument(hash: string): Promise<Uint8Array> {
-    const entries = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(hash);
     const zip = new JSZip();
     for (const entry of entries) {
       // TODO if this is .metadata we might want to assert type === "DocumentType"
@@ -1004,7 +1007,7 @@ class Remarkable implements RemarkableApi {
       [metadataEntry, uploadMetadata],
       [pagedataEntry, uploadPagedata],
       [fileEntry, uploadFile],
-      [rootHash, generation],
+      [rootHash, generation, schemaVersion],
     ] = await Promise.all([
       this.raw.putContent(`${id}.content`, content),
       this.raw.putMetadata(`${id}.metadata`, metadata),
@@ -1015,14 +1018,13 @@ class Remarkable implements RemarkableApi {
     ]);
 
     // now fetch root entries and upload this file entry
-    const [[collectionEntry, uploadCollection], rootEntries] =
+    const [[collectionEntry, uploadCollection], { entries: rootEntries }] =
       await Promise.all([
-        this.raw.putEntries(id, [
-          contentEntry,
-          metadataEntry,
-          pagedataEntry,
-          fileEntry,
-        ]),
+        this.raw.putEntries(
+          id,
+          [contentEntry, metadataEntry, pagedataEntry, fileEntry],
+          schemaVersion,
+        ),
         this.raw.getEntries(rootHash),
       ]);
 
@@ -1031,6 +1033,7 @@ class Remarkable implements RemarkableApi {
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
       "root",
       rootEntries,
+      schemaVersion,
     );
 
     // before updating the root hash, first upload everything
@@ -1098,7 +1101,7 @@ class Remarkable implements RemarkableApi {
     const [
       [contentEntry, uploadContent],
       [metadataEntry, uploadMetadata],
-      [rootHash, generation],
+      [rootHash, generation, schemaVersion],
     ] = await Promise.all([
       this.raw.putContent(`${id}.content`, content),
       this.raw.putMetadata(`${id}.metadata`, metadata),
@@ -1106,9 +1109,9 @@ class Remarkable implements RemarkableApi {
     ]);
 
     // now fetch root entries and upload this file entry
-    const [[collectionEntry, uploadCollection], rootEntries] =
+    const [[collectionEntry, uploadCollection], { entries: rootEntries }] =
       await Promise.all([
-        this.raw.putEntries(id, [contentEntry, metadataEntry]),
+        this.raw.putEntries(id, [contentEntry, metadataEntry], schemaVersion),
         this.raw.getEntries(rootHash),
       ]);
 
@@ -1117,6 +1120,7 @@ class Remarkable implements RemarkableApi {
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
       "root",
       rootEntries,
+      schemaVersion,
     );
 
     // before updating the root hash, first upload everything
@@ -1162,8 +1166,9 @@ class Remarkable implements RemarkableApi {
     id: string,
     hash: string,
     update: Partial<Content>,
-  ): Promise<[RawListEntry, Promise<[void, void]>]> {
-    const entries = await this.raw.getEntries(hash);
+    schemaVersion: SchemaVersion,
+  ): Promise<[RawEntry, Promise<[void, void]>]> {
+    const { entries } = await this.raw.getEntries(hash);
     const contInd = entries.findIndex((ent) => ent.id.endsWith(".content"));
     const contEntry = entries[contInd];
     if (contEntry === undefined) {
@@ -1176,7 +1181,11 @@ class Remarkable implements RemarkableApi {
       cont,
     );
     entries[contInd] = newContEntry;
-    const [result, uploadEntries] = await this.raw.putEntries(id, entries);
+    const [result, uploadEntries] = await this.raw.putEntries(
+      id,
+      entries,
+      schemaVersion,
+    );
     const upload = Promise.all([uploadCont, uploadEntries]);
     return [result, upload];
   }
@@ -1188,8 +1197,9 @@ class Remarkable implements RemarkableApi {
     expectedType: "DocumentType" | "CollectionType" | "TemplateType",
     refresh: boolean,
   ): Promise<HashEntry> {
-    const [rootHash, generation] = await this.#getRootHash(refresh);
-    const entries = await this.raw.getEntries(rootHash);
+    const [rootHash, generation, schemaVersion] =
+      await this.#getRootHash(refresh);
+    const { entries } = await this.raw.getEntries(rootHash);
     const hashInd = entries.findIndex((ent) => ent.hash === hash);
     const hashEnt = entries[hashInd];
     if (hashEnt === undefined) {
@@ -1197,7 +1207,7 @@ class Remarkable implements RemarkableApi {
     }
 
     const [[newEnt, uploadEnt], meta] = await Promise.all([
-      this.#editContentRaw(hashEnt.id, hash, update),
+      this.#editContentRaw(hashEnt.id, hash, update, schemaVersion),
       this.getMetadata(hash),
     ]);
     if (meta.type !== expectedType) {
@@ -1207,7 +1217,11 @@ class Remarkable implements RemarkableApi {
     }
 
     entries[hashInd] = newEnt;
-    const [rootEntry, uploadRoot] = await this.raw.putEntries("root", entries);
+    const [rootEntry, uploadRoot] = await this.raw.putEntries(
+      "root",
+      entries,
+      schemaVersion,
+    );
 
     await Promise.all([uploadEnt, uploadRoot]);
     await this.#putRootHash(rootEntry.hash, generation);
@@ -1245,8 +1259,9 @@ class Remarkable implements RemarkableApi {
     id: string,
     hash: string,
     update: Partial<Metadata>,
-  ): Promise<[RawListEntry, Promise<[void, void]>]> {
-    const entries = await this.raw.getEntries(hash);
+    schemaVersion: SchemaVersion,
+  ): Promise<[RawEntry, Promise<[void, void]>]> {
+    const { entries } = await this.raw.getEntries(hash);
     const metaInd = entries.findIndex((ent) => ent.id.endsWith(".metadata"));
     const metaEntry = entries[metaInd];
     if (metaEntry === undefined) {
@@ -1259,7 +1274,11 @@ class Remarkable implements RemarkableApi {
       meta,
     );
     entries[metaInd] = newMetaEntry;
-    const [result, uploadEntries] = await this.raw.putEntries(id, entries);
+    const [result, uploadEntries] = await this.raw.putEntries(
+      id,
+      entries,
+      schemaVersion,
+    );
     const upload = Promise.all([uploadMeta, uploadEntries]);
     return [result, upload];
   }
@@ -1269,8 +1288,9 @@ class Remarkable implements RemarkableApi {
     update: Partial<Metadata>,
     refresh: boolean = false,
   ): Promise<HashEntry> {
-    const [rootHash, generation] = await this.#getRootHash(refresh);
-    const entries = await this.raw.getEntries(rootHash);
+    const [rootHash, generation, schemaVersion] =
+      await this.#getRootHash(refresh);
+    const { entries } = await this.raw.getEntries(rootHash);
     const hashInd = entries.findIndex((ent) => ent.hash === hash);
     const hashEnt = entries[hashInd];
     if (hashEnt === undefined) {
@@ -1280,9 +1300,14 @@ class Remarkable implements RemarkableApi {
       hashEnt.id,
       hash,
       update,
+      schemaVersion,
     );
     entries[hashInd] = newEnt;
-    const [rootEntry, uploadRoot] = await this.raw.putEntries("root", entries);
+    const [rootEntry, uploadRoot] = await this.raw.putEntries(
+      "root",
+      entries,
+      schemaVersion,
+    );
 
     await Promise.all([uploadEnt, uploadRoot]);
 
@@ -1343,8 +1368,9 @@ class Remarkable implements RemarkableApi {
       );
     }
 
-    const [rootHash, generation] = await this.#getRootHash(refresh);
-    const entries = await this.raw.getEntries(rootHash);
+    const [rootHash, generation, schemaVersion] =
+      await this.#getRootHash(refresh);
+    const { entries } = await this.raw.getEntries(rootHash);
 
     const hashSet = new Set(hashes);
     const toUpdate: RawEntry[] = [];
@@ -1355,7 +1381,9 @@ class Remarkable implements RemarkableApi {
     }
 
     const resolved = await Promise.all(
-      toUpdate.map(({ id, hash }) => this.#editMetaRaw(id, hash, { parent })),
+      toUpdate.map(({ id, hash }) =>
+        this.#editMetaRaw(id, hash, { parent }, schemaVersion),
+      ),
     );
     const uploads: Promise<[void, void]>[] = [];
     const result: Record<string, string> = {};
@@ -1368,6 +1396,7 @@ class Remarkable implements RemarkableApi {
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
       "root",
       newEntries,
+      schemaVersion,
     );
     await Promise.all([Promise.all(uploads), uploadRoot]);
 
@@ -1397,8 +1426,9 @@ class Remarkable implements RemarkableApi {
     // should only go one step) to track all hashes encountered
     // NOTE that we could increase the cache in this process, or it's possible
     // for other calls to increase the cache with misc values.
-    let entries = [await this.raw.getEntries(rootHash)];
-    let nextEntries: Promise<RawEntry[]>[] = [];
+    const base = await this.raw.getEntries(rootHash);
+    let entries = [base.entries];
+    let nextEntries: Promise<Entries>[] = [];
     while (entries.length) {
       for (const entryList of entries) {
         for (const { hash, type } of entryList) {
@@ -1408,7 +1438,8 @@ class Remarkable implements RemarkableApi {
           }
         }
       }
-      entries = await Promise.all(nextEntries);
+      const resolved = await Promise.all(nextEntries);
+      entries = resolved.map((ent) => ent.entries);
       nextEntries = [];
     }
     for (const key of toDelete) {
