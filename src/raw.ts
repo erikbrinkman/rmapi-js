@@ -34,6 +34,9 @@ export type UploadMimeType =
   | "application/epub+zip"
   | "folder";
 
+/** the schema version */
+export type SchemaVersion = 3 | 4;
+
 /** an simple entry without any extra information */
 export interface SimpleEntry {
   /** the document id */
@@ -50,9 +53,9 @@ export interface SimpleEntry {
  * files, the high level entry will have the same hash and id as the low-level
  * entry for that collection.
  */
-export interface RawListEntry {
-  /** collection type (80000000) */
-  type: 80000000;
+export interface RawEntry {
+  /** 80000000 for schema 3 collection type or 0 for schema 4 or schema 3 files or */
+  type: 80000000 | 0;
   /** the hash of the collection this points to */
   hash: string;
   /** the unique id of the collection */
@@ -63,24 +66,22 @@ export interface RawListEntry {
   size: number;
 }
 
-/** the low-level entry for a single file */
-export interface RawFileEntry {
-  /** file type (0) */
-  type: 0;
-  /** the hash of the file this points to */
-  hash: string;
-  /** the unique id of the file */
-  id: string;
-  /** the number of subfiles, always zero */
-  subfiles: 0;
-  /** the size of the file in bytes */
-  size: number;
-}
-
-/** a low-level stored entry */
-export type RawEntry = RawListEntry | RawFileEntry;
 /** the type of files reMarkable supports */
 export type FileType = "epub" | "pdf" | "notebook";
+
+/**
+ * a parsed entries file
+ *
+ * id and size are defined for schema 4 but not for 3
+ */
+export interface Entries {
+  /** the raw entries in the file */
+  entries: RawEntry[];
+  /** the id of this entry, only specified for schema 4 */
+  id?: string;
+  /** the recursive size of this entry, only specified for schema 4 */
+  size?: number;
+}
 
 /** a tag for an entry */
 export interface Tag {
@@ -759,7 +760,7 @@ export interface RawRemarkableApi {
    *
    * @returns the root hash and the current generation
    */
-  getRootHash(): Promise<[string, number]>;
+  getRootHash(): Promise<[string, number, SchemaVersion]>;
 
   /**
    * get the raw binary data associated with a hash
@@ -789,7 +790,7 @@ export interface RawRemarkableApi {
    * @param hash - the hash to get entries for
    * @returns the entries
    */
-  getEntries(hash: string): Promise<RawEntry[]>;
+  getEntries(hash: string): Promise<Entries>;
 
   /**
    * get the parsed and validated `Content` of a content hash
@@ -852,25 +853,19 @@ export interface RawRemarkableApi {
    * @param bytes - the bytes to upload
    * @returns the new entry and a promise to finish the upload
    */
-  putFile(
-    id: string,
-    bytes: Uint8Array,
-  ): Promise<[RawFileEntry, Promise<void>]>;
+  putFile(id: string, bytes: Uint8Array): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putFile | `putFile`} but with caching for text */
-  putText(id: string, content: string): Promise<[RawFileEntry, Promise<void>]>;
+  putText(id: string, content: string): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putText | `putText`} but with extra validation for Content */
-  putContent(
-    id: string,
-    content: Content,
-  ): Promise<[RawFileEntry, Promise<void>]>;
+  putContent(id: string, content: Content): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putText | `putText`} but with extra validation for Metadata */
   putMetadata(
     id: string,
     metadata: Metadata,
-  ): Promise<[RawFileEntry, Promise<void>]>;
+  ): Promise<[RawEntry, Promise<void>]>;
 
   /**
    * put a set of entries to make an entry list file
@@ -890,7 +885,8 @@ export interface RawRemarkableApi {
   putEntries(
     id: string,
     entries: RawEntry[],
-  ): Promise<[RawListEntry, Promise<void>]>;
+    schemaVersion: SchemaVersion,
+  ): Promise<[RawEntry, Promise<void>]>;
 
   /**
    * upload a file to the reMarkable cloud using the simple api
@@ -930,6 +926,29 @@ interface AuthedFetch {
   ): Promise<Response>;
 }
 
+function parseRawEntryLine(line: string): RawEntry {
+  const [hash, type, id, subfiles, size] = line.split(":");
+  if (
+    hash === undefined ||
+    type === undefined ||
+    id === undefined ||
+    subfiles === undefined ||
+    size === undefined
+  ) {
+    throw new Error(`line '${line}' was not formatted correctly`);
+  } else if (type === "80000000" || type === "0") {
+    return {
+      hash,
+      type: type === "0" ? 0 : 80000000,
+      id,
+      subfiles: parseInt(subfiles),
+      size: parseInt(size),
+    };
+  } else {
+    throw new Error(`line '${line}' was not formatted correctly`);
+  }
+}
+
 export class RawRemarkable implements RawRemarkableApi {
   readonly #authedFetch: AuthedFetch;
   readonly #rawHost: string;
@@ -958,20 +977,20 @@ export class RawRemarkable implements RawRemarkableApi {
   }
   /** make an authorized request to remarkable */
 
-  async getRootHash(): Promise<[string, number]> {
+  async getRootHash(): Promise<[string, number, SchemaVersion]> {
     const res = await this.#authedFetch("GET", `${this.#rawHost}/sync/v4/root`);
     const raw = await res.text();
     const loaded = JSON.parse(raw) as unknown;
     if (!rootHash.guardAssert(loaded)) throw Error("invalid root hash");
     const { hash, generation, schemaVersion } = loaded;
-    if (schemaVersion !== 3) {
+    if (schemaVersion !== 3 && schemaVersion !== 4) {
       throw new Error(`schema version ${schemaVersion} not supported`);
     } else if (!Number.isSafeInteger(generation)) {
       throw new Error(
         `generation ${generation} was not a safe integer; please file a bug report`,
       );
     } else {
-      return [hash, generation];
+      return [hash, generation, schemaVersion];
     }
   }
 
@@ -1018,42 +1037,35 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getEntries(hash: string): Promise<RawEntry[]> {
+  async getEntries(hash: string): Promise<Entries> {
     const rawFile = await this.getText(hash);
     const [version, ...rest] = rawFile.slice(0, -1).split("\n");
-    if (version != "3") {
-      throw new Error(`schema version ${version} not supported`);
+    if (version === "3") {
+      return { entries: rest.map(parseRawEntryLine) };
+    } else if (version === "4") {
+      const [info, ...remaining] = rest;
+      if (!info) throw new Error("missing info line for schema version 4");
+      const [lead, id, count, size] = info.split(":");
+      if (
+        lead !== "0" ||
+        id === undefined ||
+        count === undefined ||
+        size === undefined
+      ) {
+        throw new Error(
+          `schema 4 info line '${info}' was not formatted correctly`,
+        );
+      }
+      const entries = remaining.map(parseRawEntryLine);
+      if (parseInt(count) !== entries.length) {
+        throw new Error(
+          `schema 4 expected ${count} entries, but found ${entries.length}`,
+        );
+      } else {
+        return { entries, id, size: parseInt(size) };
+      }
     } else {
-      return rest.map((line) => {
-        const [hash, type, id, subfiles, size] = line.split(":");
-        if (
-          hash === undefined ||
-          type === undefined ||
-          id === undefined ||
-          subfiles === undefined ||
-          size === undefined
-        ) {
-          throw new Error(`line '${line}' was not formatted correctly`);
-        } else if (type === "80000000") {
-          return {
-            hash,
-            type: 80000000,
-            id,
-            subfiles: parseInt(subfiles),
-            size: parseInt(size),
-          };
-        } else if (type === "0" && subfiles === "0") {
-          return {
-            hash,
-            type: 0,
-            id,
-            subfiles: 0,
-            size: parseInt(size),
-          };
-        } else {
-          throw new Error(`line '${line}' was not formatted correctly`);
-        }
-      });
+      throw new Error(`schema version ${version} not supported`);
     }
   }
 
@@ -1150,9 +1162,9 @@ export class RawRemarkable implements RawRemarkableApi {
   async putFile(
     id: string,
     bytes: Uint8Array,
-  ): Promise<[RawFileEntry, Promise<void>]> {
+  ): Promise<[RawEntry, Promise<void>]> {
     const hash = await digest(bytes);
-    const res: RawFileEntry = {
+    const res: RawEntry = {
       id,
       hash,
       type: 0,
@@ -1162,10 +1174,7 @@ export class RawRemarkable implements RawRemarkableApi {
     return [res, this.#putFile(hash, id, bytes)];
   }
 
-  async putText(
-    id: string,
-    text: string,
-  ): Promise<[RawFileEntry, Promise<void>]> {
+  async putText(id: string, text: string): Promise<[RawEntry, Promise<void>]> {
     const enc = new TextEncoder();
     const bytes = enc.encode(text);
     const [ent, upload] = await this.putFile(id, bytes);
@@ -1181,7 +1190,7 @@ export class RawRemarkable implements RawRemarkableApi {
   async putContent(
     id: string,
     content: Content,
-  ): Promise<[RawFileEntry, Promise<void>]> {
+  ): Promise<[RawEntry, Promise<void>]> {
     if (!id.endsWith(".content")) {
       throw new Error(`id ${id} did not end with '.content'`);
     } else {
@@ -1192,7 +1201,7 @@ export class RawRemarkable implements RawRemarkableApi {
   async putMetadata(
     id: string,
     metadata: Metadata,
-  ): Promise<[RawFileEntry, Promise<void>]> {
+  ): Promise<[RawEntry, Promise<void>]> {
     if (!id.endsWith(".metadata")) {
       throw new Error(`id ${id} did not end with '.metadata'`);
     } else {
@@ -1203,7 +1212,8 @@ export class RawRemarkable implements RawRemarkableApi {
   async putEntries(
     id: string,
     entries: RawEntry[],
-  ): Promise<[RawListEntry, Promise<void>]> {
+    schemaVersion: SchemaVersion,
+  ): Promise<[RawEntry, Promise<void>]> {
     // NOTE collections have a special hash function, the hash of their
     // contents, so this needs to be different
     entries.sort((a, b) => a.id.localeCompare(b.id));
@@ -1216,14 +1226,21 @@ export class RawRemarkable implements RawRemarkableApi {
     const hash = await digest(hashBuff);
     const size = entries.reduce((acc, ent) => acc + ent.size, 0);
 
-    const records = ["3\n"];
+    const records = [`${schemaVersion}\n`];
+    if (schemaVersion === 3) {
+      // noop
+    } else if (schemaVersion === 4) {
+      records.push(`0:${id}:${entries.length}:${size}\n`);
+    } else {
+      throw new Error(`unsupported schema version ${schemaVersion as number}`);
+    }
     for (const { hash, type, id, subfiles, size } of entries) {
       records.push(`${hash}:${type}:${id}:${subfiles}:${size}\n`);
     }
-    const res: RawListEntry = {
+    const res: RawEntry = {
       id,
       hash,
-      type: 80000000,
+      type: schemaVersion > 3 ? 0 : 80000000,
       subfiles: entries.length,
       size,
     };
