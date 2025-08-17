@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.4.0] - 2025-08-17
+
+### Changed
+
+- add `raw.uploadFile` that uses the rm extension api to upload epubs and pdfs
+- made `listItems` tolerant of missing `contents`
+- due to switching back to the simple api, there's a small breaking change,
+  here parent is no longer accepted with the upload api. I chose to break the
+  api rather than silently ignore. If this does break, switch to the `put` api
+  as its just more powerful, and you were still on version 3.
+
 ## [8.3.0] - 2025-06-01
 
 ### Changed
