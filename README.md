@@ -21,7 +21,7 @@ and folders ("collections"). The hash indicates the full current state to manage
 ## Usage
 
 To explore files in the cloud, you need to first register your api and persist
-the token. Then you can use `listFiles` to explore entries of different file
+the token. Then you can use `listItems` to explore entries of different file
 collections.
 
 ```ts
@@ -31,7 +31,7 @@ const code = "..."; // eight letter code from https://my.remarkable.com/device/d
 const token = await register(code);
 // persist token so you don't have to register again
 const api = await remarkable(token);
-const fileEntries = await api.listFiles();
+const fileEntries = await api.listItems();
 ```
 
 To upload an epub or pdf, simply call upload with the appropriate name and buffer.
@@ -53,7 +53,7 @@ Using these apis is a little riskier since they can potentially result in data l
 // upload with custom line height not avilable through reMarkable
 await api.putEpub("name", buffer, { lineHeight: 180 })
 
-// fetch an uploaded pdf, using the hash (from listFiles)
+// fetch an uploaded pdf, using the hash (from listItems)
 const buffer = await api.getEpub(hash)
 ```
 
