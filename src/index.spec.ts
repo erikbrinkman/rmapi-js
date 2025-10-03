@@ -101,6 +101,8 @@ fake_template_hash:0:${docId}.template:0:1
       sizeInBytes: "",
       textAlignment: "justify",
       textScale: 0,
+      // exercise acceptance of sentinel -1
+      lastOpenedPage: -1,
     };
     const metadata: Metadata = {
       lastModified: "",
@@ -108,6 +110,8 @@ fake_template_hash:0:${docId}.template:0:1
       pinned: false,
       type: "DocumentType",
       visibleName: "doc name",
+      // exercise acceptance of sentinel -1
+      lastOpenedPage: -1,
     };
     const templateMetadata: Metadata = {
       createdTime: "",
@@ -171,6 +175,30 @@ fake_template_hash:0:${docId}.template:0:1
     const api = await remarkable("");
     const [loaded] = await api.listItems();
     expect(loaded).toEqual(expected);
+  });
+
+  test("#getMetadata() accepts lastOpenedPage -1", async () => {
+    const realHash = repHash("1");
+    const file = `3
+hash:0:doc.content:0:1
+${realHash}:0:doc.metadata:0:1
+hash:0:doc.epub:0:1
+hash:0:doc.pdf:0:1
+`;
+    const metadata: Metadata = {
+      lastModified: "0",
+      visibleName: "name",
+      parent: "",
+      type: "DocumentType",
+      pinned: false,
+      // repro for previous validation error
+      lastOpenedPage: -1,
+    };
+    mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
+
+    const api = await remarkable("");
+    const meta = await api.getMetadata(repHash("0"));
+    expect(meta).toEqual(metadata);
   });
 
   test("#listIds()", async () => {
