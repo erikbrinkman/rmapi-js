@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "doc": "typedoc",
+    "doc:md": "typedoc --options typedoc.md.json && node scripts/build-llms.js",
     "fmt": "biome format --write",
     "lint": "tsc && biome check && typedoc --emit none",
     "export": "tsc -p tsconfig.build.json && bun build src/index.ts --minify --outfile dist/rmapi-js.esm.min.js",
@@ -36,6 +37,7 @@
     "@types/bun": "^1.3.4",
     "@types/json-stable-stringify": "^1.2.0",
     "@types/uuid": "^11.0.0",
+    "typedoc-plugin-markdown": "^4.2.8",
     "typedoc": "^0.28.15",
     "typescript": "~5.9.3"
   }

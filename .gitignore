@@ -9,6 +9,7 @@ tsconfig.tsbuildinfo
 #############
 dist
 docs
+docs-md
 
 # Testing #
 ###########

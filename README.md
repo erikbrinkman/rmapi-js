@@ -90,3 +90,6 @@ Since this has all been reverse engineered, any help expanding the api would be
 helpful. For example, There's currently a function to download the entire state
 of a document, but I ran into trouble trying to reupload that exact same file as
 a clone.
+
+You can also run `bun doc:md` to generate Markdown docs in `docs-md/`, which can
+be handy when sharing context.
