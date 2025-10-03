@@ -873,6 +873,12 @@ export interface RawRemarkableApi {
   ): Promise<[RawFileEntry, Promise<void>]>;
 
   /**
+   * create a list hash from a set of entries
+   * @param entries - the entries to hash
+   */
+  makeListHash(entries: RawEntry[]): string;
+
+  /**
    * put a set of entries to make an entry list file
    *
    * To fully upload an item:
@@ -1200,6 +1206,14 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
+  makeListHash(entries: RawEntry[]): string {
+    const records = ["3\n"];
+    for (const { hash, type, id, subfiles, size } of entries) {
+      records.push(`${hash}:${type}:${id}:${subfiles}:${size}\n`);
+    }
+    return records.join("");
+  }
+
   async putEntries(
     id: string,
     entries: RawEntry[],
@@ -1216,10 +1230,8 @@ export class RawRemarkable implements RawRemarkableApi {
     const hash = await digest(hashBuff);
     const size = entries.reduce((acc, ent) => acc + ent.size, 0);
 
-    const records = ["3\n"];
-    for (const { hash, type, id, subfiles, size } of entries) {
-      records.push(`${hash}:${type}:${id}:${subfiles}:${size}\n`);
-    }
+    const listHash = this.makeListHash(entries);
+    
     const res: RawListEntry = {
       id,
       hash,
@@ -1231,7 +1243,7 @@ export class RawRemarkable implements RawRemarkableApi {
     return [
       res,
       // NOTE when monitoring requests, this had the extension .docSchema appended, but I'm not entirely sure why
-      this.#putFile(hash, `${id}.docSchema`, enc.encode(records.join(""))),
+      this.#putFile(hash, `${id}.docSchema`, enc.encode(listHash)),
     ];
   }
 

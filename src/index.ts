@@ -228,13 +228,13 @@ export interface RegisterOptions {
    * Using an improper one will results in the registration being rejected.
    */
   deviceDesc?:
-    | "desktop-windows"
-    | "desktop-macos"
-    | "desktop-linux"
-    | "mobile-android"
-    | "mobile-ios"
-    | "browser-chrome"
-    | "remarkable";
+  | "desktop-windows"
+  | "desktop-macos"
+  | "desktop-linux"
+  | "mobile-android"
+  | "mobile-ios"
+  | "browser-chrome"
+  | "remarkable";
   /**
    * the unique id of this device
    *
@@ -625,6 +625,18 @@ export interface RemarkableApi {
    */
   delete(hash: string, refresh?: boolean): Promise<HashEntry>;
 
+  
+  /**
+   * permanently delete an entry from all devices connected to the account
+   *
+   * @example
+   * ```ts
+   * await api.purge(file.hash);
+   * ```
+   * @param hash - the hash of the entry to delete
+   */
+  purge(hash: string, refresh?: boolean): Promise<void>;
+
   /**
    * rename an entry
    *
@@ -684,6 +696,21 @@ export interface RemarkableApi {
     hashes: readonly string[],
     refresh?: boolean,
   ): Promise<HashesEntry>;
+
+  /**
+   * delete many entries permanently from all devices connected to the account
+   *
+   * @example
+   * ```ts
+   * await api.bulkPurge([file.hash]);
+   * ```
+   *
+   * @param hashes - the hashes of the entries to delete
+   */
+  bulkPurge(
+    hashes: readonly string[],
+    refresh?: boolean,
+  ): Promise<[SimpleEntry[], string]>;
 
   /**
    * get the current cache value as a string
@@ -1310,6 +1337,11 @@ class Remarkable implements RemarkableApi {
   async delete(hash: string, refresh: boolean = false): Promise<HashEntry> {
     return await this.move(hash, "trash", refresh);
   }
+  
+  /** permanently delete an entry */
+  async purge(hash: string, refresh: boolean = false): Promise<void> {
+    await this.bulkPurge([hash], refresh);
+  }
 
   /** rename an entry */
   async rename(
@@ -1381,6 +1413,26 @@ class Remarkable implements RemarkableApi {
     refresh: boolean = false,
   ): Promise<HashesEntry> {
     return await this.bulkMove(hashes, "trash", refresh);
+  }
+
+  /** permanent delete many hashes */
+  async bulkPurge(
+    hashes: readonly string[],
+    refresh: boolean = false,
+  ): Promise<[SimpleEntry[], string]> {
+    const [rootHash, generation] = await this.#getRootHash(refresh);
+    // Get the raw text of the root entry
+    const entries = await this.raw.getEntries(rootHash)
+    const newEntries = entries.filter(
+      (entry) => !hashes.includes(entry.hash));
+    // If we didn't delete anything, just return the current root
+    if (newEntries.length < entries.length) {
+      const hash = this.raw.makeListHash(newEntries);
+      await this.#putRootHash(hash, generation);
+      return [newEntries, hash];
+    }
+    return [newEntries, rootHash];
+
   }
 
   /** dump the raw cache */
