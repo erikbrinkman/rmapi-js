@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "doc": "typedoc",
+    "doc:llms": "typedoc --options typedoc.llm.json && node scripts/build-llms.js",
     "fmt": "prettier --cache --write 'src/*.ts' '*.{js,json}'",
     "lint": "tsc && eslint --cache 'src/*.ts' && typedoc --emit none",
     "export": "tsc -p tsconfig.build.json && bun build src/index.ts --minify --outfile dist/rmapi-js.esm.min.js",
@@ -44,6 +45,7 @@
     "prettier": "^3.6.2",
     "prettier-plugin-organize-imports": "^4.2.0",
     "typedoc": "^0.28.10",
+    "typedoc-plugin-markdown": "^4.2.8",
     "typescript": "~5.9.2",
     "typescript-eslint": "^8.39.1"
   }
