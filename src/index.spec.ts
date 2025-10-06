@@ -62,6 +62,23 @@ describe("remarkable", () => {
       mockFetch(emptyResponse({ status: 400 }));
       expect(remarkable("")).rejects.toThrow("couldn't fetch auth token");
     });
+
+    test("uses provided userToken and skips exchange", async () => {
+      const fetch = mockFetch();
+
+      const api = await remarkable("ignored device token", {
+        userToken: "cached user token",
+      });
+      expect(fetch.mock.calls).toHaveLength(0);
+      expect(api.getUserToken()).toBe("cached user token");
+    });
+
+    test("exposes fetched user token via getter", async () => {
+      mockFetch(textResponse("fetched user token"));
+
+      const api = await remarkable("device token");
+      expect(api.getUserToken()).toBe("fetched user token");
+    });
   });
 
   test("#listItems()", async () => {
