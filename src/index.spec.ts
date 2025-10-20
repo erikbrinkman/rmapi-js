@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  auth,
   Content,
   DocumentContent,
   Entry,
   Metadata,
   register,
   remarkable,
+  remarkableWithSession,
   TemplateContent,
 } from ".";
 import {
@@ -44,6 +46,26 @@ describe("register()", () => {
   });
 });
 
+describe("auth()", () => {
+  test("success", async () => {
+    const fetch = mockFetch(textResponse("custom user token"));
+
+    const token = await auth("custom device token");
+    expect(token).toBe("custom user token");
+    expect(fetch.mock.calls).toHaveLength(1);
+    const [first] = fetch.mock.calls;
+    const [, init] = first ?? [];
+    expect(new Headers(init?.headers).get("Authorization")).toBe(
+      "Bearer custom device token",
+    );
+  });
+
+  test("error", () => {
+    mockFetch(emptyResponse({ status: 400 }));
+    expect(auth("")).rejects.toThrow("couldn't fetch auth token");
+  });
+});
+
 describe("remarkable", () => {
   describe("remarkable()", () => {
     test("success", async () => {
@@ -63,21 +85,29 @@ describe("remarkable", () => {
       expect(remarkable("")).rejects.toThrow("couldn't fetch auth token");
     });
 
-    test("uses provided userToken and skips exchange", async () => {
-      const fetch = mockFetch();
-
-      const api = await remarkable("ignored device token", {
-        userToken: "cached user token",
-      });
-      expect(fetch.mock.calls).toHaveLength(0);
-      expect(api.getUserToken()).toBe("cached user token");
-    });
-
     test("exposes fetched user token via getter", async () => {
       mockFetch(textResponse("fetched user token"));
 
       const api = await remarkable("device token");
       expect(api.getUserToken()).toBe("fetched user token");
+    });
+  });
+
+  describe("remarkableWithSession()", () => {
+    test("uses provided token and skips exchange", () => {
+      const fetch = mockFetch();
+
+      const api = remarkableWithSession("cached user token");
+      expect(fetch.mock.calls).toHaveLength(0);
+      expect(api.getUserToken()).toBe("cached user token");
+    });
+
+    test("throws when cache is invalid", () => {
+      mockFetch();
+
+      expect(() =>
+        remarkableWithSession("token", { cache: "42" }),
+      ).toThrow("cache was not a valid cache (json string mapping)");
     });
   });
 

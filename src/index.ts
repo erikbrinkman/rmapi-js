@@ -1433,15 +1433,18 @@ class Remarkable implements RemarkableApi {
   }
 }
 
-/** options for a remarkable instance */
-export interface RemarkableOptions {
+/** configuration for exchanging a device token */
+export interface AuthOptions {
   /**
    * the url for making authorization requests
    *
    * @defaultValue "https://webapp-prod.cloud.remarkable.engineering"
    */
   authHost?: string;
+}
 
+/** options for constructing an api instance from a session token */
+export interface RemarkableSessionOptions {
   /**
    * the url for making synchronization requests
    *
@@ -1477,18 +1480,16 @@ export interface RemarkableOptions {
    * By the JavaScript specification there are two bytes per character, but the
    * total memory usage of the cache will also be larger than just the size of
    * the data stored.
-   *
-   * @defaultValue Infinity
-   */
+  *
+  * @defaultValue Infinity
+  */
   maxCacheSize?: number;
-
-  /**
-   * a pre-existing user token to authorize requests
-   *
-   * If provided, skips exchanging the device token for a user token.
-   */
-  userToken?: string;
 }
+
+/** options for a remarkable instance */
+export interface RemarkableOptions
+  extends AuthOptions,
+    RemarkableSessionOptions {}
 
 const cached = values(nullable(string())) satisfies CompiledSchema<
   Record<string, string | null>,
@@ -1496,12 +1497,65 @@ const cached = values(nullable(string())) satisfies CompiledSchema<
 >;
 
 /**
+ * Exchange a device token for a session token.
+ *
+ * @param deviceToken - the device token proving this api instance is
+ *    registered. Create one with {@link register}.
+ * @returns the session token returned by the reMarkable service
+ */
+export async function auth(
+  deviceToken: string,
+  { authHost = AUTH_HOST }: AuthOptions = {},
+): Promise<string> {
+  const resp = await fetch(`${authHost}/token/json/2/user/new`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${deviceToken}`,
+    },
+  });
+  if (!resp.ok) {
+    throw new Error(`couldn't fetch auth token: ${resp.statusText}`);
+  }
+  return await resp.text();
+}
+
+/**
+ * Create an API instance from an existing session token.
+ *
+ * If requests start failing, simply recreate the api instance with a freshly
+ * fetched session token.
+ *
+ * @param userToken - the session token used for authorization
+ * @returns an api instance
+ */
+export function remarkableWithSession(
+  userToken: string,
+  {
+    rawHost = RAW_HOST,
+    uploadHost = UPLOAD_HOST,
+    cache,
+    maxCacheSize = Infinity,
+  }: RemarkableSessionOptions = {},
+): RemarkableApi {
+  const initCache = JSON.parse(cache ?? "{}") as unknown;
+  if (cached.guard(initCache)) {
+    const entries = Object.entries(initCache);
+    const cacheMap =
+      maxCacheSize === Infinity
+        ? new Map(entries)
+        : new LruCache(maxCacheSize, entries);
+    return new Remarkable(userToken, rawHost, uploadHost, cacheMap);
+  }
+  throw new Error(
+    "cache was not a valid cache (json string mapping); your cache must be corrupted somehow. Either initialize remarkable without a cache, or fix its format.",
+  );
+}
+
+/**
  * create an instance of the api
  *
- * This gets a temporary authentication token with the device token. If
- * `RemarkableOptions.userToken` is provided, that token is used directly and
- * the exchange request is skipped. If requests start failing, simply recreate
- * the api instance.
+ * This gets a temporary authentication token with the device token and then
+ * constructs the api instance.
  *
  * @param deviceToken - the device token proving this api instance is
  *    registered. Create one with {@link register}.
@@ -1509,39 +1563,16 @@ const cached = values(nullable(string())) satisfies CompiledSchema<
  */
 export async function remarkable(
   deviceToken: string,
-  {
-    userToken,
-    authHost = AUTH_HOST,
-    rawHost = RAW_HOST,
-    uploadHost = UPLOAD_HOST,
-    cache,
-    maxCacheSize = Infinity,
-  }: RemarkableOptions = {},
+  options: RemarkableOptions = {},
 ): Promise<RemarkableApi> {
-  let finalUserToken = userToken;
-  if (!finalUserToken) {
-    const resp = await fetch(`${authHost}/token/json/2/user/new`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${deviceToken}`,
-      },
-    });
-    if (!resp.ok) {
-      throw new Error(`couldn't fetch auth token: ${resp.statusText}`);
-    }
-    finalUserToken = await resp.text();
-  }
-  const initCache = JSON.parse(cache ?? "{}") as unknown;
-  if (cached.guard(initCache)) {
-    const entries = Object.entries(initCache);
-    const cache =
-      maxCacheSize === Infinity
-        ? new Map(entries)
-        : new LruCache(maxCacheSize, entries);
-    return new Remarkable(finalUserToken, rawHost, uploadHost, cache);
-  } else {
-    throw new Error(
-      "cache was not a valid cache (json string mapping); your cache must be corrupted somehow. Either initialize remarkable without a cache, or fix its format.",
-    );
-  }
+  const { authHost, rawHost, uploadHost, cache, maxCacheSize, syncHost } =
+    options ?? {};
+  const userToken = await auth(deviceToken, { authHost });
+  return remarkableWithSession(userToken, {
+    rawHost,
+    uploadHost,
+    cache,
+    maxCacheSize,
+    syncHost,
+  });
 }
