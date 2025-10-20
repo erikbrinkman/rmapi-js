@@ -479,7 +479,7 @@ const documentContent = properties(
       undefined,
       true,
     ),
-    lastOpenedPage: uint32(),
+    lastOpenedPage: int32(),
     margins: uint32(),
     originalPageCount: int32(),
     pages: elements(string()),
@@ -627,7 +627,7 @@ const metadata = properties(
   },
   {
     lastOpened: string(),
-    lastOpenedPage: uint32(),
+    lastOpenedPage: int32(),
     createdTime: string(),
     deleted: boolean(),
     metadatamodified: boolean(),
