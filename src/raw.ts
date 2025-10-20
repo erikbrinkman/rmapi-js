@@ -479,7 +479,6 @@ const documentContent = properties(
       undefined,
       true,
     ),
-    // reMarkable returns -1 as a sentinel for "not opened yet"
     lastOpenedPage: int32(),
     margins: uint32(),
     originalPageCount: int32(),
@@ -628,7 +627,6 @@ const metadata = properties(
   },
   {
     lastOpened: string(),
-    // reMarkable returns -1 as a sentinel for "not opened yet"
     lastOpenedPage: int32(),
     createdTime: string(),
     deleted: boolean(),

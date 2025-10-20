@@ -191,7 +191,6 @@ hash:0:doc.pdf:0:1
       parent: "",
       type: "DocumentType",
       pinned: false,
-      // repro for previous validation error
       lastOpenedPage: -1,
     };
     mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
