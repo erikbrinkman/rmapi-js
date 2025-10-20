@@ -101,8 +101,6 @@ fake_template_hash:0:${docId}.template:0:1
       sizeInBytes: "",
       textAlignment: "justify",
       textScale: 0,
-      // exercise acceptance of sentinel -1
-      lastOpenedPage: -1,
     };
     const metadata: Metadata = {
       lastModified: "",
@@ -110,8 +108,6 @@ fake_template_hash:0:${docId}.template:0:1
       pinned: false,
       type: "DocumentType",
       visibleName: "doc name",
-      // exercise acceptance of sentinel -1
-      lastOpenedPage: -1,
     };
     const templateMetadata: Metadata = {
       createdTime: "",
