@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- new `auth` helper to exchange device tokens for session tokens
+- `remarkableWithSession` synchronous factory for constructing clients from cached session tokens
+
+### Changed
+
+- `remarkable` now delegates to `auth` and no longer accepts `RemarkableOptions.userToken`; call `remarkableWithSession` with cached tokens instead
+
 ## [8.4.0] - 2025-08-17
 
 ### Changed
