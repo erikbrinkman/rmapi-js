@@ -365,12 +365,6 @@ export interface PutOptions {
  * validation.
  */
 export interface RemarkableApi {
-  /**
-   * get the current user token used for authorization
-   *
-   * Useful for caching and reusing between instances.
-   */
-  getUserToken(): string;
   /** scoped access to the raw low-level api */
   raw: RawRemarkableApi;
 
@@ -748,11 +742,6 @@ class Remarkable implements RemarkableApi {
       rawHost,
       uploadHost,
     );
-  }
-
-  /** expose the user token for caching and reuse */
-  getUserToken(): string {
-    return this.#userToken;
   }
 
   async #getRootHash(
