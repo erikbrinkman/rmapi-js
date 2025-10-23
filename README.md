@@ -35,11 +35,11 @@ const fileEntries = await api.listItems();
 
 // In stateless environments, exchange once and reuse.
 const sessionToken = await auth(token);
-const apiSession = session(sessionToken);
+const api = session(sessionToken);
 // cache `sessionToken` and reuse it across workers
 ```
 
-`auth` performs the same network call that `remarkable` previously did for you,
+`auth` performs the same network call that `remarkable` does for you internally,
 returning a short-lived session token. `session` is synchronous,
 letting you construct clients from cached tokens without making a network call.
 
