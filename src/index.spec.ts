@@ -48,10 +48,10 @@ describe("register()", () => {
 
 describe("auth()", () => {
   test("success", async () => {
-    const fetch = mockFetch(textResponse("custom user token"));
+    const fetch = mockFetch(textResponse("custom session token"));
 
     const token = await auth("custom device token");
-    expect(token).toBe("custom user token");
+    expect(token).toBe("custom session token");
     expect(fetch.mock.calls).toHaveLength(1);
     const [first] = fetch.mock.calls;
     const [, init] = first ?? [];
@@ -69,7 +69,7 @@ describe("auth()", () => {
 describe("remarkable", () => {
   describe("remarkable()", () => {
     test("success", async () => {
-      const fetch = mockFetch(textResponse("custom user token"));
+      const fetch = mockFetch(textResponse("custom session token"));
 
       await remarkable("custom device token");
       expect(fetch.mock.calls).toHaveLength(1);
@@ -90,7 +90,7 @@ describe("remarkable", () => {
     test("uses provided token and skips exchange", () => {
       const fetch = mockFetch();
 
-      const api = session("cached user token");
+      const api = session("cached session token");
       expect(fetch.mock.calls).toHaveLength(0);
       expect(api.raw).toBeDefined();
     });

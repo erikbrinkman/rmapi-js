@@ -721,19 +721,19 @@ export interface RemarkableApi {
 
 /** the implementation of that api */
 class Remarkable implements RemarkableApi {
-  readonly #userToken: string;
+  readonly #sessionToken: string;
   /** the same cache that underlies the raw api, allowing us to modify it */
   readonly #cache: Map<string, string | null>;
   readonly raw: RawRemarkable;
   #lastHashGen: readonly [string, number] | undefined;
 
   constructor(
-    userToken: string,
+    sessionToken: string,
     rawHost: string,
     uploadHost: string,
     cache: Map<string, string | null>,
   ) {
-    this.#userToken = userToken;
+    this.#sessionToken = sessionToken;
     this.#cache = cache;
     this.raw = new RawRemarkable(
       (method, url, { body, headers } = {}) =>
@@ -780,7 +780,7 @@ class Remarkable implements RemarkableApi {
     const resp = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${this.#userToken}`,
+        Authorization: `Bearer ${this.#sessionToken}`,
         ...headers,
       },
       // fetch works correctly with uint8 arrays, but is not hinted correctly
@@ -1514,11 +1514,11 @@ export async function auth(
  * If requests start failing, simply recreate the api instance with a freshly
  * fetched session token.
  *
- * @param userToken - the session token used for authorization
+ * @param sessionToken - the session token used for authorization
  * @returns an api instance
  */
 export function session(
-  userToken: string,
+  sessionToken: string,
   {
     rawHost = RAW_HOST,
     uploadHost = UPLOAD_HOST,
@@ -1533,7 +1533,7 @@ export function session(
       maxCacheSize === Infinity
         ? new Map(entries)
         : new LruCache(maxCacheSize, entries);
-    return new Remarkable(userToken, rawHost, uploadHost, cacheMap);
+    return new Remarkable(sessionToken, rawHost, uploadHost, cacheMap);
   }
   throw new Error(
     "cache was not a valid cache (json string mapping); your cache must be corrupted somehow. Either initialize remarkable without a cache, or fix its format.",
@@ -1556,8 +1556,8 @@ export async function remarkable(
 ): Promise<RemarkableApi> {
   const { authHost, rawHost, uploadHost, cache, maxCacheSize, syncHost } =
     options ?? {};
-  const userToken = await auth(deviceToken, { authHost });
-  return session(userToken, {
+  const sessionToken = await auth(deviceToken, { authHost });
+  return session(sessionToken, {
     rawHost,
     uploadHost,
     cache,
