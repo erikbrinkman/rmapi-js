@@ -1517,7 +1517,7 @@ export async function auth(
  * @param userToken - the session token used for authorization
  * @returns an api instance
  */
-export function remarkableWithSession(
+export function session(
   userToken: string,
   {
     rawHost = RAW_HOST,
@@ -1557,7 +1557,7 @@ export async function remarkable(
   const { authHost, rawHost, uploadHost, cache, maxCacheSize, syncHost } =
     options ?? {};
   const userToken = await auth(deviceToken, { authHost });
-  return remarkableWithSession(userToken, {
+  return session(userToken, {
     rawHost,
     uploadHost,
     cache,

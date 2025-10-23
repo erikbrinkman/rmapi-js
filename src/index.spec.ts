@@ -7,7 +7,7 @@ import {
   Metadata,
   register,
   remarkable,
-  remarkableWithSession,
+  session,
   TemplateContent,
 } from ".";
 import {
@@ -86,11 +86,11 @@ describe("remarkable", () => {
     });
   });
 
-  describe("remarkableWithSession()", () => {
+  describe("session()", () => {
     test("uses provided token and skips exchange", () => {
       const fetch = mockFetch();
 
-      const api = remarkableWithSession("cached user token");
+      const api = session("cached user token");
       expect(fetch.mock.calls).toHaveLength(0);
       expect(api.raw).toBeDefined();
     });
@@ -99,7 +99,7 @@ describe("remarkable", () => {
       mockFetch();
 
       expect(() =>
-        remarkableWithSession("token", { cache: "42" }),
+        session("token", { cache: "42" }),
       ).toThrow("cache was not a valid cache (json string mapping)");
     });
   });

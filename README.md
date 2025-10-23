@@ -25,7 +25,7 @@ the token. Then you can use `listItems` to explore entries of different file
 collections.
 
 ```ts
-import { auth, register, remarkable, remarkableWithSession } from "rmapi-js";
+import { auth, register, remarkable, session } from "rmapi-js";
 
 const code = "..."; // eight letter code from https://my.remarkable.com/device/desktop/connect
 const token = await register(code);
@@ -34,13 +34,13 @@ const api = await remarkable(token);
 const fileEntries = await api.listItems();
 
 // In stateless environments, exchange once and reuse.
-const userToken = await auth(token);
-const cachedApi = remarkableWithSession(userToken);
-// cache `userToken` and reuse it across workers
+const sessionToken = await auth(token);
+const apiSession = session(sessionToken);
+// cache `sessionToken` and reuse it across workers
 ```
 
 `auth` performs the same network call that `remarkable` previously did for you,
-returning a short-lived session token. `remarkableWithSession` is synchronous,
+returning a short-lived session token. `session` is synchronous,
 letting you construct clients from cached tokens without making a network call.
 
 To upload an epub or pdf, simply call upload with the appropriate name and buffer.
