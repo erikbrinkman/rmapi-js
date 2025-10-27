@@ -7,6 +7,7 @@ import {
   enumeration,
   float64,
   int32,
+  nullable,
   properties,
   string,
   timestamp,
@@ -119,7 +120,7 @@ const pageTag = properties(
 export type Orientation = "portrait" | "landscape";
 
 /** all supported text alignments */
-export type TextAlignment = "justify" | "left";
+export type TextAlignment = "" | "justify" | "left";
 
 /** types of zoom modes for documents, applies primarily to pdf files */
 export type ZoomMode = "bestFit" | "customFit" | "fitToHeight" | "fitToWidth";
@@ -381,8 +382,8 @@ export interface DocumentContent {
   pageCount: number;
   /** the page tags for the document */
   pageTags?: PageTag[];
-  /** a list of the ids of each page in the document */
-  pages?: string[];
+  /** a list of the ids of each page in the document, or null when never opened */
+  pages?: string[] | null;
   /** a mapping from page number to page id in pages */
   redirectionPageMap?: number[];
   /** ostensibly the size in bytes of the file, but this differs from other measurements */
@@ -458,7 +459,7 @@ const documentContent = properties(
     orientation: enumeration("portrait", "landscape"),
     pageCount: uint32(),
     sizeInBytes: string(),
-    textAlignment: enumeration("justify", "left"),
+    textAlignment: enumeration("", "justify", "left"),
     textScale: float64(),
   },
   {
@@ -482,7 +483,7 @@ const documentContent = properties(
     lastOpenedPage: int32(),
     margins: uint32(),
     originalPageCount: int32(),
-    pages: elements(string()),
+    pages: nullable(elements(string())),
     pageTags: elements(pageTag),
     redirectionPageMap: elements(int32()),
     tags: elements(tag),
