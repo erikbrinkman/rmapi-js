@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  auth,
   Content,
   DocumentContent,
   Entry,
   Metadata,
   register,
   remarkable,
+  session,
   TemplateContent,
 } from ".";
 import {
@@ -44,10 +46,30 @@ describe("register()", () => {
   });
 });
 
+describe("auth()", () => {
+  test("success", async () => {
+    const fetch = mockFetch(textResponse("custom session token"));
+
+    const token = await auth("custom device token");
+    expect(token).toBe("custom session token");
+    expect(fetch.mock.calls).toHaveLength(1);
+    const [first] = fetch.mock.calls;
+    const [, init] = first ?? [];
+    expect(new Headers(init?.headers).get("Authorization")).toBe(
+      "Bearer custom device token",
+    );
+  });
+
+  test("error", () => {
+    mockFetch(emptyResponse({ status: 400 }));
+    expect(auth("")).rejects.toThrow("couldn't fetch auth token");
+  });
+});
+
 describe("remarkable", () => {
   describe("remarkable()", () => {
     test("success", async () => {
-      const fetch = mockFetch(textResponse("custom user token"));
+      const fetch = mockFetch(textResponse("custom session token"));
 
       await remarkable("custom device token");
       expect(fetch.mock.calls).toHaveLength(1);
@@ -61,6 +83,24 @@ describe("remarkable", () => {
     test("error", () => {
       mockFetch(emptyResponse({ status: 400 }));
       expect(remarkable("")).rejects.toThrow("couldn't fetch auth token");
+    });
+  });
+
+  describe("session()", () => {
+    test("uses provided token and skips exchange", () => {
+      const fetch = mockFetch();
+
+      const api = session("cached session token");
+      expect(fetch.mock.calls).toHaveLength(0);
+      expect(api.raw).toBeDefined();
+    });
+
+    test("throws when cache is invalid", () => {
+      mockFetch();
+
+      expect(() =>
+        session("token", { cache: "42" }),
+      ).toThrow("cache was not a valid cache (json string mapping)");
     });
   });
 
