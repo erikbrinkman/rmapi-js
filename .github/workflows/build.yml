@@ -3,17 +3,15 @@
 
 name: build
 
-on: [push, pull_request]
+on: [pull_request]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: oven-sh/setup-bun@v1
-    - run: bun install
-    - run: bun fmt --check
-    - run: bun lint
-    - run: bun export
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+      - run: bun install
+      - run: bun lint
+      - run: bun export

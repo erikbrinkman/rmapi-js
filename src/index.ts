@@ -52,12 +52,11 @@
  * @packageDocumentation
  */
 import JSZip from "jszip";
-import { nullable, string, values, type CompiledSchema } from "jtd-ts";
+import { type CompiledSchema, nullable, string, values } from "jtd-ts";
 import { v4 as uuid4 } from "uuid";
 import { HashNotFoundError, ValidationError } from "./error";
 import { LruCache } from "./lru";
 import {
-  RawRemarkable,
   type BackgroundFilter,
   type CollectionContent,
   type Content,
@@ -66,6 +65,7 @@ import {
   type Orientation,
   type RawEntry,
   type RawListEntry,
+  RawRemarkable,
   type RawRemarkableApi,
   type RequestMethod,
   type SimpleEntry,
@@ -74,6 +74,7 @@ import {
   type TextAlignment,
   type ZoomMode,
 } from "./raw";
+
 export { HashNotFoundError, ValidationError } from "./error";
 export type {
   BackgroundFilter,
@@ -81,8 +82,8 @@ export type {
   Content,
   CPageNumberValue,
   CPagePage,
-  CPages,
   CPageStringValue,
+  CPages,
   CPageUUID,
   DocumentContent,
   DocumentMetadata,
@@ -1469,9 +1470,9 @@ export interface RemarkableSessionOptions {
    * By the JavaScript specification there are two bytes per character, but the
    * total memory usage of the cache will also be larger than just the size of
    * the data stored.
-  *
-  * @defaultValue Infinity
-  */
+   *
+   * @defaultValue Infinity
+   */
   maxCacheSize?: number;
 }
 

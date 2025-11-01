@@ -38,7 +38,7 @@ export class LruCache extends Map<string, string | null> {
     super.delete(key);
 
     // evict down to desired size
-    let entry;
+    let entry: [string, string | null] | undefined;
     while (
       this.#currentSize > this.#maxSize &&
       (entry = this.entries().next().value)
