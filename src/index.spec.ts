@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   auth,
-  Content,
-  DocumentContent,
-  Entry,
-  Metadata,
+  type Content,
+  type DocumentContent,
+  type Entry,
+  type Metadata,
   register,
   remarkable,
   session,
-  TemplateContent,
+  type TemplateContent,
 } from ".";
 import {
   bytesResponse,
@@ -98,9 +98,9 @@ describe("remarkable", () => {
     test("throws when cache is invalid", () => {
       mockFetch();
 
-      expect(() =>
-        session("token", { cache: "42" }),
-      ).toThrow("cache was not a valid cache (json string mapping)");
+      expect(() => session("token", { cache: "42" })).toThrow(
+        "cache was not a valid cache (json string mapping)",
+      );
     });
   });
 
