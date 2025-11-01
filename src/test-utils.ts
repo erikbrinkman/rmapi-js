@@ -1,4 +1,4 @@
-import { Mock, mock } from "bun:test";
+import { type Mock, mock } from "bun:test";
 
 class MockResponse extends Response {
   constructor(
@@ -81,9 +81,10 @@ export interface LoggedRequest {
 
 export type Awaitable<T> = T | Promise<T>;
 
-export interface MockFetch {
-  (input: string | Request | URL, init?: RequestInit): Promise<Response>;
-}
+export type MockFetch = (
+  input: string | Request | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 
 export function createMockFetch(
   ...nextResponses: Awaitable<Response>[]
