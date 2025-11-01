@@ -2,6 +2,7 @@ import { fromByteArray } from "base64-js";
 import CRC32C from "crc-32/crc32c";
 import {
   boolean,
+  type CompiledSchema,
   elements,
   empty,
   enumeration,
@@ -11,10 +12,9 @@ import {
   properties,
   string,
   timestamp,
-  uint32,
   uint8,
+  uint32,
   values,
-  type CompiledSchema,
 } from "jtd-ts";
 import { ValidationError } from "./error.js";
 
@@ -923,13 +923,11 @@ export interface RawRemarkableApi {
   clearCache(): void;
 }
 
-interface AuthedFetch {
-  (
-    method: RequestMethod,
-    url: string,
-    init?: { body?: string | Uint8Array; headers?: Record<string, string> },
-  ): Promise<Response>;
-}
+type AuthedFetch = (
+  method: RequestMethod,
+  url: string,
+  init?: { body?: string | Uint8Array; headers?: Record<string, string> },
+) => Promise<Response>;
 
 export class RawRemarkable implements RawRemarkableApi {
   readonly #authedFetch: AuthedFetch;
@@ -1022,7 +1020,7 @@ export class RawRemarkable implements RawRemarkableApi {
   async getEntries(hash: string): Promise<RawEntry[]> {
     const rawFile = await this.getText(hash);
     const [version, ...rest] = rawFile.slice(0, -1).split("\n");
-    if (version != "3") {
+    if (version !== "3") {
       throw new Error(`schema version ${version} not supported`);
     } else {
       return rest.map((line) => {
@@ -1040,8 +1038,8 @@ export class RawRemarkable implements RawRemarkableApi {
             hash,
             type: 80000000,
             id,
-            subfiles: parseInt(subfiles),
-            size: parseInt(size),
+            subfiles: parseInt(subfiles, 10),
+            size: parseInt(size, 10),
           };
         } else if (type === "0" && subfiles === "0") {
           return {
@@ -1049,7 +1047,7 @@ export class RawRemarkable implements RawRemarkableApi {
             type: 0,
             id,
             subfiles: 0,
-            size: parseInt(size),
+            size: parseInt(size, 10),
           };
         } else {
           throw new Error(`line '${line}' was not formatted correctly`);
