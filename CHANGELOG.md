@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.5.0] - 2025-11-01
+
 ### Added
 
 - new `auth` helper to exchange device tokens for session tokens
