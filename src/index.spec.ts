@@ -493,6 +493,32 @@ ${epubHash}:0:doc.epub:0:1
     expect(res.hash).toHaveLength(64);
   });
 
+  /** test that hash matches https://github.com/erikbrinkman/rmapi-js/issues/25#issuecomment-3526745194 */
+  test("#putEntries() v4", async () => {
+    mockFetch(
+      emptyResponse(),
+      emptyResponse(), // put entry
+    );
+    const api = await remarkable("");
+    const [entry, prom] = await api.raw.putEntries(
+      "043eccc1-35a8-467b-a5f3-7196cb1f57d2",
+      [
+        {
+          type: 0,
+          id: "043eccc1-35a8-467b-a5f3-7196cb1f57d2.metadata",
+          hash: "25aaaed381540046fce6defef9aa30faa7c0bcacffe42f5cef99643ae66ddfc1",
+          subfiles: 0,
+          size: 219,
+        },
+      ],
+      4,
+    );
+    expect(entry.hash).toBe(
+      "3c89dd3036f0b335188659d4f7139fcfd906167d99729d638af956906b647646",
+    );
+    await prom;
+  });
+
   test("#putPdf()", async () => {
     const enc = new TextEncoder();
     const pdf = enc.encode("pdf content");
