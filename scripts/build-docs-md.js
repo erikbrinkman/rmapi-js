@@ -3,8 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 
 const OUT_DIR = "docs-md";
-const PREAMBLE = "llm-preamble.md";
-const TARGET = "docs-md/llms.md";
+const TARGET = "docs-md/docs.md"
 
 const walk = async (dir) => {
   const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -33,10 +32,6 @@ const main = async () => {
     .sort((a, b) => a.localeCompare(b));
 
   const parts = [];
-  if (await fs.stat(PREAMBLE).then(() => true).catch(() => false)) {
-    parts.push(await fs.readFile(PREAMBLE, "utf8"));
-  }
-
   for (const f of files) {
     let text = await fs.readFile(f, "utf8");
     text = text
