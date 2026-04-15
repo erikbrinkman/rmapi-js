@@ -324,9 +324,22 @@ export interface CollectionContent {
   fileType?: undefined;
 }
 
+/** legacy collection content can store tags as raw strings */
+export interface LegacyCollectionContent {
+  /** the legacy tag names for the collection */
+  tags?: string[];
+
+  /** collections don't have a file type */
+  fileType?: undefined;
+}
+
 const collectionContent = properties(undefined, {
   tags: elements(tag),
 }) satisfies CompiledSchema<CollectionContent, unknown>;
+
+const legacyCollectionContent = properties(undefined, {
+  tags: elements(string()),
+}) satisfies CompiledSchema<LegacyCollectionContent, unknown>;
 
 /**
  * content metadata, stored with the "content" extension
@@ -452,66 +465,88 @@ export interface DocumentContent {
    */
   viewBackgroundFilter?: BackgroundFilter;
 }
+
+/** legacy document content can store tags as raw strings */
+export interface LegacyDocumentContent extends Omit<DocumentContent, "tags"> {
+  /** the legacy tag names for this document */
+  tags?: string[];
+}
+
+const documentContentRequired = {
+  coverPageNumber: int32(),
+  documentMetadata,
+  extraMetadata: values(string()),
+  fileType: enumeration("epub", "notebook", "pdf"),
+  fontName: string(),
+  lineHeight: int32(),
+  orientation: enumeration("portrait", "landscape"),
+  pageCount: uint32(),
+  sizeInBytes: string(),
+  textAlignment: enumeration("", "justify", "left"),
+  textScale: float64(),
+};
+
+const documentContentOptional = {
+  cPages,
+  customZoomCenterX: float64(),
+  customZoomCenterY: float64(),
+  customZoomOrientation: enumeration("portrait", "landscape"),
+  customZoomPageHeight: float64(),
+  customZoomPageWidth: float64(),
+  customZoomScale: float64(),
+  dummyDocument: boolean(),
+  formatVersion: uint8(),
+  keyboardMetadata: properties(
+    {
+      count: uint32(),
+      timestamp: float64(),
+    },
+    undefined,
+    true,
+  ),
+  lastOpenedPage: int32(),
+  margins: uint32(),
+  originalPageCount: int32(),
+  pages: nullable(elements(string())),
+  pageTags: elements(pageTag),
+  redirectionPageMap: elements(int32()),
+  transform: properties(
+    {
+      m11: float64(),
+      m12: float64(),
+      m13: float64(),
+      m21: float64(),
+      m22: float64(),
+      m23: float64(),
+      m31: float64(),
+      m32: float64(),
+      m33: float64(),
+    },
+    undefined,
+    true,
+  ),
+  // eslint-disable-next-line spellcheck/spell-checker
+  viewBackgroundFilter: enumeration("off", "fullpage"),
+  zoomMode: enumeration("bestFit", "customFit", "fitToHeight", "fitToWidth"),
+};
+
 const documentContent = properties(
+  documentContentRequired,
   {
-    coverPageNumber: int32(),
-    documentMetadata,
-    extraMetadata: values(string()),
-    fileType: enumeration("epub", "notebook", "pdf"),
-    fontName: string(),
-    lineHeight: int32(),
-    orientation: enumeration("portrait", "landscape"),
-    pageCount: uint32(),
-    sizeInBytes: string(),
-    textAlignment: enumeration("", "justify", "left"),
-    textScale: float64(),
-  },
-  {
-    cPages,
-    customZoomCenterX: float64(),
-    customZoomCenterY: float64(),
-    customZoomOrientation: enumeration("portrait", "landscape"),
-    customZoomPageHeight: float64(),
-    customZoomPageWidth: float64(),
-    customZoomScale: float64(),
-    dummyDocument: boolean(),
-    formatVersion: uint8(),
-    keyboardMetadata: properties(
-      {
-        count: uint32(),
-        timestamp: float64(),
-      },
-      undefined,
-      true,
-    ),
-    lastOpenedPage: int32(),
-    margins: uint32(),
-    originalPageCount: int32(),
-    pages: nullable(elements(string())),
-    pageTags: elements(pageTag),
-    redirectionPageMap: elements(int32()),
+    ...documentContentOptional,
     tags: elements(tag),
-    transform: properties(
-      {
-        m11: float64(),
-        m12: float64(),
-        m13: float64(),
-        m21: float64(),
-        m22: float64(),
-        m23: float64(),
-        m31: float64(),
-        m32: float64(),
-        m33: float64(),
-      },
-      undefined,
-      true,
-    ),
-    // eslint-disable-next-line spellcheck/spell-checker
-    viewBackgroundFilter: enumeration("off", "fullpage"),
-    zoomMode: enumeration("bestFit", "customFit", "fitToHeight", "fitToWidth"),
   },
   true,
 ) satisfies CompiledSchema<DocumentContent, unknown>;
+
+const legacyDocumentContent = properties(
+  documentContentRequired,
+  {
+    ...documentContentOptional,
+    tags: elements(string()),
+  },
+  true,
+) satisfies CompiledSchema<LegacyDocumentContent, unknown>;
 
 /**
  * content metadata, stored with the "content" extension
@@ -568,7 +603,12 @@ const templateContent = properties(
 ) satisfies CompiledSchema<TemplateContent, unknown>;
 
 /** content metadata for any item */
-export type Content = CollectionContent | DocumentContent | TemplateContent;
+export type Content =
+  | CollectionContent
+  | LegacyCollectionContent
+  | DocumentContent
+  | LegacyDocumentContent
+  | TemplateContent;
 
 /**
  * item level metadata
@@ -926,21 +966,6 @@ type AuthedFetch = (
   init?: { body?: string | Uint8Array; headers?: Record<string, string> },
 ) => Promise<Response>;
 
-const LEGACY_TAG_TIMESTAMP = 0;
-
-function normalizeLegacyTags(loaded: unknown): void {
-  if (loaded === null || typeof loaded !== "object") return;
-  const record = loaded as { tags?: unknown };
-  const tags = record.tags;
-  if (!Array.isArray(tags)) return;
-  if (!tags.some((tag) => typeof tag === "string")) return;
-  record.tags = tags.map((tag) =>
-    typeof tag === "string"
-      ? { name: tag, timestamp: LEGACY_TAG_TIMESTAMP }
-      : tag,
-  );
-}
-
 function parseRawEntryLine(line: string): RawEntry {
   const [hash, type, id, subfiles, size] = line.split(":");
   if (
@@ -1087,15 +1112,16 @@ export class RawRemarkable implements RawRemarkableApi {
   async getContent(hash: string): Promise<Content> {
     const raw = await this.getText(hash);
     const loaded = JSON.parse(raw) as unknown;
-    normalizeLegacyTags(loaded);
 
     // jtd can't verify non-discriminated unions, in this case, we have fileType
     // defined or not. As a result, we try each, and concatenate the errors at the end
     const errors: string[] = [];
     for (const [name, valid] of [
       ["collection", collectionContent],
+      ["legacy collection", legacyCollectionContent],
       ["template", templateContent],
       ["document", documentContent],
+      ["legacy document", legacyDocumentContent],
     ] as const) {
       try {
         if (valid.guardAssert(loaded)) return loaded;

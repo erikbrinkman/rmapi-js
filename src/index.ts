@@ -91,6 +91,8 @@ export type {
   Entries,
   FileType,
   KeyboardMetadata,
+  LegacyCollectionContent,
+  LegacyDocumentContent,
   Metadata,
   Orientation,
   PageTag,
@@ -137,7 +139,7 @@ export interface EntryCommon {
    */
   parent?: string;
   /** any tags the entry might have */
-  tags?: Tag[];
+  tags?: Tag[] | string[];
 }
 
 /** a folder, referred to in the api as a collection */

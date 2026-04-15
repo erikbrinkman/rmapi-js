@@ -4,6 +4,8 @@ import {
   type Content,
   type DocumentContent,
   type Entry,
+  type LegacyCollectionContent,
+  type LegacyDocumentContent,
   type Metadata,
   register,
   remarkable,
@@ -299,21 +301,44 @@ hash:0:doc.pdf:0:1
       const file = `3
 ${realHash}:0:col.content:0:1
 `;
-      const content = {
+      const content: LegacyCollectionContent = {
         tags: ["Remarcal", "calendar"],
-      };
-      const expected = {
-        tags: [
-          { name: "Remarcal", timestamp: 0 },
-          { name: "calendar", timestamp: 0 },
-        ],
       };
 
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
       const cont = await api.getContent(repHash("0"));
-      expect(cont).toEqual(expected);
+      expect(cont).toEqual(content);
+    });
+
+    test("DocumentType legacy tags", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:doc.content:0:1
+hash:0:doc.metadata:0:1
+hash:0:doc.pdf:0:1
+`;
+      const content: LegacyDocumentContent = {
+        fileType: "pdf",
+        coverPageNumber: -1,
+        documentMetadata: {},
+        extraMetadata: {},
+        fontName: "",
+        lineHeight: -1,
+        orientation: "portrait",
+        pageCount: 1,
+        sizeInBytes: "1",
+        tags: ["Remarcal", "calendar"],
+        textAlignment: "left",
+        textScale: 1,
+      };
+
+      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+
+      const api = await remarkable("");
+      const cont = await api.getContent(repHash("0"));
+      expect(cont).toEqual(content);
     });
 
     test("handles empty textAlignment and null pages", async () => {
