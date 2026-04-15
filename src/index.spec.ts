@@ -329,7 +329,7 @@ ${realHash}:0:doc.content:0:1
 hash:0:doc.metadata:0:1
 hash:0:doc.pdf:0:1
 `;
-      const content = {
+      const content: DocumentContent = {
         fileType: "pdf",
         coverPageNumber: -1,
         documentMetadata: {},
@@ -342,7 +342,7 @@ hash:0:doc.pdf:0:1
         textAlignment: "left",
         textScale: 1,
         transform: {},
-      } as unknown as DocumentContent;
+      };
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
