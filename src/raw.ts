@@ -438,7 +438,7 @@ export interface DocumentContent {
   /** what zoom mode is set for the page */
   zoomMode?: ZoomMode;
   /** [speculative] a transform matrix, a. la. css matrix transform */
-  transform?: Record<`m${"1" | "2" | "3"}${"1" | "2" | "3"}`, number>;
+  transform?: Partial<Record<`m${"1" | "2" | "3"}${"1" | "2" | "3"}`, number>>;
   /** [speculative] metadata about keyboard use */
   keyboardMetadata?: KeyboardMetadata;
   /** [speculative] various other page metadata */
@@ -492,6 +492,7 @@ const documentContent = properties(
     redirectionPageMap: elements(int32()),
     tags: elements(tag),
     transform: properties(
+      undefined,
       {
         m11: float64(),
         m12: float64(),
@@ -503,7 +504,6 @@ const documentContent = properties(
         m32: float64(),
         m33: float64(),
       },
-      undefined,
       true,
     ),
     // eslint-disable-next-line spellcheck/spell-checker
