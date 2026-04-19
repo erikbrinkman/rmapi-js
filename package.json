@@ -1,6 +1,6 @@
 {
   "name": "rmapi-js",
-  "version": "9.0.2",
+  "version": "9.0.3",
   "description": "JavaScript implementation of the reMarkable 1.5 api",
   "repository": {
     "type": "git",
