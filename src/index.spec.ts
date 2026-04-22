@@ -369,6 +369,35 @@ hash:0:doc.pdf:0:1
       expect(cont).toEqual(content);
     });
 
+    test("handles empty transform object", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:doc.content:0:1
+hash:0:doc.metadata:0:1
+hash:0:doc.pdf:0:1
+`;
+      const content: DocumentContent = {
+        fileType: "pdf",
+        coverPageNumber: -1,
+        documentMetadata: {},
+        extraMetadata: {},
+        fontName: "",
+        lineHeight: -1,
+        orientation: "portrait",
+        pageCount: 1,
+        sizeInBytes: "1",
+        textAlignment: "left",
+        textScale: 1,
+        transform: {},
+      };
+      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+
+      const api = await remarkable("");
+      const cont = (await api.getContent(repHash("0"))) as DocumentContent;
+      expect(cont.fileType).toBe("pdf");
+      expect(cont.transform ?? {}).toEqual({});
+    });
+
     test("TemplateType", async () => {
       const realHash = repHash("1");
       const file = `3

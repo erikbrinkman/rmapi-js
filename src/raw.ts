@@ -347,7 +347,8 @@ const legacyCollectionContent = properties(undefined, {
  * This largely contains description of how to render the document, rather than
  * metadata about it.
  */
-export interface DocumentContent {
+/** fields shared by current and legacy document content payloads */
+export interface CommonDocumentContent {
   /**
    * which page to use for the thumbnail
    *
@@ -405,8 +406,6 @@ export interface DocumentContent {
   redirectionPageMap?: number[];
   /** ostensibly the size in bytes of the file, but this differs from other measurements */
   sizeInBytes: string;
-  /** document tags for this document */
-  tags?: Tag[];
   /** text alignment for this document */
   textAlignment: TextAlignment;
   /**
@@ -451,7 +450,7 @@ export interface DocumentContent {
   /** what zoom mode is set for the page */
   zoomMode?: ZoomMode;
   /** [speculative] a transform matrix, a. la. css matrix transform */
-  transform?: Record<`m${"1" | "2" | "3"}${"1" | "2" | "3"}`, number>;
+  transform?: Partial<Record<`m${"1" | "2" | "3"}${"1" | "2" | "3"}`, number>>;
   /** [speculative] metadata about keyboard use */
   keyboardMetadata?: KeyboardMetadata;
   /** [speculative] various other page metadata */
@@ -466,84 +465,136 @@ export interface DocumentContent {
   viewBackgroundFilter?: BackgroundFilter;
 }
 
+/** document content with modern structured tag payloads */
+export interface DocumentContent extends CommonDocumentContent {
+  /** document tags for this document */
+  tags?: Tag[];
+}
+
 /** legacy document content can store tags as raw strings */
-export interface LegacyDocumentContent extends Omit<DocumentContent, "tags"> {
+export interface LegacyDocumentContent extends CommonDocumentContent {
   /** the legacy tag names for this document */
   tags?: string[];
 }
 
-const documentContentRequired = {
-  coverPageNumber: int32(),
-  documentMetadata,
-  extraMetadata: values(string()),
-  fileType: enumeration("epub", "notebook", "pdf"),
-  fontName: string(),
-  lineHeight: int32(),
-  orientation: enumeration("portrait", "landscape"),
-  pageCount: uint32(),
-  sizeInBytes: string(),
-  textAlignment: enumeration("", "justify", "left"),
-  textScale: float64(),
-};
-
-const documentContentOptional = {
-  cPages,
-  customZoomCenterX: float64(),
-  customZoomCenterY: float64(),
-  customZoomOrientation: enumeration("portrait", "landscape"),
-  customZoomPageHeight: float64(),
-  customZoomPageWidth: float64(),
-  customZoomScale: float64(),
-  dummyDocument: boolean(),
-  formatVersion: uint8(),
-  keyboardMetadata: properties(
-    {
-      count: uint32(),
-      timestamp: float64(),
-    },
-    undefined,
-    true,
-  ),
-  lastOpenedPage: int32(),
-  margins: uint32(),
-  originalPageCount: int32(),
-  pages: nullable(elements(string())),
-  pageTags: elements(pageTag),
-  redirectionPageMap: elements(int32()),
-  transform: properties(
-    {
-      m11: float64(),
-      m12: float64(),
-      m13: float64(),
-      m21: float64(),
-      m22: float64(),
-      m23: float64(),
-      m31: float64(),
-      m32: float64(),
-      m33: float64(),
-    },
-    undefined,
-    true,
-  ),
-  // eslint-disable-next-line spellcheck/spell-checker
-  viewBackgroundFilter: enumeration("off", "fullpage"),
-  zoomMode: enumeration("bestFit", "customFit", "fitToHeight", "fitToWidth"),
-};
-
 const documentContent = properties(
-  documentContentRequired,
   {
-    ...documentContentOptional,
+    coverPageNumber: int32(),
+    documentMetadata,
+    extraMetadata: values(string()),
+    fileType: enumeration("epub", "notebook", "pdf"),
+    fontName: string(),
+    lineHeight: int32(),
+    orientation: enumeration("portrait", "landscape"),
+    pageCount: uint32(),
+    sizeInBytes: string(),
+    textAlignment: enumeration("", "justify", "left"),
+    textScale: float64(),
+  },
+  {
+    cPages,
+    customZoomCenterX: float64(),
+    customZoomCenterY: float64(),
+    customZoomOrientation: enumeration("portrait", "landscape"),
+    customZoomPageHeight: float64(),
+    customZoomPageWidth: float64(),
+    customZoomScale: float64(),
+    dummyDocument: boolean(),
+    formatVersion: uint8(),
+    keyboardMetadata: properties(
+      {
+        count: uint32(),
+        timestamp: float64(),
+      },
+      undefined,
+      true,
+    ),
+    lastOpenedPage: int32(),
+    margins: uint32(),
+    originalPageCount: int32(),
+    pages: nullable(elements(string())),
+    pageTags: elements(pageTag),
+    redirectionPageMap: elements(int32()),
     tags: elements(tag),
+    transform: properties(
+      undefined,
+      {
+        m11: float64(),
+        m12: float64(),
+        m13: float64(),
+        m21: float64(),
+        m22: float64(),
+        m23: float64(),
+        m31: float64(),
+        m32: float64(),
+        m33: float64(),
+      },
+      true,
+    ),
+    // eslint-disable-next-line spellcheck/spell-checker
+    viewBackgroundFilter: enumeration("off", "fullpage"),
+    zoomMode: enumeration("bestFit", "customFit", "fitToHeight", "fitToWidth"),
   },
   true,
 ) satisfies CompiledSchema<DocumentContent, unknown>;
 
 const legacyDocumentContent = properties(
-  documentContentRequired,
   {
-    ...documentContentOptional,
+    coverPageNumber: int32(),
+    documentMetadata,
+    extraMetadata: values(string()),
+    fileType: enumeration("epub", "notebook", "pdf"),
+    fontName: string(),
+    lineHeight: int32(),
+    orientation: enumeration("portrait", "landscape"),
+    pageCount: uint32(),
+    sizeInBytes: string(),
+    textAlignment: enumeration("", "justify", "left"),
+    textScale: float64(),
+  },
+  {
+    cPages,
+    customZoomCenterX: float64(),
+    customZoomCenterY: float64(),
+    customZoomOrientation: enumeration("portrait", "landscape"),
+    customZoomPageHeight: float64(),
+    customZoomPageWidth: float64(),
+    customZoomScale: float64(),
+    dummyDocument: boolean(),
+    formatVersion: uint8(),
+    keyboardMetadata: properties(
+      {
+        count: uint32(),
+        timestamp: float64(),
+      },
+      undefined,
+      true,
+    ),
+    lastOpenedPage: int32(),
+    margins: uint32(),
+    originalPageCount: int32(),
+    pages: nullable(elements(string())),
+    pageTags: elements(pageTag),
+    redirectionPageMap: elements(int32()),
     tags: elements(string()),
+    transform: properties(
+      undefined,
+      {
+        m11: float64(),
+        m12: float64(),
+        m13: float64(),
+        m21: float64(),
+        m22: float64(),
+        m23: float64(),
+        m31: float64(),
+        m32: float64(),
+        m33: float64(),
+      },
+      true,
+    ),
+    // eslint-disable-next-line spellcheck/spell-checker
+    viewBackgroundFilter: enumeration("off", "fullpage"),
+    zoomMode: enumeration("bestFit", "customFit", "fitToHeight", "fitToWidth"),
   },
   true,
 ) satisfies CompiledSchema<LegacyDocumentContent, unknown>;
