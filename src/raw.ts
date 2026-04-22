@@ -324,9 +324,22 @@ export interface CollectionContent {
   fileType?: undefined;
 }
 
+/** legacy collection content can store tags as raw strings */
+export interface LegacyCollectionContent {
+  /** the legacy tag names for the collection */
+  tags?: string[];
+
+  /** collections don't have a file type */
+  fileType?: undefined;
+}
+
 const collectionContent = properties(undefined, {
   tags: elements(tag),
 }) satisfies CompiledSchema<CollectionContent, unknown>;
+
+const legacyCollectionContent = properties(undefined, {
+  tags: elements(string()),
+}) satisfies CompiledSchema<LegacyCollectionContent, unknown>;
 
 /**
  * content metadata, stored with the "content" extension
@@ -334,7 +347,8 @@ const collectionContent = properties(undefined, {
  * This largely contains description of how to render the document, rather than
  * metadata about it.
  */
-export interface DocumentContent {
+/** fields shared by current and legacy document content payloads */
+export interface CommonDocumentContent {
   /**
    * which page to use for the thumbnail
    *
@@ -392,8 +406,6 @@ export interface DocumentContent {
   redirectionPageMap?: number[];
   /** ostensibly the size in bytes of the file, but this differs from other measurements */
   sizeInBytes: string;
-  /** document tags for this document */
-  tags?: Tag[];
   /** text alignment for this document */
   textAlignment: TextAlignment;
   /**
@@ -452,6 +464,19 @@ export interface DocumentContent {
    */
   viewBackgroundFilter?: BackgroundFilter;
 }
+
+/** document content with modern structured tag payloads */
+export interface DocumentContent extends CommonDocumentContent {
+  /** document tags for this document */
+  tags?: Tag[];
+}
+
+/** legacy document content can store tags as raw strings */
+export interface LegacyDocumentContent extends CommonDocumentContent {
+  /** the legacy tag names for this document */
+  tags?: string[];
+}
+
 const documentContent = properties(
   {
     coverPageNumber: int32(),
@@ -513,6 +538,67 @@ const documentContent = properties(
   true,
 ) satisfies CompiledSchema<DocumentContent, unknown>;
 
+const legacyDocumentContent = properties(
+  {
+    coverPageNumber: int32(),
+    documentMetadata,
+    extraMetadata: values(string()),
+    fileType: enumeration("epub", "notebook", "pdf"),
+    fontName: string(),
+    lineHeight: int32(),
+    orientation: enumeration("portrait", "landscape"),
+    pageCount: uint32(),
+    sizeInBytes: string(),
+    textAlignment: enumeration("", "justify", "left"),
+    textScale: float64(),
+  },
+  {
+    cPages,
+    customZoomCenterX: float64(),
+    customZoomCenterY: float64(),
+    customZoomOrientation: enumeration("portrait", "landscape"),
+    customZoomPageHeight: float64(),
+    customZoomPageWidth: float64(),
+    customZoomScale: float64(),
+    dummyDocument: boolean(),
+    formatVersion: uint8(),
+    keyboardMetadata: properties(
+      {
+        count: uint32(),
+        timestamp: float64(),
+      },
+      undefined,
+      true,
+    ),
+    lastOpenedPage: int32(),
+    margins: uint32(),
+    originalPageCount: int32(),
+    pages: nullable(elements(string())),
+    pageTags: elements(pageTag),
+    redirectionPageMap: elements(int32()),
+    tags: elements(string()),
+    transform: properties(
+      undefined,
+      {
+        m11: float64(),
+        m12: float64(),
+        m13: float64(),
+        m21: float64(),
+        m22: float64(),
+        m23: float64(),
+        m31: float64(),
+        m32: float64(),
+        m33: float64(),
+      },
+      true,
+    ),
+    // eslint-disable-next-line spellcheck/spell-checker
+    viewBackgroundFilter: enumeration("off", "fullpage"),
+    zoomMode: enumeration("bestFit", "customFit", "fitToHeight", "fitToWidth"),
+  },
+  true,
+) satisfies CompiledSchema<LegacyDocumentContent, unknown>;
+
 /**
  * content metadata, stored with the "content" extension
  *
@@ -568,7 +654,12 @@ const templateContent = properties(
 ) satisfies CompiledSchema<TemplateContent, unknown>;
 
 /** content metadata for any item */
-export type Content = CollectionContent | DocumentContent | TemplateContent;
+export type Content =
+  | CollectionContent
+  | LegacyCollectionContent
+  | DocumentContent
+  | LegacyDocumentContent
+  | TemplateContent;
 
 /**
  * item level metadata
@@ -1078,8 +1169,10 @@ export class RawRemarkable implements RawRemarkableApi {
     const errors: string[] = [];
     for (const [name, valid] of [
       ["collection", collectionContent],
+      ["legacy collection", legacyCollectionContent],
       ["template", templateContent],
       ["document", documentContent],
+      ["legacy document", legacyDocumentContent],
     ] as const) {
       try {
         if (valid.guardAssert(loaded)) return loaded;
