@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- methods now take an id or filename that's necessary for rm header validation, this is a breaking change, but also one that is broken already.
+
 ## [9.0.0] - 2025-12-07
 
 ### Added
