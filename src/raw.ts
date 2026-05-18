@@ -1132,11 +1132,7 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async #putFile(
-    hash: string,
-    fileName: string,
-    bytes: Uint8Array,
-  ): Promise<void> {
+  async #putFile(hash: string, bytes: Uint8Array): Promise<void> {
     // if the hash is already in the cache, writing is pointless
     if (!this.#cache.has(hash)) {
       const crc = CRC32C.buf(bytes, 0);
@@ -1146,7 +1142,6 @@ export class RawRemarkable implements RawRemarkableApi {
       await this.#authedFetch("PUT", `${this.#rawHost}/sync/v3/files/${hash}`, {
         body: bytes,
         headers: {
-          "rm-filename": fileName,
           // eslint-disable-next-line spellcheck/spell-checker
           "x-goog-hash": `crc32c=${crcHash}`,
         },
@@ -1171,7 +1166,7 @@ export class RawRemarkable implements RawRemarkableApi {
       subfiles: 0,
       size: bytes.length,
     };
-    return [res, this.#putFile(hash, id, bytes)];
+    return [res, this.#putFile(hash, bytes)];
   }
 
   async putText(id: string, text: string): Promise<[RawEntry, Promise<void>]> {
@@ -1252,11 +1247,7 @@ export class RawRemarkable implements RawRemarkableApi {
       subfiles: entries.length,
       size,
     };
-    return [
-      res,
-      // NOTE when monitoring requests, this had the extension .docSchema appended, but I'm not entirely sure why
-      this.#putFile(hash, `${id}.docSchema`, entryBuff),
-    ];
+    return [res, this.#putFile(hash, entryBuff)];
   }
 
   async uploadFile(
