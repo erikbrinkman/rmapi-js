@@ -409,10 +409,11 @@ export interface RemarkableApi {
    * the low-level api to get the raw text of the `.content` file in the
    * `RawEntry` for this hash.
    *
+   * @param id - the id of the item (as returned by `listIds`)
    * @param hash - the hash of the item to get content for
    * @returns the content
    */
-  getContent(hash: string): Promise<Content>;
+  getContent(id: string, hash: string): Promise<Content>;
 
   /**
    * get the metadata from an item hash
@@ -425,32 +426,35 @@ export interface RemarkableApi {
    * the low-level api to get the raw text of the `.metadata` file in the
    * `RawEntry` for this hash.
    *
+   * @param id - the id of the item (as returned by `listIds`)
    * @param hash - the hash of the item to get metadata for
    * @returns the metadata
    */
-  getMetadata(hash: string): Promise<Metadata>;
+  getMetadata(id: string, hash: string): Promise<Metadata>;
 
   /**
    * get the pdf associated with a document hash
    *
    * This returns the raw input pdf, not the rendered pdf with any markup.
    *
+   * @param id - the id of the document (as returned by `listIds`)
    * @param hash - the hash of the document to get the pdf for (e.g. the hash
    *     received from `listItems`)
    * @returns the pdf bytes
    */
-  getPdf(hash: string): Promise<Uint8Array>;
+  getPdf(id: string, hash: string): Promise<Uint8Array>;
 
   /**
    * get the epub associated with a document hash
    *
    * This returns the raw input epub if a document was created from an epub.
    *
-   * @param hash - the hash of the document to get the pdf for (e.g. the hash
+   * @param id - the id of the document (as returned by `listIds`)
+   * @param hash - the hash of the document to get the epub for (e.g. the hash
    *     received from `listItems`)
    * @returns the epub bytes
    */
-  getEpub(hash: string): Promise<Uint8Array>;
+  getEpub(id: string, hash: string): Promise<Uint8Array>;
 
   /**
    * get the entire contents of a remarkable document
@@ -463,10 +467,11 @@ export interface RemarkableApi {
    * of the document, but this format isn't understood enoguh to reput this on a
    * different remarkable, so that functionality is currently disabled.
    *
-   * @param hash - the hash of the document to get the contents for (e.g. the
+   * @param id - the id of the document (as returned by `listIds`)
+   * @param hash - the hash of the document to get contents for (e.g. the
    *    hash received from `listItems`)
    */
-  getDocument(hash: string): Promise<Uint8Array>;
+  getDocument(id: string, hash: string): Promise<Uint8Array>;
 
   /**
    * use the low-level api to add a pdf document
@@ -807,7 +812,7 @@ class Remarkable implements RemarkableApi {
   }
 
   async #convertEntry({ hash, id }: SimpleEntry): Promise<Entry> {
-    const { entries } = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const metaEnt = entries.find((ent) => ent.id.endsWith(".metadata"));
     const contentEnt = entries.find((ent) => ent.id.endsWith(".content"));
     if (metaEnt === undefined) {
@@ -826,11 +831,11 @@ class Remarkable implements RemarkableApi {
       },
       content,
     ] = await Promise.all([
-      this.raw.getMetadata(metaEnt.hash),
+      this.raw.getMetadata(metaEnt.id, metaEnt.hash),
       // collections don't always have content, since content only lists tags
       contentEnt === undefined
         ? Promise.resolve({ fileType: undefined, tags: undefined })
-        : this.raw.getContent(contentEnt.hash),
+        : this.raw.getContent(contentEnt.id, contentEnt.hash),
     ]);
     if ("templateVersion" in content) {
       return {
@@ -879,56 +884,56 @@ class Remarkable implements RemarkableApi {
 
   async listIds(refresh: boolean = false): Promise<SimpleEntry[]> {
     const [hash] = await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries("root.docSchema", hash);
     return entries.map(({ id, hash }) => ({ id, hash }));
   }
 
-  async getContent(hash: string): Promise<Content> {
-    const { entries } = await this.raw.getEntries(hash);
+  async getContent(id: string, hash: string): Promise<Content> {
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const [cont] = entries.filter((e) => e.id.endsWith(".content"));
     if (cont === undefined) {
       throw new Error(`couldn't find contents for hash ${hash}`);
     } else {
-      return await this.raw.getContent(cont.hash);
+      return await this.raw.getContent(cont.id, cont.hash);
     }
   }
 
-  async getMetadata(hash: string): Promise<Metadata> {
-    const { entries } = await this.raw.getEntries(hash);
+  async getMetadata(id: string, hash: string): Promise<Metadata> {
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const [meta] = entries.filter((e) => e.id.endsWith(".metadata"));
     if (meta === undefined) {
       throw new Error(`couldn't find metadata for hash ${hash}`);
     } else {
-      return await this.raw.getMetadata(meta.hash);
+      return await this.raw.getMetadata(meta.id, meta.hash);
     }
   }
 
-  async getPdf(hash: string): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries(hash);
+  async getPdf(id: string, hash: string): Promise<Uint8Array> {
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const [pdf] = entries.filter((e) => e.id.endsWith(".pdf"));
     if (pdf === undefined) {
       throw new Error(`couldn't find pdf for hash ${hash}`);
     } else {
-      return await this.raw.getHash(pdf.hash);
+      return await this.raw.getHash(pdf.id, pdf.hash);
     }
   }
 
-  async getEpub(hash: string): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries(hash);
+  async getEpub(id: string, hash: string): Promise<Uint8Array> {
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const [epub] = entries.filter((e) => e.id.endsWith(".epub"));
     if (epub === undefined) {
       throw new Error(`couldn't find epub for hash ${hash}`);
     } else {
-      return await this.raw.getHash(epub.hash);
+      return await this.raw.getHash(epub.id, epub.hash);
     }
   }
 
-  async getDocument(hash: string): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries(hash);
+  async getDocument(id: string, hash: string): Promise<Uint8Array> {
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const zip = new JSZip();
     for (const entry of entries) {
       // TODO if this is .metadata we might want to assert type === "DocumentType"
-      zip.file(entry.id, this.raw.getHash(entry.hash));
+      zip.file(entry.id, this.raw.getHash(entry.id, entry.hash));
     }
     return zip.generateAsync({ type: "uint8array" });
   }
@@ -1026,7 +1031,7 @@ class Remarkable implements RemarkableApi {
           [contentEntry, metadataEntry, pagedataEntry, fileEntry],
           schemaVersion,
         ),
-        this.raw.getEntries(rootHash),
+        this.raw.getEntries("root.docSchema", rootHash),
       ]);
 
     // now upload a new root entry
@@ -1113,7 +1118,7 @@ class Remarkable implements RemarkableApi {
     const [[collectionEntry, uploadCollection], { entries: rootEntries }] =
       await Promise.all([
         this.raw.putEntries(id, [contentEntry, metadataEntry], schemaVersion),
-        this.raw.getEntries(rootHash),
+        this.raw.getEntries("root.docSchema", rootHash),
       ]);
 
     // now upload a new root entry
@@ -1169,13 +1174,13 @@ class Remarkable implements RemarkableApi {
     update: Partial<Content>,
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<[void, void]>]> {
-    const { entries } = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const contInd = entries.findIndex((ent) => ent.id.endsWith(".content"));
     const contEntry = entries[contInd];
     if (contEntry === undefined) {
       throw new Error("internal error: couldn't find content in entry hash");
     }
-    const cont = await this.raw.getContent(contEntry.hash);
+    const cont = await this.raw.getContent(contEntry.id, contEntry.hash);
     Object.assign(cont, update);
     const [newContEntry, uploadCont] = await this.raw.putContent(
       contEntry.id,
@@ -1200,7 +1205,7 @@ class Remarkable implements RemarkableApi {
   ): Promise<HashEntry> {
     const [rootHash, generation, schemaVersion] =
       await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries(rootHash);
+    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
     const hashInd = entries.findIndex((ent) => ent.hash === hash);
     const hashEnt = entries[hashInd];
     if (hashEnt === undefined) {
@@ -1209,7 +1214,7 @@ class Remarkable implements RemarkableApi {
 
     const [[newEnt, uploadEnt], meta] = await Promise.all([
       this.#editContentRaw(hashEnt.id, hash, update, schemaVersion),
-      this.getMetadata(hash),
+      this.getMetadata(hashEnt.id, hash),
     ]);
     if (meta.type !== expectedType) {
       throw new Error(
@@ -1262,13 +1267,13 @@ class Remarkable implements RemarkableApi {
     update: Partial<Metadata>,
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<[void, void]>]> {
-    const { entries } = await this.raw.getEntries(hash);
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const metaInd = entries.findIndex((ent) => ent.id.endsWith(".metadata"));
     const metaEntry = entries[metaInd];
     if (metaEntry === undefined) {
       throw new Error("internal error: couldn't find metadata in entry hash");
     }
-    const meta = await this.raw.getMetadata(metaEntry.hash);
+    const meta = await this.raw.getMetadata(metaEntry.id, metaEntry.hash);
     Object.assign(meta, update);
     const [newMetaEntry, uploadMeta] = await this.raw.putMetadata(
       metaEntry.id,
@@ -1291,7 +1296,7 @@ class Remarkable implements RemarkableApi {
   ): Promise<HashEntry> {
     const [rootHash, generation, schemaVersion] =
       await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries(rootHash);
+    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
     const hashInd = entries.findIndex((ent) => ent.hash === hash);
     const hashEnt = entries[hashInd];
     if (hashEnt === undefined) {
@@ -1371,7 +1376,7 @@ class Remarkable implements RemarkableApi {
 
     const [rootHash, generation, schemaVersion] =
       await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries(rootHash);
+    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
 
     const hashSet = new Set(hashes);
     const toUpdate: RawEntry[] = [];
@@ -1427,15 +1432,15 @@ class Remarkable implements RemarkableApi {
     // should only go one step) to track all hashes encountered
     // NOTE that we could increase the cache in this process, or it's possible
     // for other calls to increase the cache with misc values.
-    const base = await this.raw.getEntries(rootHash);
+    const base = await this.raw.getEntries("root.docSchema", rootHash);
     let entries = [base.entries];
     let nextEntries: Promise<Entries>[] = [];
     while (entries.length) {
       for (const entryList of entries) {
-        for (const { hash, type } of entryList) {
+        for (const { hash, type, id } of entryList) {
           toDelete.add(hash);
           if (type === 80000000) {
-            nextEntries.push(this.raw.getEntries(hash));
+            nextEntries.push(this.raw.getEntries(`${id}.docSchema`, hash));
           }
         }
       }
