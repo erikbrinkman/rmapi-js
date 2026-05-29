@@ -234,7 +234,7 @@ hash:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
-    const meta = await api.getMetadata(repHash("0"));
+    const meta = await api.getMetadata("test-id", repHash("0"));
     expect(meta).toEqual(metadata);
   });
 
@@ -292,7 +292,7 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent(repHash("0"));
+      const cont = await api.getContent("test-id", repHash("0"));
       expect(cont).toEqual(content);
     });
 
@@ -365,7 +365,10 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = (await api.getContent(repHash("0"))) as DocumentContent;
+      const cont = (await api.getContent(
+        "test-id",
+        repHash("0"),
+      )) as DocumentContent;
       expect(cont).toEqual(content);
     });
 
@@ -393,7 +396,10 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = (await api.getContent(repHash("0"))) as DocumentContent;
+      const cont = (await api.getContent(
+        "test-id",
+        repHash("0"),
+      )) as DocumentContent;
       expect(cont.fileType).toBe("pdf");
       expect(cont.transform ?? {}).toEqual({});
     });
@@ -428,7 +434,7 @@ hash:0:tpl.template:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent(repHash("0"));
+      const cont = await api.getContent("test-id", repHash("0"));
       expect(cont).toEqual(content);
     });
 
@@ -446,7 +452,7 @@ hash:0:doc.epub:0:1
       );
 
       const api = await remarkable("");
-      expect(api.getContent(repHash("0"))).rejects.toThrow("\nor\n");
+      expect(api.getContent("test-id", repHash("0"))).rejects.toThrow("\nor\n");
     });
   });
 
@@ -468,7 +474,7 @@ hash:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
-    const meta = await api.getMetadata(repHash("0"));
+    const meta = await api.getMetadata("test-id", repHash("0"));
     expect(meta).toEqual(metadata);
   });
   test("#getPdf()", async () => {
@@ -484,7 +490,7 @@ ${realHash}:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), bytesResponse(pdf));
 
     const api = await remarkable("");
-    const bytes = await api.getPdf(repHash("0"));
+    const bytes = await api.getPdf("test-id", repHash("0"));
     expect(bytes).toEqual(pdf);
   });
 
@@ -501,7 +507,7 @@ hash:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), bytesResponse(epub));
 
     const api = await remarkable("");
-    const bytes = await api.getEpub(repHash("0"));
+    const bytes = await api.getEpub("test-id", repHash("0"));
     expect(bytes).toEqual(epub);
   });
 
@@ -547,7 +553,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const bytes = await api.getDocument(repHash("0"));
+    const bytes = await api.getDocument("test-id", repHash("0"));
     expect(bytes.length).toBeGreaterThan(0);
   });
 

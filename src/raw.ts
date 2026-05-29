@@ -812,10 +812,13 @@ export interface RawRemarkableApi {
   /**
    * get the raw binary data associated with a hash
    *
+   * @param fileName - the logical file name (`<id>.<ext>` for files, or
+   *   `<id>.docSchema` / `"root.docSchema"` for entry indexes). reMarkable
+   *   validates this against the rm-filename header.
    * @param hash - the hash to get the data for
    * @returns the data
    */
-  getHash(hash: string): Promise<Uint8Array>;
+  getHash(fileName: string, hash: string): Promise<Uint8Array>;
 
   /**
    * get raw text data associated with a hash
@@ -823,10 +826,11 @@ export interface RawRemarkableApi {
    * We assume text data are small, and so cache the entire text. If you want to
    * avoid this, use {@link getHash | `getHash`} combined with a TextDecoder.
 
+   * @param fileName - the logical file name (see {@link getHash})
    * @param hash - the hash to get text for
    * @returns the text
    */
-  getText(hash: string): Promise<string>;
+  getText(fileName: string, hash: string): Promise<string>;
 
   /**
    * get the entries associated with a list hash
@@ -834,10 +838,12 @@ export interface RawRemarkableApi {
    * A list hash is the root hash, or any hash with the type 80000000. NOTE
    * these are hashed differently than files.
 
+   * @param fileName - `"root.docSchema"` for the root, or `"<id>.docSchema"`
+   *   for a sub-document's entry index
    * @param hash - the hash to get entries for
    * @returns the entries
    */
-  getEntries(hash: string): Promise<Entries>;
+  getEntries(fileName: string, hash: string): Promise<Entries>;
 
   /**
    * get the parsed and validated `Content` of a content hash
@@ -845,10 +851,11 @@ export interface RawRemarkableApi {
    * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
    * validation
 
+   * @param fileName - typically `"<id>.content"`
    * @param hash - the hash to get Content for
    * @returns the content
    */
-  getContent(hash: string): Promise<Content>;
+  getContent(fileName: string, hash: string): Promise<Content>;
 
   /**
    * get the parsed and validated `Metadata` of a metadata hash
@@ -856,10 +863,11 @@ export interface RawRemarkableApi {
    * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
    * validation
 
+   * @param fileName - typically `"<id>.metadata"`
    * @param hash - the hash to get Metadata for
    * @returns the metadata
    */
-  getMetadata(hash: string): Promise<Metadata>;
+  getMetadata(fileName: string, hash: string): Promise<Metadata>;
 
   /**
    * update the current root hash
@@ -1039,26 +1047,27 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async #getHash(hash: string): Promise<Uint8Array> {
+  async #getHash(fileName: string, hash: string): Promise<Uint8Array> {
     if (!hashReg.test(hash)) {
       throw new ValidationError(hash, hashReg, "hash was not a valid hash");
     }
     const resp = await this.#authedFetch(
       "GET",
       `${this.#rawHost}/sync/v3/files/${hash}`,
+      { headers: { "rm-filename": fileName } },
     );
     // TODO switch to `.bytes()`.
     const raw = await resp.arrayBuffer();
     return new Uint8Array(raw);
   }
 
-  async getHash(hash: string): Promise<Uint8Array> {
+  async getHash(fileName: string, hash: string): Promise<Uint8Array> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
       const enc = new TextEncoder();
       return enc.encode(cached);
     } else {
-      const res = await this.#getHash(hash);
+      const res = await this.#getHash(fileName, hash);
       // mark that we know hash exists
       const cacheVal = this.#cache.get(hash);
       if (cacheVal === undefined) {
@@ -1068,13 +1077,13 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getText(hash: string): Promise<string> {
+  async getText(fileName: string, hash: string): Promise<string> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
       return cached;
     } else {
       // NOTE two simultaneous requests will fetch twice
-      const raw = await this.#getHash(hash);
+      const raw = await this.#getHash(fileName, hash);
       const dec = new TextDecoder();
       const res = dec.decode(raw);
       this.#cache.set(hash, res);
@@ -1082,8 +1091,8 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getEntries(hash: string): Promise<Entries> {
-    const rawFile = await this.getText(hash);
+  async getEntries(fileName: string, hash: string): Promise<Entries> {
+    const rawFile = await this.getText(fileName, hash);
     const [version, ...rest] = rawFile.slice(0, -1).split("\n");
     if (version === "3") {
       return { entries: rest.map(parseRawEntryLine) };
@@ -1114,8 +1123,8 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getContent(hash: string): Promise<Content> {
-    const raw = await this.getText(hash);
+  async getContent(fileName: string, hash: string): Promise<Content> {
+    const raw = await this.getText(fileName, hash);
     const loaded = JSON.parse(raw) as unknown;
 
     // jtd can't verify non-discriminated unions, in this case, we have fileType
@@ -1139,8 +1148,8 @@ export class RawRemarkable implements RawRemarkableApi {
     throw new Error(`invalid content: ${joined}`);
   }
 
-  async getMetadata(hash: string): Promise<Metadata> {
-    const raw = await this.getText(hash);
+  async getMetadata(fileName: string, hash: string): Promise<Metadata> {
+    const raw = await this.getText(fileName, hash);
     const loaded = JSON.parse(raw) as unknown;
     if (!metadata.guardAssert(loaded)) throw Error("invalid metadata");
     return loaded;
@@ -1180,8 +1189,8 @@ export class RawRemarkable implements RawRemarkableApi {
   }
 
   async #putFile(
-    hash: string,
     fileName: string,
+    hash: string,
     bytes: Uint8Array,
   ): Promise<void> {
     // if the hash is already in the cache, writing is pointless
@@ -1218,7 +1227,7 @@ export class RawRemarkable implements RawRemarkableApi {
       subfiles: 0,
       size: bytes.length,
     };
-    return [res, this.#putFile(hash, id, bytes)];
+    return [res, this.#putFile(id, hash, bytes)];
   }
 
   async putText(id: string, text: string): Promise<[RawEntry, Promise<void>]> {
@@ -1299,11 +1308,7 @@ export class RawRemarkable implements RawRemarkableApi {
       subfiles: entries.length,
       size,
     };
-    return [
-      res,
-      // NOTE when monitoring requests, this had the extension .docSchema appended, but I'm not entirely sure why
-      this.#putFile(hash, `${id}.docSchema`, entryBuff),
-    ];
+    return [res, this.#putFile(`${id}.docSchema`, hash, entryBuff)];
   }
 
   async uploadFile(
