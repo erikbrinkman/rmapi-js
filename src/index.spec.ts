@@ -308,7 +308,7 @@ ${realHash}:0:col.content:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent(repHash("0"));
+      const cont = await api.getContent("col", repHash("0"));
       expect(cont).toEqual(content);
     });
 
@@ -337,7 +337,7 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent(repHash("0"));
+      const cont = await api.getContent("doc", repHash("0"));
       expect(cont).toEqual(content);
     });
 
