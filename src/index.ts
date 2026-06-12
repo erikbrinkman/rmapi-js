@@ -1039,7 +1039,7 @@ class Remarkable implements RemarkableApi {
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
       "root",
       rootEntries,
-      schemaVersion,
+      4,
     );
 
     // before updating the root hash, first upload everything
@@ -1126,7 +1126,7 @@ class Remarkable implements RemarkableApi {
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
       "root",
       rootEntries,
-      schemaVersion,
+      4,
     );
 
     // before updating the root hash, first upload everything
@@ -1226,7 +1226,7 @@ class Remarkable implements RemarkableApi {
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
       "root",
       entries,
-      schemaVersion,
+      4,
     );
 
     await Promise.all([uploadEnt, uploadRoot]);
@@ -1312,7 +1312,7 @@ class Remarkable implements RemarkableApi {
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
       "root",
       entries,
-      schemaVersion,
+      4,
     );
 
     await Promise.all([uploadEnt, uploadRoot]);
@@ -1402,7 +1402,7 @@ class Remarkable implements RemarkableApi {
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
       "root",
       newEntries,
-      schemaVersion,
+      4,
     );
     await Promise.all([Promise.all(uploads), uploadRoot]);
 

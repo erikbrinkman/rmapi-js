@@ -1,4 +1,4 @@
-import { type Mock, mock } from "bun:test";
+import { type Mock, spyOn } from "bun:test";
 
 class MockResponse extends Response {
   constructor(
@@ -114,7 +114,8 @@ export function createMockFetch(
 export function mockFetch(
   ...nextResponses: Awaitable<Response>[]
 ): Mock<MockFetch> {
-  const mocked = mock(createMockFetch(...nextResponses));
-  globalThis.fetch = mocked as unknown as typeof globalThis.fetch;
-  return mocked;
+  const spy = spyOn(globalThis, "fetch") as unknown as Mock<MockFetch>;
+  spy.mockClear();
+  spy.mockImplementation(createMockFetch(...nextResponses));
+  return spy;
 }

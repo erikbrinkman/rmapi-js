@@ -554,6 +554,51 @@ ${epubHash}:0:doc.epub:0:1
     await prom;
   });
 
+  /**
+   * a schema 4 root index converts collection types from 80000000 to 0 and
+   * hashes the full entry file
+   */
+  test("#putEntries() schema 4 root index", async () => {
+    const fetch = mockFetch(
+      emptyResponse(),
+      emptyResponse(), // put root entry
+    );
+    const api = await remarkable("");
+    const docId = "043eccc1-35a8-467b-a5f3-7196cb1f57d2";
+    const docHash = repHash("1");
+    const [entry, prom] = await api.raw.putEntries(
+      "root",
+      [
+        {
+          type: 80000000,
+          id: docId,
+          hash: docHash,
+          subfiles: 2,
+          size: 219,
+        },
+      ],
+      4,
+    );
+    await prom;
+
+    const expectedBody = `4\n0:.:1:219\n${docHash}:0:${docId}:2:219\n`;
+    const enc = new TextEncoder();
+    const digestBuff = await crypto.subtle.digest(
+      "SHA-256",
+      enc.encode(expectedBody),
+    );
+    const expectedHash = new Uint8Array(digestBuff).toHex();
+    expect(entry.hash).toBe(expectedHash);
+    expect(entry.type).toBe(0);
+
+    const [, putCall] = fetch.mock.calls;
+    expect(putCall).toBeDefined();
+    const [url, init] = putCall!;
+    expect(`${url}`).toContain(expectedHash);
+    const dec = new TextDecoder();
+    expect(dec.decode(init?.body as Uint8Array)).toBe(expectedBody);
+  });
+
   test("#putPdf()", async () => {
     const enc = new TextEncoder();
     const pdf = enc.encode("pdf content");
@@ -635,7 +680,7 @@ ${epubHash}:0:doc.epub:0:1
   });
 
   test("#createFolder()", async () => {
-    mockFetch(
+    const fetch = mockFetch(
       emptyResponse(),
       jsonResponse({
         hash: repHash("abcd0123"),
@@ -658,6 +703,16 @@ ${epubHash}:0:doc.epub:0:1
 
     expect(res.id).toHaveLength(36);
     expect(res.hash).toHaveLength(64);
+
+    // even on a schema 3 account the root index must be written as schema 4
+    // while the doc index keeps schema 3
+    const dec = new TextDecoder();
+    const bodies = fetch.mock.calls
+      .map(([, init]) => init?.body)
+      .filter((body) => body instanceof Uint8Array)
+      .map((body) => dec.decode(body));
+    expect(bodies.some((body) => body.startsWith("4\n0:.:"))).toBe(true);
+    expect(bodies.some((body) => body.startsWith("3\n"))).toBe(true);
   });
 
   test("#stared()", async () => {
