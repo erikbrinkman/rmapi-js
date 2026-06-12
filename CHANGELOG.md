@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- the high-level api now always writes the root index as schema 4, since reMarkable rejects newly written schema 3 root indexes with a 400 "Software must be updated" error.
+
+## [10.0.0] - 2026-05-18
+
+### Changed
+
 - methods now take an id or filename that's necessary for rm header validation, this is a breaking change, but also one that is broken already.
 
 ## [9.0.0] - 2025-12-07

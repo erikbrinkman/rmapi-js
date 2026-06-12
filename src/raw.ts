@@ -931,6 +931,11 @@ export interface RawRemarkableApi {
    * 3. append this entry to the root entry and call this again to update this root list
    * 4. put the new root hash
    *
+   * NOTE: reMarkable currently rejects newly written schema 3 root indexes
+   * with a 400 "Software must be updated" error, even for accounts that still
+   * report schema 3, so the root list should always be written as schema 4. A
+   * warning is logged if a schema 3 root index is written.
+   *
    * @param id - the id of the list to upload - this should be the item id if
    *   uploading an item list, or "root" if uploading a new root list.
    * @param entries - the entries to upload
@@ -1270,6 +1275,11 @@ export class RawRemarkable implements RawRemarkableApi {
     entries: RawEntry[],
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<void>]> {
+    if (id === "root" && schemaVersion === 3) {
+      console.warn(
+        'writing a schema 3 root index, which reMarkable rejects with a 400 "Software must be updated" error; write the root index with schema version 4 instead',
+      );
+    }
     // NOTE v3 collections have a special hash function, the hash of their
     // contents, so this needs to be different
     entries.sort((a, b) => a.id.localeCompare(b.id));
@@ -1281,7 +1291,8 @@ export class RawRemarkable implements RawRemarkableApi {
       records.push(`0:${name}:${entries.length}:${size}\n`);
     }
     for (const { hash, type, id, subfiles, size } of entries) {
-      records.push(`${hash}:${type}:${id}:${subfiles}:${size}\n`);
+      const lineType = schemaVersion === 4 ? 0 : type;
+      records.push(`${hash}:${lineType}:${id}:${subfiles}:${size}\n`);
     }
     const enc = new TextEncoder();
     const entryBuff = enc.encode(records.join(""));
