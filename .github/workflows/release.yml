@@ -35,11 +35,15 @@ jobs:
           VERSION=$(npm version --no-git-tag-version ${{ inputs.bump }} | sed 's/^v//')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - uses: thomaseizinger/keep-a-changelog-new-release@v2
+        with:
+          tag: v${{ steps.version.outputs.version }}
+
       - run: |
           VERSION=${{ steps.version.outputs.version }}
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json
+          git add package.json CHANGELOG.md
           git commit -m "v${VERSION}"
           git tag -a "v${VERSION}" -m "v${VERSION}"
 
