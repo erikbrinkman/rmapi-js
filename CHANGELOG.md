@@ -201,3 +201,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initial release
+
+[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v10.1.0...HEAD
+[10.1.0]: https://github.com/erikbrinkman/rmapi-js/compare/v10.0.0...v10.1.0
+[10.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v9.0.0...v10.0.0
+[9.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v8.5.0...v9.0.0
+[8.5.0]: https://github.com/erikbrinkman/rmapi-js/compare/v8.4.0...v8.5.0
+[8.4.0]: https://github.com/erikbrinkman/rmapi-js/compare/v8.3.0...v8.4.0
+[8.3.0]: https://github.com/erikbrinkman/rmapi-js/compare/v8.2.0...v8.3.0
+[8.2.0]: https://github.com/erikbrinkman/rmapi-js/compare/v8.1.1...v8.2.0
+[8.1.1]: https://github.com/erikbrinkman/rmapi-js/compare/v8.1.0...v8.1.1
+[8.1.0]: https://github.com/erikbrinkman/rmapi-js/compare/v8.0.1...v8.1.0
+[8.0.1]: https://github.com/erikbrinkman/rmapi-js/compare/v8.0.0...v8.0.1
+[8.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v7.0.0...v8.0.0
+[7.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v6.0.0...v7.0.0
+[6.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v4.0.0...v6.0.0
+[4.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v3.1.0...v4.0.0
+[3.1.0]: https://github.com/erikbrinkman/rmapi-js/compare/v3.0.0...v3.1.0
+[3.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v2.3.0...v3.0.0
+[2.3.0]: https://github.com/erikbrinkman/rmapi-js/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/erikbrinkman/rmapi-js/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/erikbrinkman/rmapi-js/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v1.1.0...v2.0.0
+[1.1.0]: https://github.com/erikbrinkman/rmapi-js/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/erikbrinkman/rmapi-js/releases/tag/v1.0.0
