@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `sizeInBytes` is now optional in document content, since the reMarkable cloud omits it for some documents, which previously made `getContent` (and therefore `listItems`) throw.
+
+## [10.1.0] - 2026-06-12
+
+### Changed
+
 - the high-level api now always writes the root index as schema 4, since reMarkable rejects newly written schema 3 root indexes with a 400 "Software must be updated" error.
 
 ## [10.0.0] - 2026-05-18
