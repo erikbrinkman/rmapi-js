@@ -405,7 +405,7 @@ export interface CommonDocumentContent {
   /** a mapping from page number to page id in pages */
   redirectionPageMap?: number[];
   /** ostensibly the size in bytes of the file, but this differs from other measurements */
-  sizeInBytes: string;
+  sizeInBytes?: string;
   /** text alignment for this document */
   textAlignment: TextAlignment;
   /**
@@ -486,7 +486,6 @@ const documentContentRequired = {
   lineHeight: int32(),
   orientation: enumeration("portrait", "landscape"),
   pageCount: uint32(),
-  sizeInBytes: string(),
   textAlignment: enumeration("", "justify", "left"),
   textScale: float64(),
 };
@@ -515,6 +514,7 @@ const documentContentOptional = {
   pages: nullable(elements(string())),
   pageTags: elements(pageTag),
   redirectionPageMap: elements(int32()),
+  sizeInBytes: string(),
   transform: properties(
     undefined,
     {
