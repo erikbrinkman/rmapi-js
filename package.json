@@ -6,6 +6,7 @@
     "type": "git",
     "url": "git+ssh://git@github.com/erikbrinkman/rmapi-js.git"
   },
+  "homepage": "https://erikbrinkman.github.io/rmapi-js/",
   "author": "Erik Brinkman <erik.brinkman@gmail.com>",
   "license": "MIT",
   "keywords": [
