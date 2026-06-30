@@ -52,8 +52,8 @@
  * @packageDocumentation
  */
 import JSZip from "jszip";
-import { type CompiledSchema, nullable, string, values } from "jtd-ts";
 import { v4 as uuid4 } from "uuid";
+import { z } from "zod";
 import { HashNotFoundError, ValidationError } from "./error";
 import { LruCache } from "./lru";
 import {
@@ -1519,10 +1519,10 @@ export interface RemarkableOptions
   extends AuthOptions,
     RemarkableSessionOptions {}
 
-const cached = values(nullable(string())) satisfies CompiledSchema<
-  Record<string, string | null>,
-  unknown
->;
+const cached: z.ZodType<Record<string, string | null>> = z.record(
+  z.string(),
+  z.string().nullable(),
+);
 
 /**
  * Exchange a device token for a session token.
@@ -1566,8 +1566,9 @@ export function session(
   }: RemarkableSessionOptions = {},
 ): RemarkableApi {
   const initCache = JSON.parse(cache ?? "{}") as unknown;
-  if (cached.guard(initCache)) {
-    const entries = Object.entries(initCache);
+  const parsedCache = cached.safeParse(initCache);
+  if (parsedCache.success) {
+    const entries = Object.entries(parsedCache.data);
     const cacheMap =
       maxCacheSize === Infinity
         ? new Map(entries)
