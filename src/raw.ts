@@ -1,20 +1,5 @@
 import CRC32C from "crc-32/crc32c";
-import {
-  boolean,
-  type CompiledSchema,
-  elements,
-  empty,
-  enumeration,
-  float64,
-  int32,
-  nullable,
-  properties,
-  string,
-  timestamp,
-  uint8,
-  uint32,
-  values,
-} from "jtd-ts";
+import { z } from "zod";
 import { ValidationError } from "./error.js";
 import { concatArrays } from "./utils.js";
 import "core-js/proposals/array-buffer-base64";
@@ -93,14 +78,12 @@ export interface Tag {
   timestamp: number;
 }
 
-const tag = properties(
-  {
-    name: string(),
-    timestamp: float64(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<Tag, unknown>;
+const tag: z.ZodType<Tag> = z
+  .object({
+    name: z.string(),
+    timestamp: z.number(),
+  })
+  .passthrough();
 
 /** a tag for individual pages */
 export interface PageTag extends Tag {
@@ -108,15 +91,13 @@ export interface PageTag extends Tag {
   pageId: string;
 }
 
-const pageTag = properties(
-  {
-    name: string(),
-    pageId: string(),
-    timestamp: float64(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<PageTag, unknown>;
+const pageTag: z.ZodType<PageTag> = z
+  .object({
+    name: z.string(),
+    pageId: z.string(),
+    timestamp: z.number(),
+  })
+  .passthrough();
 
 /** all supported document orientations */
 export type Orientation = "portrait" | "landscape";
@@ -149,16 +130,14 @@ export interface DocumentMetadata {
   publisher?: string;
 }
 
-const documentMetadata = properties(
-  undefined,
-  {
-    authors: elements(string()),
-    title: string(),
-    publicationDate: string(),
-    publisher: string(),
-  },
-  true,
-) satisfies CompiledSchema<DocumentMetadata, unknown>;
+const documentMetadata: z.ZodType<DocumentMetadata> = z
+  .object({
+    authors: z.array(z.string()).optional(),
+    title: z.string().optional(),
+    publicationDate: z.string().optional(),
+    publisher: z.string().optional(),
+  })
+  .passthrough();
 
 /** [speculative] metadata stored about keyboard interactions */
 export interface KeyboardMetadata {
@@ -202,62 +181,35 @@ export interface CPagePage {
   deleted?: CPageNumberValue;
 }
 
-const cPagePage = properties(
-  {
-    id: string(),
-    idx: properties(
-      {
-        timestamp: string(),
-        value: string(),
-      },
-      undefined,
-      true,
-    ),
-  },
-  {
-    template: properties(
-      {
-        timestamp: string(),
-        value: string(),
-      },
-      undefined,
-      true,
-    ),
-    redir: properties(
-      {
-        timestamp: string(),
-        value: int32(),
-      },
-      undefined,
-      true,
-    ),
-    scrollTime: properties(
-      {
-        timestamp: string(),
-        value: timestamp(),
-      },
-      undefined,
-      true,
-    ),
-    verticalScroll: properties(
-      {
-        timestamp: string(),
-        value: float64(),
-      },
-      undefined,
-      true,
-    ),
-    deleted: properties(
-      {
-        timestamp: string(),
-        value: int32(),
-      },
-      undefined,
-      true,
-    ),
-  },
-  true,
-) satisfies CompiledSchema<CPagePage, unknown>;
+const cPagePage: z.ZodType<CPagePage> = z
+  .object({
+    id: z.string(),
+    idx: z.object({ timestamp: z.string(), value: z.string() }).passthrough(),
+    template: z
+      .object({ timestamp: z.string(), value: z.string() })
+      .passthrough()
+      .optional(),
+    redir: z
+      .object({ timestamp: z.string(), value: z.number().int() })
+      .passthrough()
+      .optional(),
+    scrollTime: z
+      .object({
+        timestamp: z.string(),
+        value: z.string().datetime({ offset: true }),
+      })
+      .passthrough()
+      .optional(),
+    verticalScroll: z
+      .object({ timestamp: z.string(), value: z.number() })
+      .passthrough()
+      .optional(),
+    deleted: z
+      .object({ timestamp: z.string(), value: z.number().int() })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
 
 /** [unknown] */
 export interface CPageUUID {
@@ -279,41 +231,24 @@ export interface CPages {
   uuids: CPageUUID[] | null;
 }
 
-const cPages = properties(
-  {
-    lastOpened: properties(
-      {
-        timestamp: string(),
-        value: string(),
-      },
-      undefined,
-      true,
-    ),
-    original: properties(
-      {
-        timestamp: string(),
-        value: int32(),
-      },
-      undefined,
-      true,
-    ),
-    pages: elements(cPagePage),
-    uuids: nullable(
-      elements(
-        properties(
-          {
-            first: string(),
-            second: uint32(),
-          },
-          undefined,
-          true,
-        ),
-      ),
-    ),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<CPages, unknown>;
+const cPages: z.ZodType<CPages> = z
+  .object({
+    lastOpened: z
+      .object({ timestamp: z.string(), value: z.string() })
+      .passthrough(),
+    original: z
+      .object({ timestamp: z.string(), value: z.number().int() })
+      .passthrough(),
+    pages: z.array(cPagePage),
+    uuids: z
+      .array(
+        z
+          .object({ first: z.string(), second: z.number().int().nonnegative() })
+          .passthrough(),
+      )
+      .nullable(),
+  })
+  .passthrough();
 
 /** the content metadata for collections (folders) */
 export interface CollectionContent {
@@ -333,13 +268,17 @@ export interface LegacyCollectionContent {
   fileType?: undefined;
 }
 
-const collectionContent = properties(undefined, {
-  tags: elements(tag),
-}) satisfies CompiledSchema<CollectionContent, unknown>;
+const collectionContent: z.ZodType<CollectionContent> = z
+  .object({
+    tags: z.array(tag).optional(),
+  })
+  .strict();
 
-const legacyCollectionContent = properties(undefined, {
-  tags: elements(string()),
-}) satisfies CompiledSchema<LegacyCollectionContent, unknown>;
+const legacyCollectionContent: z.ZodType<LegacyCollectionContent> = z
+  .object({
+    tags: z.array(z.string()).optional(),
+  })
+  .strict();
 
 /**
  * content metadata, stored with the "content" extension
@@ -478,80 +417,72 @@ export interface LegacyDocumentContent extends CommonDocumentContent {
 }
 
 const documentContentRequired = {
-  coverPageNumber: int32(),
+  coverPageNumber: z.number().int(),
   documentMetadata,
-  extraMetadata: values(string()),
-  fileType: enumeration("epub", "notebook", "pdf"),
-  fontName: string(),
-  lineHeight: int32(),
-  orientation: enumeration("portrait", "landscape"),
-  pageCount: uint32(),
-  textAlignment: enumeration("", "justify", "left"),
-  textScale: float64(),
+  extraMetadata: z.record(z.string(), z.string()),
+  fileType: z.enum(["epub", "notebook", "pdf"]),
+  fontName: z.string(),
+  lineHeight: z.number().int(),
+  orientation: z.enum(["portrait", "landscape"]),
+  pageCount: z.number().int().nonnegative(),
+  textAlignment: z.enum(["", "justify", "left"]),
+  textScale: z.number(),
 };
 
 const documentContentOptional = {
-  cPages,
-  customZoomCenterX: float64(),
-  customZoomCenterY: float64(),
-  customZoomOrientation: enumeration("portrait", "landscape"),
-  customZoomPageHeight: float64(),
-  customZoomPageWidth: float64(),
-  customZoomScale: float64(),
-  dummyDocument: boolean(),
-  formatVersion: uint8(),
-  keyboardMetadata: properties(
-    {
-      count: uint32(),
-      timestamp: float64(),
-    },
-    undefined,
-    true,
-  ),
-  lastOpenedPage: int32(),
-  margins: uint32(),
-  originalPageCount: int32(),
-  pages: nullable(elements(string())),
-  pageTags: elements(pageTag),
-  redirectionPageMap: elements(int32()),
-  sizeInBytes: string(),
-  transform: properties(
-    undefined,
-    {
-      m11: float64(),
-      m12: float64(),
-      m13: float64(),
-      m21: float64(),
-      m22: float64(),
-      m23: float64(),
-      m31: float64(),
-      m32: float64(),
-      m33: float64(),
-    },
-    true,
-  ),
+  cPages: cPages.optional(),
+  customZoomCenterX: z.number().optional(),
+  customZoomCenterY: z.number().optional(),
+  customZoomOrientation: z.enum(["portrait", "landscape"]).optional(),
+  customZoomPageHeight: z.number().optional(),
+  customZoomPageWidth: z.number().optional(),
+  customZoomScale: z.number().optional(),
+  dummyDocument: z.boolean().optional(),
+  formatVersion: z.number().int().nonnegative().optional(),
+  keyboardMetadata: z
+    .object({ count: z.number().int().nonnegative(), timestamp: z.number() })
+    .passthrough()
+    .optional(),
+  lastOpenedPage: z.number().int().optional(),
+  margins: z.number().int().nonnegative().optional(),
+  originalPageCount: z.number().int().optional(),
+  pages: z.array(z.string()).nullable().optional(),
+  pageTags: z.array(pageTag).optional(),
+  redirectionPageMap: z.array(z.number().int()).optional(),
+  sizeInBytes: z.string().optional(),
+  transform: z
+    .object({
+      m11: z.number().optional(),
+      m12: z.number().optional(),
+      m13: z.number().optional(),
+      m21: z.number().optional(),
+      m22: z.number().optional(),
+      m23: z.number().optional(),
+      m31: z.number().optional(),
+      m32: z.number().optional(),
+      m33: z.number().optional(),
+    })
+    .passthrough()
+    .optional(),
   // eslint-disable-next-line spellcheck/spell-checker
-  viewBackgroundFilter: enumeration("off", "fullpage"),
-  zoomMode: enumeration("bestFit", "customFit", "fitToHeight", "fitToWidth"),
+  viewBackgroundFilter: z.enum(["off", "fullpage"]).optional(),
+  zoomMode: z
+    .enum(["bestFit", "customFit", "fitToHeight", "fitToWidth"])
+    .optional(),
 };
 
-const documentContent = properties(
-  documentContentRequired,
-  {
-    ...documentContentOptional,
-    tags: elements(tag),
-  },
-  true,
-) satisfies CompiledSchema<DocumentContent, unknown>;
+const commonDocumentContent = z
+  .object({ ...documentContentRequired, ...documentContentOptional })
+  .passthrough() satisfies z.ZodType<CommonDocumentContent>;
 
-const legacyDocumentContent = properties(
-  documentContentRequired,
-  {
-    ...documentContentOptional,
-    tags: elements(string()),
-  },
-  true,
-) satisfies CompiledSchema<LegacyDocumentContent, unknown>;
+const documentContent: z.ZodType<DocumentContent> = commonDocumentContent
+  .extend({ tags: z.array(tag).optional() })
+  .passthrough();
+
+const legacyDocumentContent: z.ZodType<LegacyDocumentContent> =
+  commonDocumentContent
+    .extend({ tags: z.array(z.string()).optional() })
+    .passthrough();
 
 /**
  * content metadata, stored with the "content" extension
@@ -589,23 +520,21 @@ export interface TemplateContent {
   items: object[];
 }
 
-const templateContent = properties(
-  {
-    name: string(),
-    author: string(),
-    iconData: string(),
-    categories: elements(string()),
-    labels: elements(string()),
-    orientation: enumeration("portrait", "landscape"),
-    templateVersion: string(),
-    supportedScreens: elements(enumeration("rm2", "rmPP")),
-    constants: elements(values(int32())),
-    items: elements(empty() as CompiledSchema<object, unknown>),
-  },
-  {
-    formatVersion: uint8(),
-  },
-) satisfies CompiledSchema<TemplateContent, unknown>;
+const templateContent: z.ZodType<TemplateContent> = z
+  .object({
+    name: z.string(),
+    author: z.string(),
+    iconData: z.string(),
+    categories: z.array(z.string()),
+    labels: z.array(z.string()),
+    orientation: z.enum(["portrait", "landscape"]),
+    templateVersion: z.string(),
+    supportedScreens: z.array(z.enum(["rm2", "rmPP"])),
+    constants: z.array(z.record(z.string(), z.number().int())),
+    items: z.array(z.unknown() as unknown as z.ZodType<object>),
+    formatVersion: z.number().int().nonnegative().optional(),
+  })
+  .strict();
 
 /** content metadata for any item */
 export type Content =
@@ -614,6 +543,16 @@ export type Content =
   | DocumentContent
   | LegacyDocumentContent
   | TemplateContent;
+
+// content payloads aren't discriminable (legacy/modern differ only by tags
+// element type), so this is an ordered union: the first matching variant wins
+const content: z.ZodType<Content> = z.union([
+  collectionContent,
+  legacyCollectionContent,
+  templateContent,
+  documentContent,
+  legacyDocumentContent,
+]);
 
 /**
  * item level metadata
@@ -667,68 +606,61 @@ export interface Metadata {
   visibleName: string;
 }
 
-const metadata = properties(
-  {
-    lastModified: string(),
-    parent: string(),
-    pinned: boolean(),
-    type: enumeration("DocumentType", "CollectionType", "TemplateType"),
-    visibleName: string(),
-  },
-  {
-    lastOpened: string(),
-    lastOpenedPage: int32(),
-    createdTime: string(),
-    deleted: boolean(),
-    metadatamodified: boolean(),
-    modified: boolean(),
-    synced: boolean(),
-    version: uint32(),
-  },
-  true,
-) satisfies CompiledSchema<Metadata, unknown>;
+const metadata: z.ZodType<Metadata> = z
+  .object({
+    lastModified: z.string(),
+    parent: z.string(),
+    pinned: z.boolean(),
+    type: z.enum(["DocumentType", "CollectionType", "TemplateType"]),
+    visibleName: z.string(),
+    lastOpened: z.string().optional(),
+    lastOpenedPage: z.number().int().optional(),
+    createdTime: z.string().optional(),
+    deleted: z.boolean().optional(),
+    metadatamodified: z.boolean().optional(),
+    modified: z.boolean().optional(),
+    synced: z.boolean().optional(),
+    version: z.number().int().nonnegative().optional(),
+    new: z.boolean().optional(),
+    source: z.string().optional(),
+  })
+  .passthrough();
 
 interface UpdatedRootHash {
   hash: string;
   generation: number;
 }
 
-const updatedRootHash = properties(
-  {
-    hash: string(),
-    generation: float64(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<UpdatedRootHash, unknown>;
+const updatedRootHash: z.ZodType<UpdatedRootHash> = z
+  .object({
+    hash: z.string(),
+    generation: z.number(),
+  })
+  .passthrough();
 
 interface RootHash extends UpdatedRootHash {
   schemaVersion: number;
 }
 
-const rootHash = properties(
-  {
-    hash: string(),
-    generation: float64(),
-    schemaVersion: uint8(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<RootHash, unknown>;
+const rootHash: z.ZodType<RootHash> = z
+  .object({
+    hash: z.string(),
+    generation: z.number(),
+    schemaVersion: z.number().int().nonnegative(),
+  })
+  .passthrough();
 
 interface NativeSimpleEntry {
   docID: string;
   hash: string;
 }
 
-const NativeSimpleEntry = properties(
-  {
-    docID: string(),
-    hash: string(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<NativeSimpleEntry, unknown>;
+const nativeSimpleEntry: z.ZodType<NativeSimpleEntry> = z
+  .object({
+    docID: z.string(),
+    hash: z.string(),
+  })
+  .passthrough();
 
 async function digest(buff: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest(
@@ -1039,8 +971,7 @@ export class RawRemarkable implements RawRemarkableApi {
     const res = await this.#authedFetch("GET", `${this.#rawHost}/sync/v4/root`);
     const raw = await res.text();
     const loaded = JSON.parse(raw) as unknown;
-    if (!rootHash.guardAssert(loaded)) throw Error("invalid root hash");
-    const { hash, generation, schemaVersion } = loaded;
+    const { hash, generation, schemaVersion } = rootHash.parse(loaded);
     if (schemaVersion !== 3 && schemaVersion !== 4) {
       throw new Error(`schema version ${schemaVersion} not supported`);
     } else if (!Number.isSafeInteger(generation)) {
@@ -1131,33 +1062,13 @@ export class RawRemarkable implements RawRemarkableApi {
   async getContent(fileName: string, hash: string): Promise<Content> {
     const raw = await this.getText(fileName, hash);
     const loaded = JSON.parse(raw) as unknown;
-
-    // jtd can't verify non-discriminated unions, in this case, we have fileType
-    // defined or not. As a result, we try each, and concatenate the errors at the end
-    const errors: string[] = [];
-    for (const [name, valid] of [
-      ["collection", collectionContent],
-      ["legacy collection", legacyCollectionContent],
-      ["template", templateContent],
-      ["document", documentContent],
-      ["legacy document", legacyDocumentContent],
-    ] as const) {
-      try {
-        if (valid.guardAssert(loaded)) return loaded;
-      } catch (ex) {
-        const msg = ex instanceof Error ? ex.message : "unknown error type";
-        errors.push(`Couldn't validate as ${name} because:\n${msg}`);
-      }
-    }
-    const joined = errors.join("\n\nor\n\n");
-    throw new Error(`invalid content: ${joined}`);
+    return content.parse(loaded);
   }
 
   async getMetadata(fileName: string, hash: string): Promise<Metadata> {
     const raw = await this.getText(fileName, hash);
     const loaded = JSON.parse(raw) as unknown;
-    if (!metadata.guardAssert(loaded)) throw Error("invalid metadata");
-    return loaded;
+    return metadata.parse(loaded);
   }
 
   async putRootHash(
@@ -1182,8 +1093,7 @@ export class RawRemarkable implements RawRemarkableApi {
     );
     const raw = await resp.text();
     const loaded = JSON.parse(raw) as unknown;
-    if (!updatedRootHash.guardAssert(loaded)) throw Error("invalid root hash");
-    const { hash: newHash, generation: newGen } = loaded;
+    const { hash: newHash, generation: newGen } = updatedRootHash.parse(loaded);
     if (Number.isSafeInteger(newGen)) {
       return [newHash, newGen];
     } else {
@@ -1344,9 +1254,7 @@ export class RawRemarkable implements RawRemarkableApi {
       },
     );
     const loaded = (await resp.json()) as unknown;
-    if (!NativeSimpleEntry.guardAssert(loaded))
-      throw Error("invalid upload response");
-    const { docID, hash } = loaded;
+    const { docID, hash } = nativeSimpleEntry.parse(loaded);
     return { id: docID, hash };
   }
 
