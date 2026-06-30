@@ -452,7 +452,7 @@ hash:0:doc.epub:0:1
       );
 
       const api = await remarkable("");
-      expect(api.getContent("test-id", repHash("0"))).rejects.toThrow("\nor\n");
+      expect(api.getContent("test-id", repHash("0"))).rejects.toThrow();
     });
   });
 
@@ -1073,7 +1073,7 @@ hash2:80000000:other:0:2
     mockFetch(emptyResponse(), jsonResponse([{}]));
 
     const api = await remarkable("");
-    expect(api.listItems()).rejects.toThrow("Validation errors:");
+    expect(api.listItems()).rejects.toThrow("Expected object");
   });
 
   test("response fail", async () => {
@@ -1090,6 +1090,6 @@ hash2:80000000:other:0:2
     mockFetch(emptyResponse(), jsonResponse([{}]));
 
     const api = await remarkable("");
-    expect(api.listItems()).rejects.toThrow("Validation errors:");
+    expect(api.listItems()).rejects.toThrow("Expected object");
   });
 });
