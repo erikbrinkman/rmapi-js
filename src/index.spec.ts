@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
-  Content,
-  DocumentContent,
-  Entry,
-  Metadata,
+  auth,
+  type Content,
+  type DocumentContent,
+  type Entry,
+  type LegacyCollectionContent,
+  type LegacyDocumentContent,
+  type Metadata,
   register,
   remarkable,
-  TemplateContent,
+  session,
+  type TemplateContent,
 } from ".";
 import {
   bytesResponse,
@@ -44,10 +48,30 @@ describe("register()", () => {
   });
 });
 
+describe("auth()", () => {
+  test("success", async () => {
+    const fetch = mockFetch(textResponse("custom session token"));
+
+    const token = await auth("custom device token");
+    expect(token).toBe("custom session token");
+    expect(fetch.mock.calls).toHaveLength(1);
+    const [first] = fetch.mock.calls;
+    const [, init] = first ?? [];
+    expect(new Headers(init?.headers).get("Authorization")).toBe(
+      "Bearer custom device token",
+    );
+  });
+
+  test("error", () => {
+    mockFetch(emptyResponse({ status: 400 }));
+    expect(auth("")).rejects.toThrow("couldn't fetch auth token");
+  });
+});
+
 describe("remarkable", () => {
   describe("remarkable()", () => {
     test("success", async () => {
-      const fetch = mockFetch(textResponse("custom user token"));
+      const fetch = mockFetch(textResponse("custom session token"));
 
       await remarkable("custom device token");
       expect(fetch.mock.calls).toHaveLength(1);
@@ -61,6 +85,24 @@ describe("remarkable", () => {
     test("error", () => {
       mockFetch(emptyResponse({ status: 400 }));
       expect(remarkable("")).rejects.toThrow("couldn't fetch auth token");
+    });
+  });
+
+  describe("session()", () => {
+    test("uses provided token and skips exchange", () => {
+      const fetch = mockFetch();
+
+      const api = session("cached session token");
+      expect(fetch.mock.calls).toHaveLength(0);
+      expect(api.raw).toBeDefined();
+    });
+
+    test("throws when cache is invalid", () => {
+      mockFetch();
+
+      expect(() => session("token", { cache: "42" })).toThrow(
+        "cache was not a valid cache (json string mapping)",
+      );
     });
   });
 
@@ -173,6 +215,29 @@ fake_template_hash:0:${docId}.template:0:1
     expect(loaded).toEqual(expected);
   });
 
+  test("#getMetadata() accepts lastOpenedPage -1", async () => {
+    const realHash = repHash("1");
+    const file = `3
+hash:0:doc.content:0:1
+${realHash}:0:doc.metadata:0:1
+hash:0:doc.epub:0:1
+hash:0:doc.pdf:0:1
+`;
+    const metadata: Metadata = {
+      lastModified: "0",
+      visibleName: "name",
+      parent: "",
+      type: "DocumentType",
+      pinned: false,
+      lastOpenedPage: -1,
+    };
+    mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
+
+    const api = await remarkable("");
+    const meta = await api.getMetadata("test-id", repHash("0"));
+    expect(meta).toEqual(metadata);
+  });
+
   test("#listIds()", async () => {
     const file = `3
 hash:80000000:document:0:1
@@ -227,8 +292,116 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent(repHash("0"));
+      const cont = await api.getContent("test-id", repHash("0"));
       expect(cont).toEqual(content);
+    });
+
+    test("CollectionType legacy tags", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:col.content:0:1
+`;
+      const content: LegacyCollectionContent = {
+        tags: ["Remarcal", "calendar"],
+      };
+
+      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+
+      const api = await remarkable("");
+      const cont = await api.getContent("col", repHash("0"));
+      expect(cont).toEqual(content);
+    });
+
+    test("DocumentType legacy tags", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:doc.content:0:1
+hash:0:doc.metadata:0:1
+hash:0:doc.pdf:0:1
+`;
+      const content: LegacyDocumentContent = {
+        fileType: "pdf",
+        coverPageNumber: -1,
+        documentMetadata: {},
+        extraMetadata: {},
+        fontName: "",
+        lineHeight: -1,
+        orientation: "portrait",
+        pageCount: 1,
+        sizeInBytes: "1",
+        tags: ["Remarcal", "calendar"],
+        textAlignment: "left",
+        textScale: 1,
+      };
+
+      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+
+      const api = await remarkable("");
+      const cont = await api.getContent("doc", repHash("0"));
+      expect(cont).toEqual(content);
+    });
+
+    test("handles empty textAlignment and null pages", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:doc.content:0:1
+hash:0:doc.metadata:0:1
+hash:0:doc.pdf:0:1
+`;
+      const content: DocumentContent = {
+        fileType: "pdf",
+        coverPageNumber: -1,
+        documentMetadata: {},
+        extraMetadata: {},
+        fontName: "",
+        lineHeight: -1,
+        orientation: "portrait",
+        pageCount: 0,
+        pages: null,
+        sizeInBytes: "",
+        textAlignment: "",
+        textScale: 1,
+      };
+      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+
+      const api = await remarkable("");
+      const cont = (await api.getContent(
+        "test-id",
+        repHash("0"),
+      )) as DocumentContent;
+      expect(cont).toEqual(content);
+    });
+
+    test("handles empty transform object", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:doc.content:0:1
+hash:0:doc.metadata:0:1
+hash:0:doc.pdf:0:1
+`;
+      const content: DocumentContent = {
+        fileType: "pdf",
+        coverPageNumber: -1,
+        documentMetadata: {},
+        extraMetadata: {},
+        fontName: "",
+        lineHeight: -1,
+        orientation: "portrait",
+        pageCount: 1,
+        sizeInBytes: "1",
+        textAlignment: "left",
+        textScale: 1,
+        transform: {},
+      };
+      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+
+      const api = await remarkable("");
+      const cont = (await api.getContent(
+        "test-id",
+        repHash("0"),
+      )) as DocumentContent;
+      expect(cont.fileType).toBe("pdf");
+      expect(cont.transform ?? {}).toEqual({});
     });
 
     test("TemplateType", async () => {
@@ -261,7 +434,7 @@ hash:0:tpl.template:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent(repHash("0"));
+      const cont = await api.getContent("test-id", repHash("0"));
       expect(cont).toEqual(content);
     });
 
@@ -279,7 +452,7 @@ hash:0:doc.epub:0:1
       );
 
       const api = await remarkable("");
-      expect(api.getContent(repHash("0"))).rejects.toThrow("\nor\n");
+      expect(api.getContent("test-id", repHash("0"))).rejects.toThrow();
     });
   });
 
@@ -301,7 +474,7 @@ hash:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
-    const meta = await api.getMetadata(repHash("0"));
+    const meta = await api.getMetadata("test-id", repHash("0"));
     expect(meta).toEqual(metadata);
   });
   test("#getPdf()", async () => {
@@ -317,7 +490,7 @@ ${realHash}:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), bytesResponse(pdf));
 
     const api = await remarkable("");
-    const bytes = await api.getPdf(repHash("0"));
+    const bytes = await api.getPdf("test-id", repHash("0"));
     expect(bytes).toEqual(pdf);
   });
 
@@ -334,7 +507,7 @@ hash:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), bytesResponse(epub));
 
     const api = await remarkable("");
-    const bytes = await api.getEpub(repHash("0"));
+    const bytes = await api.getEpub("test-id", repHash("0"));
     expect(bytes).toEqual(epub);
   });
 
@@ -380,7 +553,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const bytes = await api.getDocument(repHash("0"));
+    const bytes = await api.getDocument("test-id", repHash("0"));
     expect(bytes.length).toBeGreaterThan(0);
   });
 
@@ -390,29 +563,87 @@ ${epubHash}:0:doc.epub:0:1
     mockFetch(
       emptyResponse(),
       jsonResponse({
-        hash: repHash("abcd0123"),
-        generation: 0,
-        schemaVersion: 3,
-      }),
-      emptyResponse(), // .content
-      emptyResponse(), // .metadata
-      // eslint-disable-next-line spellcheck/spell-checker
-      emptyResponse(), // .pagedata
-      emptyResponse(), // .pdf
-      textResponse("3\n"),
-      emptyResponse(), // .docSchema
-      emptyResponse(), // root.docSchema
-      jsonResponse({
         hash: repHash("1"),
-        generation: 1,
-      }), // root hash
+        docID: "fake pdf id",
+      }),
     );
 
     const api = await remarkable("");
     const res = await api.uploadPdf("new name", pdf);
 
-    expect(res.id).toHaveLength(36);
+    expect(res.id).toBe("fake pdf id");
     expect(res.hash).toHaveLength(64);
+  });
+
+  /** test that hash matches https://github.com/erikbrinkman/rmapi-js/issues/25#issuecomment-3526745194 */
+  test("#putEntries() v4", async () => {
+    mockFetch(
+      emptyResponse(),
+      emptyResponse(), // put entry
+    );
+    const api = await remarkable("");
+    const [entry, prom] = await api.raw.putEntries(
+      "043eccc1-35a8-467b-a5f3-7196cb1f57d2",
+      [
+        {
+          type: 0,
+          id: "043eccc1-35a8-467b-a5f3-7196cb1f57d2.metadata",
+          hash: "25aaaed381540046fce6defef9aa30faa7c0bcacffe42f5cef99643ae66ddfc1",
+          subfiles: 0,
+          size: 219,
+        },
+      ],
+      4,
+    );
+    expect(entry.hash).toBe(
+      "3c89dd3036f0b335188659d4f7139fcfd906167d99729d638af956906b647646",
+    );
+    await prom;
+  });
+
+  /**
+   * a schema 4 root index converts collection types from 80000000 to 0 and
+   * hashes the full entry file
+   */
+  test("#putEntries() schema 4 root index", async () => {
+    const fetch = mockFetch(
+      emptyResponse(),
+      emptyResponse(), // put root entry
+    );
+    const api = await remarkable("");
+    const docId = "043eccc1-35a8-467b-a5f3-7196cb1f57d2";
+    const docHash = repHash("1");
+    const [entry, prom] = await api.raw.putEntries(
+      "root",
+      [
+        {
+          type: 80000000,
+          id: docId,
+          hash: docHash,
+          subfiles: 2,
+          size: 219,
+        },
+      ],
+      4,
+    );
+    await prom;
+
+    const expectedBody = `4\n0:.:1:219\n${docHash}:0:${docId}:2:219\n`;
+    const enc = new TextEncoder();
+    const digestBuff = await crypto.subtle.digest(
+      "SHA-256",
+      enc.encode(expectedBody),
+    );
+    const expectedHash = new Uint8Array(digestBuff).toHex();
+    expect(entry.hash).toBe(expectedHash);
+    expect(entry.type).toBe(0);
+
+    const [, putCall] = fetch.mock.calls;
+    expect(putCall).toBeDefined();
+    const [url, init] = putCall!;
+    expect(`${url}`).toContain(expectedHash);
+    const dec = new TextDecoder();
+    expect(dec.decode(init?.body as Uint8Array)).toBe(expectedBody);
   });
 
   test("#putPdf()", async () => {
@@ -452,28 +683,15 @@ ${epubHash}:0:doc.epub:0:1
     mockFetch(
       emptyResponse(),
       jsonResponse({
-        hash: repHash("abcd0123"),
-        generation: 0,
-        schemaVersion: 3,
-      }),
-      emptyResponse(), // .content
-      emptyResponse(), // .metadata
-      // eslint-disable-next-line spellcheck/spell-checker
-      emptyResponse(), // .pagedata
-      emptyResponse(), // .epub
-      textResponse("3\n"),
-      emptyResponse(), // .docSchema
-      emptyResponse(), // root.docSchema
-      jsonResponse({
         hash: repHash("1"),
-        generation: 1,
-      }), // root hash
+        docID: "fake epub id",
+      }),
     );
 
     const api = await remarkable("");
     const res = await api.uploadEpub("new name", epub);
 
-    expect(res.id).toHaveLength(36);
+    expect(res.id).toBe("fake epub id");
     expect(res.hash).toHaveLength(64);
   });
 
@@ -509,7 +727,7 @@ ${epubHash}:0:doc.epub:0:1
   });
 
   test("#createFolder()", async () => {
-    mockFetch(
+    const fetch = mockFetch(
       emptyResponse(),
       jsonResponse({
         hash: repHash("abcd0123"),
@@ -528,10 +746,20 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.createFolder("new folder");
+    const res = await api.putFolder("new folder");
 
     expect(res.id).toHaveLength(36);
     expect(res.hash).toHaveLength(64);
+
+    // even on a schema 3 account the root index must be written as schema 4
+    // while the doc index keeps schema 3
+    const dec = new TextDecoder();
+    const bodies = fetch.mock.calls
+      .map(([, init]) => init?.body)
+      .filter((body) => body instanceof Uint8Array)
+      .map((body) => dec.decode(body));
+    expect(bodies.some((body) => body.startsWith("4\n0:.:"))).toBe(true);
+    expect(bodies.some((body) => body.startsWith("3\n"))).toBe(true);
   });
 
   test("#stared()", async () => {
@@ -824,7 +1052,7 @@ hash2:80000000:other:0:2
     mockFetch(emptyResponse());
 
     const api = await remarkable("");
-    expect(api.createFolder("test", { parent: "invalid" })).rejects.toThrow(
+    expect(api.putFolder("test", { parent: "invalid" })).rejects.toThrow(
       "parent must be a valid document id",
     );
   });
@@ -845,7 +1073,7 @@ hash2:80000000:other:0:2
     mockFetch(emptyResponse(), jsonResponse([{}]));
 
     const api = await remarkable("");
-    expect(api.listItems()).rejects.toThrow("Validation errors:");
+    expect(api.listItems()).rejects.toThrow("Expected object");
   });
 
   test("response fail", async () => {
@@ -862,6 +1090,6 @@ hash2:80000000:other:0:2
     mockFetch(emptyResponse(), jsonResponse([{}]));
 
     const api = await remarkable("");
-    expect(api.listItems()).rejects.toThrow("Validation errors:");
+    expect(api.listItems()).rejects.toThrow("Expected object");
   });
 });

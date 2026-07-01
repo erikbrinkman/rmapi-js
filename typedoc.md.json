@@ -1,0 +1,18 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "out": "docs-md",
+  "plugin": ["typedoc-plugin-markdown"],
+
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+
+  "categorizeByGroup": false,
+  "includeVersion": false,
+  "sort": ["required-first", "alphabetical"],
+  "readme": "none",
+
+  "hideBreadcrumbs": true,
+  "useHTMLAnchors": true
+}

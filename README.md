@@ -21,18 +21,27 @@ and folders ("collections"). The hash indicates the full current state to manage
 ## Usage
 
 To explore files in the cloud, you need to first register your api and persist
-the token. Then you can use `listFiles` to explore entries of different file
+the token. Then you can use `listItems` to explore entries of different file
 collections.
 
 ```ts
-import { register, remarkable } from "rmapi-js";
+import { auth, register, remarkable, session } from "rmapi-js";
 
 const code = "..."; // eight letter code from https://my.remarkable.com/device/desktop/connect
 const token = await register(code);
 // persist token so you don't have to register again
 const api = await remarkable(token);
-const fileEntries = await api.listFiles();
+const fileEntries = await api.listItems();
+
+// In stateless environments, exchange once and reuse.
+const sessionToken = await auth(token);
+const api = session(sessionToken);
+// cache `sessionToken` and reuse it across workers
 ```
+
+`auth` performs the same network call that `remarkable` does for you internally,
+returning a short-lived session token. `session` is synchronous,
+letting you construct clients from cached tokens without making a network call.
 
 To upload an epub or pdf, simply call upload with the appropriate name and buffer.
 
@@ -53,7 +62,7 @@ Using these apis is a little riskier since they can potentially result in data l
 // upload with custom line height not avilable through reMarkable
 await api.putEpub("name", buffer, { lineHeight: 180 })
 
-// fetch an uploaded pdf, using the hash (from listFiles)
+// fetch an uploaded pdf, using the hash (from listItems)
 const buffer = await api.getEpub(hash)
 ```
 
@@ -81,3 +90,6 @@ Since this has all been reverse engineered, any help expanding the api would be
 helpful. For example, There's currently a function to download the entire state
 of a document, but I ran into trouble trying to reupload that exact same file as
 a clone.
+
+You can also run `bun doc:md` to generate Markdown docs in `docs-md/`, which can
+be handy when sharing context.

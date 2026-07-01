@@ -1,21 +1,8 @@
-import { fromByteArray } from "base64-js";
 import CRC32C from "crc-32/crc32c";
-import {
-  boolean,
-  elements,
-  empty,
-  enumeration,
-  float64,
-  int32,
-  properties,
-  string,
-  timestamp,
-  uint32,
-  uint8,
-  values,
-  type CompiledSchema,
-} from "jtd-ts";
+import { z } from "zod";
 import { ValidationError } from "./error.js";
+import { concatArrays } from "./utils.js";
+import "core-js/proposals/array-buffer-base64";
 
 const hashReg = /^[0-9a-f]{64}$/;
 
@@ -28,6 +15,23 @@ export type RequestMethod =
   | "PATCH"
   | "OPTIONS";
 
+/** the supported upload mime types */
+export type UploadMimeType =
+  | "application/pdf"
+  | "application/epub+zip"
+  | "folder";
+
+/** the schema version */
+export type SchemaVersion = 3 | 4;
+
+/** an simple entry without any extra information */
+export interface SimpleEntry {
+  /** the document id */
+  id: string;
+  /** the document hash */
+  hash: string;
+}
+
 /**
  * the low-level entry corresponding to a collection of files
  *
@@ -36,9 +40,9 @@ export type RequestMethod =
  * files, the high level entry will have the same hash and id as the low-level
  * entry for that collection.
  */
-export interface RawListEntry {
-  /** collection type (80000000) */
-  type: 80000000;
+export interface RawEntry {
+  /** 80000000 for schema 3 collection type or 0 for schema 4 or schema 3 files or */
+  type: 80000000 | 0;
   /** the hash of the collection this points to */
   hash: string;
   /** the unique id of the collection */
@@ -49,24 +53,22 @@ export interface RawListEntry {
   size: number;
 }
 
-/** the low-level entry for a single file */
-export interface RawFileEntry {
-  /** file type (0) */
-  type: 0;
-  /** the hash of the file this points to */
-  hash: string;
-  /** the unique id of the file */
-  id: string;
-  /** the number of subfiles, always zero */
-  subfiles: 0;
-  /** the size of the file in bytes */
-  size: number;
-}
-
-/** a low-level stored entry */
-export type RawEntry = RawListEntry | RawFileEntry;
 /** the type of files reMarkable supports */
 export type FileType = "epub" | "pdf" | "notebook";
+
+/**
+ * a parsed entries file
+ *
+ * id and size are defined for schema 4 but not for 3
+ */
+export interface Entries {
+  /** the raw entries in the file */
+  entries: RawEntry[];
+  /** the id of this entry, only specified for schema 4 */
+  id?: string;
+  /** the recursive size of this entry, only specified for schema 4 */
+  size?: number;
+}
 
 /** a tag for an entry */
 export interface Tag {
@@ -76,14 +78,12 @@ export interface Tag {
   timestamp: number;
 }
 
-const tag = properties(
-  {
-    name: string(),
-    timestamp: float64(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<Tag, unknown>;
+const tag: z.ZodType<Tag> = z
+  .object({
+    name: z.string(),
+    timestamp: z.number(),
+  })
+  .passthrough();
 
 /** a tag for individual pages */
 export interface PageTag extends Tag {
@@ -91,21 +91,19 @@ export interface PageTag extends Tag {
   pageId: string;
 }
 
-const pageTag = properties(
-  {
-    name: string(),
-    pageId: string(),
-    timestamp: float64(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<PageTag, unknown>;
+const pageTag: z.ZodType<PageTag> = z
+  .object({
+    name: z.string(),
+    pageId: z.string(),
+    timestamp: z.number(),
+  })
+  .passthrough();
 
 /** all supported document orientations */
 export type Orientation = "portrait" | "landscape";
 
 /** all supported text alignments */
-export type TextAlignment = "justify" | "left";
+export type TextAlignment = "" | "justify" | "left";
 
 /** types of zoom modes for documents, applies primarily to pdf files */
 export type ZoomMode = "bestFit" | "customFit" | "fitToHeight" | "fitToWidth";
@@ -132,16 +130,14 @@ export interface DocumentMetadata {
   publisher?: string;
 }
 
-const documentMetadata = properties(
-  undefined,
-  {
-    authors: elements(string()),
-    title: string(),
-    publicationDate: string(),
-    publisher: string(),
-  },
-  true,
-) satisfies CompiledSchema<DocumentMetadata, unknown>;
+const documentMetadata: z.ZodType<DocumentMetadata> = z
+  .object({
+    authors: z.array(z.string()).optional(),
+    title: z.string().optional(),
+    publicationDate: z.string().optional(),
+    publisher: z.string().optional(),
+  })
+  .passthrough();
 
 /** [speculative] metadata stored about keyboard interactions */
 export interface KeyboardMetadata {
@@ -185,62 +181,35 @@ export interface CPagePage {
   deleted?: CPageNumberValue;
 }
 
-const cPagePage = properties(
-  {
-    id: string(),
-    idx: properties(
-      {
-        timestamp: string(),
-        value: string(),
-      },
-      undefined,
-      true,
-    ),
-  },
-  {
-    template: properties(
-      {
-        timestamp: string(),
-        value: string(),
-      },
-      undefined,
-      true,
-    ),
-    redir: properties(
-      {
-        timestamp: string(),
-        value: int32(),
-      },
-      undefined,
-      true,
-    ),
-    scrollTime: properties(
-      {
-        timestamp: string(),
-        value: timestamp(),
-      },
-      undefined,
-      true,
-    ),
-    verticalScroll: properties(
-      {
-        timestamp: string(),
-        value: float64(),
-      },
-      undefined,
-      true,
-    ),
-    deleted: properties(
-      {
-        timestamp: string(),
-        value: int32(),
-      },
-      undefined,
-      true,
-    ),
-  },
-  true,
-) satisfies CompiledSchema<CPagePage, unknown>;
+const cPagePage: z.ZodType<CPagePage> = z
+  .object({
+    id: z.string(),
+    idx: z.object({ timestamp: z.string(), value: z.string() }).passthrough(),
+    template: z
+      .object({ timestamp: z.string(), value: z.string() })
+      .passthrough()
+      .optional(),
+    redir: z
+      .object({ timestamp: z.string(), value: z.number().int() })
+      .passthrough()
+      .optional(),
+    scrollTime: z
+      .object({
+        timestamp: z.string(),
+        value: z.string().datetime({ offset: true }),
+      })
+      .passthrough()
+      .optional(),
+    verticalScroll: z
+      .object({ timestamp: z.string(), value: z.number() })
+      .passthrough()
+      .optional(),
+    deleted: z
+      .object({ timestamp: z.string(), value: z.number().int() })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
 
 /** [unknown] */
 export interface CPageUUID {
@@ -259,42 +228,27 @@ export interface CPages {
   /** [speculative] information about individual pages */
   pages: CPagePage[];
   /** [unknown] */
-  uuids: CPageUUID[];
+  uuids: CPageUUID[] | null;
 }
 
-const cPages = properties(
-  {
-    lastOpened: properties(
-      {
-        timestamp: string(),
-        value: string(),
-      },
-      undefined,
-      true,
-    ),
-    original: properties(
-      {
-        timestamp: string(),
-        value: int32(),
-      },
-      undefined,
-      true,
-    ),
-    pages: elements(cPagePage),
-    uuids: elements(
-      properties(
-        {
-          first: string(),
-          second: uint32(),
-        },
-        undefined,
-        true,
-      ),
-    ),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<CPages, unknown>;
+const cPages: z.ZodType<CPages> = z
+  .object({
+    lastOpened: z
+      .object({ timestamp: z.string(), value: z.string() })
+      .passthrough(),
+    original: z
+      .object({ timestamp: z.string(), value: z.number().int() })
+      .passthrough(),
+    pages: z.array(cPagePage),
+    uuids: z
+      .array(
+        z
+          .object({ first: z.string(), second: z.number().int().nonnegative() })
+          .passthrough(),
+      )
+      .nullable(),
+  })
+  .passthrough();
 
 /** the content metadata for collections (folders) */
 export interface CollectionContent {
@@ -305,9 +259,26 @@ export interface CollectionContent {
   fileType?: undefined;
 }
 
-const collectionContent = properties(undefined, {
-  tags: elements(tag),
-}) satisfies CompiledSchema<CollectionContent, unknown>;
+/** legacy collection content can store tags as raw strings */
+export interface LegacyCollectionContent {
+  /** the legacy tag names for the collection */
+  tags?: string[];
+
+  /** collections don't have a file type */
+  fileType?: undefined;
+}
+
+const collectionContent: z.ZodType<CollectionContent> = z
+  .object({
+    tags: z.array(tag).optional(),
+  })
+  .strict();
+
+const legacyCollectionContent: z.ZodType<LegacyCollectionContent> = z
+  .object({
+    tags: z.array(z.string()).optional(),
+  })
+  .strict();
 
 /**
  * content metadata, stored with the "content" extension
@@ -315,7 +286,8 @@ const collectionContent = properties(undefined, {
  * This largely contains description of how to render the document, rather than
  * metadata about it.
  */
-export interface DocumentContent {
+/** fields shared by current and legacy document content payloads */
+export interface CommonDocumentContent {
   /**
    * which page to use for the thumbnail
    *
@@ -367,14 +339,12 @@ export interface DocumentContent {
   pageCount: number;
   /** the page tags for the document */
   pageTags?: PageTag[];
-  /** a list of the ids of each page in the document */
-  pages?: string[];
+  /** a list of the ids of each page in the document, or null when never opened */
+  pages?: string[] | null;
   /** a mapping from page number to page id in pages */
   redirectionPageMap?: number[];
   /** ostensibly the size in bytes of the file, but this differs from other measurements */
-  sizeInBytes: string;
-  /** document tags for this document */
-  tags?: Tag[];
+  sizeInBytes?: string;
   /** text alignment for this document */
   textAlignment: TextAlignment;
   /**
@@ -419,7 +389,7 @@ export interface DocumentContent {
   /** what zoom mode is set for the page */
   zoomMode?: ZoomMode;
   /** [speculative] a transform matrix, a. la. css matrix transform */
-  transform?: Record<`m${"1" | "2" | "3"}${"1" | "2" | "3"}`, number>;
+  transform?: Partial<Record<`m${"1" | "2" | "3"}${"1" | "2" | "3"}`, number>>;
   /** [speculative] metadata about keyboard use */
   keyboardMetadata?: KeyboardMetadata;
   /** [speculative] various other page metadata */
@@ -433,66 +403,86 @@ export interface DocumentContent {
    */
   viewBackgroundFilter?: BackgroundFilter;
 }
-const documentContent = properties(
-  {
-    coverPageNumber: int32(),
-    documentMetadata,
-    extraMetadata: values(string()),
-    fileType: enumeration("epub", "notebook", "pdf"),
-    fontName: string(),
-    lineHeight: int32(),
-    orientation: enumeration("portrait", "landscape"),
-    pageCount: uint32(),
-    sizeInBytes: string(),
-    textAlignment: enumeration("justify", "left"),
-    textScale: float64(),
-  },
-  {
-    cPages,
-    customZoomCenterX: float64(),
-    customZoomCenterY: float64(),
-    customZoomOrientation: enumeration("portrait", "landscape"),
-    customZoomPageHeight: float64(),
-    customZoomPageWidth: float64(),
-    customZoomScale: float64(),
-    dummyDocument: boolean(),
-    formatVersion: uint8(),
-    keyboardMetadata: properties(
-      {
-        count: uint32(),
-        timestamp: float64(),
-      },
-      undefined,
-      true,
-    ),
-    lastOpenedPage: uint32(),
-    margins: uint32(),
-    originalPageCount: int32(),
-    pages: elements(string()),
-    pageTags: elements(pageTag),
-    redirectionPageMap: elements(int32()),
-    tags: elements(tag),
-    transform: properties(
-      {
-        m11: float64(),
-        m12: float64(),
-        m13: float64(),
-        m21: float64(),
-        m22: float64(),
-        m23: float64(),
-        m31: float64(),
-        m32: float64(),
-        m33: float64(),
-      },
-      undefined,
-      true,
-    ),
-    // eslint-disable-next-line spellcheck/spell-checker
-    viewBackgroundFilter: enumeration("off", "fullpage"),
-    zoomMode: enumeration("bestFit", "customFit", "fitToHeight", "fitToWidth"),
-  },
-  true,
-) satisfies CompiledSchema<DocumentContent, unknown>;
+
+/** document content with modern structured tag payloads */
+export interface DocumentContent extends CommonDocumentContent {
+  /** document tags for this document */
+  tags?: Tag[];
+}
+
+/** legacy document content can store tags as raw strings */
+export interface LegacyDocumentContent extends CommonDocumentContent {
+  /** the legacy tag names for this document */
+  tags?: string[];
+}
+
+const documentContentRequired = {
+  coverPageNumber: z.number().int(),
+  documentMetadata,
+  extraMetadata: z.record(z.string(), z.string()),
+  fileType: z.enum(["epub", "notebook", "pdf"]),
+  fontName: z.string(),
+  lineHeight: z.number().int(),
+  orientation: z.enum(["portrait", "landscape"]),
+  pageCount: z.number().int().nonnegative(),
+  textAlignment: z.enum(["", "justify", "left"]),
+  textScale: z.number(),
+};
+
+const documentContentOptional = {
+  cPages: cPages.optional(),
+  customZoomCenterX: z.number().optional(),
+  customZoomCenterY: z.number().optional(),
+  customZoomOrientation: z.enum(["portrait", "landscape"]).optional(),
+  customZoomPageHeight: z.number().optional(),
+  customZoomPageWidth: z.number().optional(),
+  customZoomScale: z.number().optional(),
+  dummyDocument: z.boolean().optional(),
+  formatVersion: z.number().int().nonnegative().optional(),
+  keyboardMetadata: z
+    .object({ count: z.number().int().nonnegative(), timestamp: z.number() })
+    .passthrough()
+    .optional(),
+  lastOpenedPage: z.number().int().optional(),
+  margins: z.number().int().nonnegative().optional(),
+  originalPageCount: z.number().int().optional(),
+  pages: z.array(z.string()).nullable().optional(),
+  pageTags: z.array(pageTag).optional(),
+  redirectionPageMap: z.array(z.number().int()).optional(),
+  sizeInBytes: z.string().optional(),
+  transform: z
+    .object({
+      m11: z.number().optional(),
+      m12: z.number().optional(),
+      m13: z.number().optional(),
+      m21: z.number().optional(),
+      m22: z.number().optional(),
+      m23: z.number().optional(),
+      m31: z.number().optional(),
+      m32: z.number().optional(),
+      m33: z.number().optional(),
+    })
+    .passthrough()
+    .optional(),
+  // eslint-disable-next-line spellcheck/spell-checker
+  viewBackgroundFilter: z.enum(["off", "fullpage"]).optional(),
+  zoomMode: z
+    .enum(["bestFit", "customFit", "fitToHeight", "fitToWidth"])
+    .optional(),
+};
+
+const commonDocumentContent = z
+  .object({ ...documentContentRequired, ...documentContentOptional })
+  .passthrough() satisfies z.ZodType<CommonDocumentContent>;
+
+const documentContent: z.ZodType<DocumentContent> = commonDocumentContent
+  .extend({ tags: z.array(tag).optional() })
+  .passthrough();
+
+const legacyDocumentContent: z.ZodType<LegacyDocumentContent> =
+  commonDocumentContent
+    .extend({ tags: z.array(z.string()).optional() })
+    .passthrough();
 
 /**
  * content metadata, stored with the "content" extension
@@ -530,26 +520,39 @@ export interface TemplateContent {
   items: object[];
 }
 
-const templateContent = properties(
-  {
-    name: string(),
-    author: string(),
-    iconData: string(),
-    categories: elements(string()),
-    labels: elements(string()),
-    orientation: enumeration("portrait", "landscape"),
-    templateVersion: string(),
-    supportedScreens: elements(enumeration("rm2", "rmPP")),
-    constants: elements(values(int32())),
-    items: elements(empty() as CompiledSchema<object, unknown>),
-  },
-  {
-    formatVersion: uint8(),
-  },
-) satisfies CompiledSchema<TemplateContent, unknown>;
+const templateContent: z.ZodType<TemplateContent> = z
+  .object({
+    name: z.string(),
+    author: z.string(),
+    iconData: z.string(),
+    categories: z.array(z.string()),
+    labels: z.array(z.string()),
+    orientation: z.enum(["portrait", "landscape"]),
+    templateVersion: z.string(),
+    supportedScreens: z.array(z.enum(["rm2", "rmPP"])),
+    constants: z.array(z.record(z.string(), z.number().int())),
+    items: z.array(z.unknown() as unknown as z.ZodType<object>),
+    formatVersion: z.number().int().nonnegative().optional(),
+  })
+  .strict();
 
 /** content metadata for any item */
-export type Content = CollectionContent | DocumentContent | TemplateContent;
+export type Content =
+  | CollectionContent
+  | LegacyCollectionContent
+  | DocumentContent
+  | LegacyDocumentContent
+  | TemplateContent;
+
+// content payloads aren't discriminable (legacy/modern differ only by tags
+// element type), so this is an ordered union: the first matching variant wins
+const content: z.ZodType<Content> = z.union([
+  collectionContent,
+  legacyCollectionContent,
+  templateContent,
+  documentContent,
+  legacyDocumentContent,
+]);
 
 /**
  * item level metadata
@@ -603,60 +606,69 @@ export interface Metadata {
   visibleName: string;
 }
 
-const metadata = properties(
-  {
-    lastModified: string(),
-    parent: string(),
-    pinned: boolean(),
-    type: enumeration("DocumentType", "CollectionType", "TemplateType"),
-    visibleName: string(),
-  },
-  {
-    lastOpened: string(),
-    lastOpenedPage: uint32(),
-    createdTime: string(),
-    deleted: boolean(),
-    metadatamodified: boolean(),
-    modified: boolean(),
-    synced: boolean(),
-    version: uint8(),
-  },
-  true,
-) satisfies CompiledSchema<Metadata, unknown>;
+const metadata: z.ZodType<Metadata> = z
+  .object({
+    lastModified: z.string(),
+    parent: z.string(),
+    pinned: z.boolean(),
+    type: z.enum(["DocumentType", "CollectionType", "TemplateType"]),
+    visibleName: z.string(),
+    lastOpened: z.string().optional(),
+    lastOpenedPage: z.number().int().optional(),
+    createdTime: z.string().optional(),
+    deleted: z.boolean().optional(),
+    metadatamodified: z.boolean().optional(),
+    modified: z.boolean().optional(),
+    synced: z.boolean().optional(),
+    version: z.number().int().nonnegative().optional(),
+    new: z.boolean().optional(),
+    source: z.string().optional(),
+  })
+  .passthrough();
 
 interface UpdatedRootHash {
   hash: string;
   generation: number;
 }
 
-const updatedRootHash = properties(
-  {
-    hash: string(),
-    generation: float64(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<UpdatedRootHash, unknown>;
+const updatedRootHash: z.ZodType<UpdatedRootHash> = z
+  .object({
+    hash: z.string(),
+    generation: z.number(),
+  })
+  .passthrough();
 
 interface RootHash extends UpdatedRootHash {
   schemaVersion: number;
 }
 
-const rootHash = properties(
-  {
-    hash: string(),
-    generation: float64(),
-    schemaVersion: uint8(),
-  },
-  undefined,
-  true,
-) satisfies CompiledSchema<RootHash, unknown>;
+const rootHash: z.ZodType<RootHash> = z
+  .object({
+    hash: z.string(),
+    generation: z.number(),
+    schemaVersion: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+interface NativeSimpleEntry {
+  docID: string;
+  hash: string;
+}
+
+const nativeSimpleEntry: z.ZodType<NativeSimpleEntry> = z
+  .object({
+    docID: z.string(),
+    hash: z.string(),
+  })
+  .passthrough();
 
 async function digest(buff: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", buff);
-  return [...new Uint8Array(digest)]
-    .map((x) => x.toString(16).padStart(2, "0"))
-    .join("");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    // NOTE this is type hinted wrong, but it does work correctly on a uint8 view
+    buff as unknown as ArrayBuffer,
+  );
+  return new Uint8Array(digest).toHex();
 }
 
 /**
@@ -727,15 +739,18 @@ export interface RawRemarkableApi {
    *
    * @returns the root hash and the current generation
    */
-  getRootHash(): Promise<[string, number]>;
+  getRootHash(): Promise<[string, number, SchemaVersion]>;
 
   /**
    * get the raw binary data associated with a hash
    *
+   * @param fileName - the logical file name (`<id>.<ext>` for files, or
+   *   `<id>.docSchema` / `"root.docSchema"` for entry indexes). reMarkable
+   *   validates this against the rm-filename header.
    * @param hash - the hash to get the data for
    * @returns the data
    */
-  getHash(hash: string): Promise<Uint8Array>;
+  getHash(fileName: string, hash: string): Promise<Uint8Array>;
 
   /**
    * get raw text data associated with a hash
@@ -743,10 +758,11 @@ export interface RawRemarkableApi {
    * We assume text data are small, and so cache the entire text. If you want to
    * avoid this, use {@link getHash | `getHash`} combined with a TextDecoder.
 
+   * @param fileName - the logical file name (see {@link getHash})
    * @param hash - the hash to get text for
    * @returns the text
    */
-  getText(hash: string): Promise<string>;
+  getText(fileName: string, hash: string): Promise<string>;
 
   /**
    * get the entries associated with a list hash
@@ -754,10 +770,12 @@ export interface RawRemarkableApi {
    * A list hash is the root hash, or any hash with the type 80000000. NOTE
    * these are hashed differently than files.
 
+   * @param fileName - `"root.docSchema"` for the root, or `"<id>.docSchema"`
+   *   for a sub-document's entry index
    * @param hash - the hash to get entries for
    * @returns the entries
    */
-  getEntries(hash: string): Promise<RawEntry[]>;
+  getEntries(fileName: string, hash: string): Promise<Entries>;
 
   /**
    * get the parsed and validated `Content` of a content hash
@@ -765,10 +783,11 @@ export interface RawRemarkableApi {
    * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
    * validation
 
+   * @param fileName - typically `"<id>.content"`
    * @param hash - the hash to get Content for
    * @returns the content
    */
-  getContent(hash: string): Promise<Content>;
+  getContent(fileName: string, hash: string): Promise<Content>;
 
   /**
    * get the parsed and validated `Metadata` of a metadata hash
@@ -776,10 +795,11 @@ export interface RawRemarkableApi {
    * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
    * validation
 
+   * @param fileName - typically `"<id>.metadata"`
    * @param hash - the hash to get Metadata for
    * @returns the metadata
    */
-  getMetadata(hash: string): Promise<Metadata>;
+  getMetadata(fileName: string, hash: string): Promise<Metadata>;
 
   /**
    * update the current root hash
@@ -820,25 +840,19 @@ export interface RawRemarkableApi {
    * @param bytes - the bytes to upload
    * @returns the new entry and a promise to finish the upload
    */
-  putFile(
-    id: string,
-    bytes: Uint8Array,
-  ): Promise<[RawFileEntry, Promise<void>]>;
+  putFile(id: string, bytes: Uint8Array): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putFile | `putFile`} but with caching for text */
-  putText(id: string, content: string): Promise<[RawFileEntry, Promise<void>]>;
+  putText(id: string, content: string): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putText | `putText`} but with extra validation for Content */
-  putContent(
-    id: string,
-    content: Content,
-  ): Promise<[RawFileEntry, Promise<void>]>;
+  putContent(id: string, content: Content): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putText | `putText`} but with extra validation for Metadata */
   putMetadata(
     id: string,
     metadata: Metadata,
-  ): Promise<[RawFileEntry, Promise<void>]>;
+  ): Promise<[RawEntry, Promise<void>]>;
 
   /**
    * create a list hash from a set of entries
@@ -855,15 +869,41 @@ export interface RawRemarkableApi {
    * 3. append this entry to the root entry and call this again to update this root list
    * 4. put the new root hash
    *
+   * NOTE: reMarkable currently rejects newly written schema 3 root indexes
+   * with a 400 "Software must be updated" error, even for accounts that still
+   * report schema 3, so the root list should always be written as schema 4. A
+   * warning is logged if a schema 3 root index is written.
+   *
    * @param id - the id of the list to upload - this should be the item id if
    *   uploading an item list, or "root" if uploading a new root list.
    * @param entries - the entries to upload
+   *
    * @returns the new list entry and a promise to finish the upload
    */
   putEntries(
     id: string,
     entries: RawEntry[],
-  ): Promise<[RawListEntry, Promise<void>]>;
+    schemaVersion: SchemaVersion,
+  ): Promise<[RawEntry, Promise<void>]>;
+
+  /**
+   * upload a file to the reMarkable cloud using the simple api
+   *
+   * This api is the same as used by the native reMarkable extension and works
+   * even if the backend schema version is version 4. Setting mime to "folder"
+   * allows folder creation.
+   *
+   * @param visibleName - the name of the file as it should appear on the reMarkable
+   * @param bytes - the bytes of the file to upload
+   * @param mime - the mime type of the file to upload
+   
+   * @returns a simple entry with the id and hash of the uploaded file
+   */
+  uploadFile(
+    visibleName: string,
+    bytes: Uint8Array,
+    mime: UploadMimeType,
+  ): Promise<SimpleEntry>;
 
   /**
    * dump the current cache to a string to preserve between session
@@ -876,17 +916,39 @@ export interface RawRemarkableApi {
   clearCache(): void;
 }
 
-interface AuthedFetch {
-  (
-    method: RequestMethod,
-    url: string,
-    init?: { body?: string | Uint8Array; headers?: Record<string, string> },
-  ): Promise<Response>;
+type AuthedFetch = (
+  method: RequestMethod,
+  url: string,
+  init?: { body?: string | Uint8Array; headers?: Record<string, string> },
+) => Promise<Response>;
+
+function parseRawEntryLine(line: string): RawEntry {
+  const [hash, type, id, subfiles, size] = line.split(":");
+  if (
+    hash === undefined ||
+    type === undefined ||
+    id === undefined ||
+    subfiles === undefined ||
+    size === undefined
+  ) {
+    throw new Error(`line '${line}' was not formatted correctly`);
+  } else if (type === "80000000" || type === "0") {
+    return {
+      hash,
+      type: type === "0" ? 0 : 80000000,
+      id,
+      subfiles: parseInt(subfiles, 10),
+      size: parseInt(size, 10),
+    };
+  } else {
+    throw new Error(`line '${line}' was not formatted correctly`);
+  }
 }
 
 export class RawRemarkable implements RawRemarkableApi {
   readonly #authedFetch: AuthedFetch;
   readonly #rawHost: string;
+  readonly #uploadHost: string;
   /**
    * a cache of all hashes we know exist
    *
@@ -902,50 +964,52 @@ export class RawRemarkable implements RawRemarkableApi {
     authedFetch: AuthedFetch,
     cache: Map<string, string | null>,
     rawHost: string,
+    uploadHost: string,
   ) {
     this.#authedFetch = authedFetch;
     this.#cache = cache;
     this.#rawHost = rawHost;
+    this.#uploadHost = uploadHost;
   }
   /** make an authorized request to remarkable */
 
-  async getRootHash(): Promise<[string, number]> {
+  async getRootHash(): Promise<[string, number, SchemaVersion]> {
     const res = await this.#authedFetch("GET", `${this.#rawHost}/sync/v4/root`);
     const raw = await res.text();
     const loaded = JSON.parse(raw) as unknown;
-    if (!rootHash.guardAssert(loaded)) throw Error("invalid root hash");
-    const { hash, generation, schemaVersion } = loaded;
-    if (schemaVersion !== 3) {
+    const { hash, generation, schemaVersion } = rootHash.parse(loaded);
+    if (schemaVersion !== 3 && schemaVersion !== 4) {
       throw new Error(`schema version ${schemaVersion} not supported`);
     } else if (!Number.isSafeInteger(generation)) {
       throw new Error(
         `generation ${generation} was not a safe integer; please file a bug report`,
       );
     } else {
-      return [hash, generation];
+      return [hash, generation, schemaVersion];
     }
   }
 
-  async #getHash(hash: string): Promise<Uint8Array> {
+  async #getHash(fileName: string, hash: string): Promise<Uint8Array> {
     if (!hashReg.test(hash)) {
       throw new ValidationError(hash, hashReg, "hash was not a valid hash");
     }
     const resp = await this.#authedFetch(
       "GET",
       `${this.#rawHost}/sync/v3/files/${hash}`,
+      { headers: { "rm-filename": fileName } },
     );
     // TODO switch to `.bytes()`.
     const raw = await resp.arrayBuffer();
     return new Uint8Array(raw);
   }
 
-  async getHash(hash: string): Promise<Uint8Array> {
+  async getHash(fileName: string, hash: string): Promise<Uint8Array> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
       const enc = new TextEncoder();
       return enc.encode(cached);
     } else {
-      const res = await this.#getHash(hash);
+      const res = await this.#getHash(fileName, hash);
       // mark that we know hash exists
       const cacheVal = this.#cache.get(hash);
       if (cacheVal === undefined) {
@@ -955,13 +1019,13 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getText(hash: string): Promise<string> {
+  async getText(fileName: string, hash: string): Promise<string> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
       return cached;
     } else {
       // NOTE two simultaneous requests will fetch twice
-      const raw = await this.#getHash(hash);
+      const raw = await this.#getHash(fileName, hash);
       const dec = new TextDecoder();
       const res = dec.decode(raw);
       this.#cache.set(hash, res);
@@ -969,73 +1033,48 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getEntries(hash: string): Promise<RawEntry[]> {
-    const rawFile = await this.getText(hash);
+  async getEntries(fileName: string, hash: string): Promise<Entries> {
+    const rawFile = await this.getText(fileName, hash);
     const [version, ...rest] = rawFile.slice(0, -1).split("\n");
-    if (version != "3") {
-      throw new Error(`schema version ${version} not supported`);
-    } else {
-      return rest.map((line) => {
-        const [hash, type, id, subfiles, size] = line.split(":");
-        if (
-          hash === undefined ||
-          type === undefined ||
-          id === undefined ||
-          subfiles === undefined ||
-          size === undefined
-        ) {
-          throw new Error(`line '${line}' was not formatted correctly`);
-        } else if (type === "80000000") {
-          return {
-            hash,
-            type: 80000000,
-            id,
-            subfiles: parseInt(subfiles),
-            size: parseInt(size),
-          };
-        } else if (type === "0" && subfiles === "0") {
-          return {
-            hash,
-            type: 0,
-            id,
-            subfiles: 0,
-            size: parseInt(size),
-          };
-        } else {
-          throw new Error(`line '${line}' was not formatted correctly`);
-        }
-      });
-    }
-  }
-
-  async getContent(hash: string): Promise<Content> {
-    const raw = await this.getText(hash);
-    const loaded = JSON.parse(raw) as unknown;
-
-    // jtd can't verify non-discriminated unions, in this case, we have fileType
-    // defined or not. As a result, we try each, and concatenate the errors at the end
-    const errors: string[] = [];
-    for (const [name, valid] of [
-      ["collection", collectionContent],
-      ["template", templateContent],
-      ["document", documentContent],
-    ] as const) {
-      try {
-        if (valid.guardAssert(loaded)) return loaded;
-      } catch (ex) {
-        const msg = ex instanceof Error ? ex.message : "unknown error type";
-        errors.push(`Couldn't validate as ${name} because:\n${msg}`);
+    if (version === "3") {
+      return { entries: rest.map(parseRawEntryLine) };
+    } else if (version === "4") {
+      const [info, ...remaining] = rest;
+      if (!info) throw new Error("missing info line for schema version 4");
+      const [lead, id, count, size] = info.split(":");
+      if (
+        lead !== "0" ||
+        id === undefined ||
+        count === undefined ||
+        size === undefined
+      ) {
+        throw new Error(
+          `schema 4 info line '${info}' was not formatted correctly`,
+        );
       }
+      const entries = remaining.map(parseRawEntryLine);
+      if (parseInt(count, 10) !== entries.length) {
+        throw new Error(
+          `schema 4 expected ${count} entries, but found ${entries.length}`,
+        );
+      } else {
+        return { entries, id, size: parseInt(size, 10) };
+      }
+    } else {
+      throw new Error(`schema version ${version} not supported`);
     }
-    const joined = errors.join("\n\nor\n\n");
-    throw new Error(`invalid content: ${joined}`);
   }
 
-  async getMetadata(hash: string): Promise<Metadata> {
-    const raw = await this.getText(hash);
+  async getContent(fileName: string, hash: string): Promise<Content> {
+    const raw = await this.getText(fileName, hash);
     const loaded = JSON.parse(raw) as unknown;
-    if (!metadata.guardAssert(loaded)) throw Error("invalid metadata");
-    return loaded;
+    return content.parse(loaded);
+  }
+
+  async getMetadata(fileName: string, hash: string): Promise<Metadata> {
+    const raw = await this.getText(fileName, hash);
+    const loaded = JSON.parse(raw) as unknown;
+    return metadata.parse(loaded);
   }
 
   async putRootHash(
@@ -1060,8 +1099,7 @@ export class RawRemarkable implements RawRemarkableApi {
     );
     const raw = await resp.text();
     const loaded = JSON.parse(raw) as unknown;
-    if (!updatedRootHash.guardAssert(loaded)) throw Error("invalid root hash");
-    const { hash: newHash, generation: newGen } = loaded;
+    const { hash: newHash, generation: newGen } = updatedRootHash.parse(loaded);
     if (Number.isSafeInteger(newGen)) {
       return [newHash, newGen];
     } else {
@@ -1072,8 +1110,8 @@ export class RawRemarkable implements RawRemarkableApi {
   }
 
   async #putFile(
-    hash: string,
     fileName: string,
+    hash: string,
     bytes: Uint8Array,
   ): Promise<void> {
     // if the hash is already in the cache, writing is pointless
@@ -1081,7 +1119,7 @@ export class RawRemarkable implements RawRemarkableApi {
       const crc = CRC32C.buf(bytes, 0);
       const buff = new ArrayBuffer(4);
       new DataView(buff).setInt32(0, crc, false);
-      const crcHash = fromByteArray(new Uint8Array(buff));
+      const crcHash = new Uint8Array(buff).toBase64();
       await this.#authedFetch("PUT", `${this.#rawHost}/sync/v3/files/${hash}`, {
         body: bytes,
         headers: {
@@ -1101,22 +1139,19 @@ export class RawRemarkable implements RawRemarkableApi {
   async putFile(
     id: string,
     bytes: Uint8Array,
-  ): Promise<[RawFileEntry, Promise<void>]> {
+  ): Promise<[RawEntry, Promise<void>]> {
     const hash = await digest(bytes);
-    const res: RawFileEntry = {
+    const res: RawEntry = {
       id,
       hash,
       type: 0,
       subfiles: 0,
       size: bytes.length,
     };
-    return [res, this.#putFile(hash, id, bytes)];
+    return [res, this.#putFile(id, hash, bytes)];
   }
 
-  async putText(
-    id: string,
-    text: string,
-  ): Promise<[RawFileEntry, Promise<void>]> {
+  async putText(id: string, text: string): Promise<[RawEntry, Promise<void>]> {
     const enc = new TextEncoder();
     const bytes = enc.encode(text);
     const [ent, upload] = await this.putFile(id, bytes);
@@ -1132,7 +1167,7 @@ export class RawRemarkable implements RawRemarkableApi {
   async putContent(
     id: string,
     content: Content,
-  ): Promise<[RawFileEntry, Promise<void>]> {
+  ): Promise<[RawEntry, Promise<void>]> {
     if (!id.endsWith(".content")) {
       throw new Error(`id ${id} did not end with '.content'`);
     } else {
@@ -1143,7 +1178,7 @@ export class RawRemarkable implements RawRemarkableApi {
   async putMetadata(
     id: string,
     metadata: Metadata,
-  ): Promise<[RawFileEntry, Promise<void>]> {
+  ): Promise<[RawEntry, Promise<void>]> {
     if (!id.endsWith(".metadata")) {
       throw new Error(`id ${id} did not end with '.metadata'`);
     } else {
@@ -1162,34 +1197,80 @@ export class RawRemarkable implements RawRemarkableApi {
   async putEntries(
     id: string,
     entries: RawEntry[],
-  ): Promise<[RawListEntry, Promise<void>]> {
-    // NOTE collections have a special hash function, the hash of their
+    schemaVersion: SchemaVersion,
+  ): Promise<[RawEntry, Promise<void>]> {
+    if (id === "root" && schemaVersion === 3) {
+      console.warn(
+        'writing a schema 3 root index, which reMarkable rejects with a 400 "Software must be updated" error; write the root index with schema version 4 instead',
+      );
+    }
+    // NOTE v3 collections have a special hash function, the hash of their
     // contents, so this needs to be different
     entries.sort((a, b) => a.id.localeCompare(b.id));
-    const hashBuff = new Uint8Array(entries.length * 32);
-    for (const [start, { hash }] of entries.entries()) {
-      for (const [i, byte] of (hash.match(/../g) ?? []).entries()) {
-        hashBuff[start * 32 + i] = parseInt(byte, 16);
-      }
-    }
-    const hash = await digest(hashBuff);
     const size = entries.reduce((acc, ent) => acc + ent.size, 0);
 
-    const listHash = this.makeListHash(entries);
-    
-    const res: RawListEntry = {
+    const records = [`${schemaVersion}\n`];
+    if (schemaVersion === 4) {
+      const name = id === "root" ? "." : id;
+      records.push(`0:${name}:${entries.length}:${size}\n`);
+    }
+    for (const { hash, type, id, subfiles, size } of entries) {
+      const lineType = schemaVersion === 4 ? 0 : type;
+      records.push(`${hash}:${lineType}:${id}:${subfiles}:${size}\n`);
+    }
+    const enc = new TextEncoder();
+    const entryBuff = enc.encode(records.join(""));
+
+    let hash: string;
+    if (schemaVersion === 3) {
+      // in schema version 3 an entry's hash is the hash of the concatenated hashes
+      const hashBuffs: Uint8Array[] = [];
+      for (const { hash } of entries) {
+        hashBuffs.push(Uint8Array.fromHex(hash));
+      }
+      hash = await digest(concatArrays(hashBuffs));
+    } else if (schemaVersion === 4) {
+      // in schema version 4 an entry's hash is the hash of the full entry file, same as everything else
+      hash = await digest(entryBuff);
+    } else {
+      throw new Error(`unsupported schema version ${schemaVersion as number}`);
+    }
+
+    const res: RawEntry = {
       id,
       hash,
-      type: 80000000,
+      type: schemaVersion > 3 ? 0 : 80000000,
       subfiles: entries.length,
       size,
     };
+    return [res, this.#putFile(`${id}.docSchema`, hash, entryBuff)];
+  }
+
+  async uploadFile(
+    visibleName: string,
+    bytes: Uint8Array,
+    mime: UploadMimeType,
+  ): Promise<SimpleEntry> {
     const enc = new TextEncoder();
-    return [
-      res,
-      // NOTE when monitoring requests, this had the extension .docSchema appended, but I'm not entirely sure why
-      this.#putFile(hash, `${id}.docSchema`, enc.encode(listHash)),
-    ];
+
+    const meta = enc
+      .encode(JSON.stringify({ file_name: visibleName }))
+      .toBase64();
+    const resp = await this.#authedFetch(
+      "POST",
+      `${this.#uploadHost}/doc/v2/files`,
+      {
+        body: bytes,
+        headers: {
+          "Content-Type": mime,
+          "rm-meta": meta,
+          "rm-source": "RoR-Browser",
+        },
+      },
+    );
+    const loaded = (await resp.json()) as unknown;
+    const { docID, hash } = nativeSimpleEntry.parse(loaded);
+    return { id: docID, hash };
   }
 
   dumpCache(): string {
