@@ -855,12 +855,6 @@ export interface RawRemarkableApi {
   ): Promise<[RawEntry, Promise<void>]>;
 
   /**
-   * create a list hash from a set of entries
-   * @param entries - the entries to hash
-   */
-  makeListHash(entries: RawEntry[]): string;
-
-  /**
    * put a set of entries to make an entry list file
    *
    * To fully upload an item:
@@ -1184,14 +1178,6 @@ export class RawRemarkable implements RawRemarkableApi {
     } else {
       return await this.putText(id, JSON.stringify(metadata));
     }
-  }
-
-  makeListHash(entries: RawEntry[]): string {
-    const records = ["3\n"];
-    for (const { hash, type, id, subfiles, size } of entries) {
-      records.push(`${hash}:${type}:${id}:${subfiles}:${size}\n`);
-    }
-    return records.join("");
   }
 
   async putEntries(

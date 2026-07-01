@@ -644,7 +644,7 @@ export interface RemarkableApi {
    * ```
    * @param hash - the hash of the entry to delete
    */
-  purge(hash: string, refresh?: boolean): Promise<void>;
+  purge(hash: string, refresh?: boolean): Promise<HashEntry>;
 
   /**
    * rename an entry
@@ -719,7 +719,7 @@ export interface RemarkableApi {
   bulkPurge(
     hashes: readonly string[],
     refresh?: boolean,
-  ): Promise<[SimpleEntry[], string]>;
+  ): Promise<HashesEntry>;
 
   /**
    * get the current cache value as a string
@@ -1372,8 +1372,14 @@ class Remarkable implements RemarkableApi {
   }
   
   /** permanently delete an entry */
-  async purge(hash: string, refresh: boolean = false): Promise<void> {
-    await this.bulkPurge([hash], refresh);
+  async purge(hash: string, refresh: boolean = false): Promise<HashEntry> {
+    const {
+      hashes: { [hash]: purgedHash },
+    } = await this.bulkPurge([hash], refresh);
+    if (purgedHash === undefined) {
+      throw new HashNotFoundError(hash);
+    }
+    return { hash: purgedHash };
   }
 
   /** rename an entry */
@@ -1456,20 +1462,39 @@ class Remarkable implements RemarkableApi {
   async bulkPurge(
     hashes: readonly string[],
     refresh: boolean = false,
-  ): Promise<[SimpleEntry[], string]> {
-    const [rootHash, generation] = await this.#getRootHash(refresh);
-    // Get the raw text of the root entry
-    const entries = await this.raw.getEntries(rootHash)
-    const newEntries = entries.filter(
-      (entry) => !hashes.includes(entry.hash));
-    // If we didn't delete anything, just return the current root
-    if (newEntries.length < entries.length) {
-      const hash = this.raw.makeListHash(newEntries);
-      await this.#putRootHash(hash, generation);
-      return [newEntries, hash];
+  ): Promise<HashesEntry> {
+    if (hashes.length === 0) {
+      return { hashes: {} };
     }
-    return [newEntries, rootHash];
 
+    const [rootHash, generation] = await this.#getRootHash(refresh);
+    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
+
+    const hashSet = new Set(hashes);
+    const removed: RawEntry[] = [];
+    const newEntries: RawEntry[] = [];
+    for (const entry of entries) {
+      const part = hashSet.has(entry.hash) ? removed : newEntries;
+      part.push(entry);
+    }
+
+    if (removed.length === 0) {
+      return { hashes: {} };
+    }
+
+    const [rootEntry, uploadRoot] = await this.raw.putEntries(
+      "root",
+      newEntries,
+      4,
+    );
+    await uploadRoot;
+    await this.#putRootHash(rootEntry.hash, generation);
+
+    const result: Record<string, string> = {};
+    for (const entry of removed) {
+      result[entry.hash] = entry.hash;
+    }
+    return { hashes: result };
   }
 
   /** dump the raw cache */

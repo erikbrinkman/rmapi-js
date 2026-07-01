@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+-   high-level `purge` and `bulkPurge` APIs for permanent deletion from reMarkable cloud/device sync.
+
 ## [10.1.1] - 2026-06-16
 
 ### Changed
