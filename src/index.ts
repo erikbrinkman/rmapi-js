@@ -1470,19 +1470,20 @@ class Remarkable implements RemarkableApi {
     const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
 
     const hashSet = new Set(hashes);
-    const removed: RawEntry[] = [];
     const newEntries: RawEntry[] = [];
+    let noneRemoved = true;
+
     for (const entry of entries) {
-      const part = hashSet.has(entry.hash) ? removed : newEntries;
-      part.push(entry);
+      if (hashSet.has(entry.hash)) {
+        result[entry.hash] = true;
+        noneRemoved = false;
+      } else {
+        newEntries.push(entry);
+      }
     }
 
-    if (removed.length === 0) {
+    if (noneRemoved) {
       return result;
-    }
-
-    for (const entry of removed) {
-      result[entry.hash] = true;
     }
 
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
