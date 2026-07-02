@@ -890,6 +890,48 @@ ${epubHash}:0:doc.epub:0:1
     expect(res.hash).toHaveLength(64);
   });
 
+  test("#purge()", async () => {
+    const purgeHash = repHash("1");
+
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(`3\n${purgeHash}:80000000:fake_id:2:123\n`), // root entries
+      emptyResponse(), // put root entries
+      jsonResponse({
+        hash: repHash("2"),
+        generation: 1,
+      }), // root hash
+    );
+
+    const api = await remarkable("");
+    const res = await api.purge(purgeHash);
+
+    expect(res).toBeTrue();
+  });
+
+  test("#purge() failure", async () => {
+    const purgeHash = repHash("1");
+
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse("3\n"), // root entries
+    );
+
+    const api = await remarkable("");
+    const res = await api.purge(purgeHash);
+    expect(res).toBeFalse();
+  });
+
   test("#rename()", async () => {
     const moveHash = repHash("1");
     const oldMeta: Metadata = {
@@ -999,6 +1041,149 @@ ${epubHash}:0:doc.epub:0:1
     const res = await api.bulkDelete([moveHash]);
 
     expect(moveHash in res.hashes).toBeTrue();
+  });
+
+  test("#bulkPurge()", async () => {
+    const purgeHash = repHash("1");
+
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(
+        `3\n${purgeHash}:80000000:fake_id:2:123\n${repHash("2")}:80000000:other_id:2:123\n`,
+      ), // root entries
+      emptyResponse(), // put root entries
+      jsonResponse({
+        hash: repHash("3"),
+        generation: 1,
+      }), // root hash
+    );
+
+    const api = await remarkable("");
+    const res = await api.bulkPurge([purgeHash, repHash("9")]);
+
+    expect(res[purgeHash]).toBeTrue();
+    expect(res[repHash("9")]).toBeFalse();
+  });
+
+  test("#bulkPurge() no-op", async () => {
+    const purgeHash = repHash("1");
+
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(`3\n${repHash("2")}:80000000:fake_id:2:123\n`), // root entries
+    );
+
+    const api = await remarkable("");
+    const res = await api.bulkPurge([purgeHash]);
+
+    expect(res).toEqual({ [purgeHash]: false });
+  });
+
+  test("#bulkPurge() empty hashes", async () => {
+    const fetch = mockFetch(emptyResponse());
+
+    const api = await remarkable("");
+    const res = await api.bulkPurge([]);
+
+    expect(res).toEqual({});
+    expect(fetch.mock.calls).toHaveLength(1);
+  });
+
+  test("#bulkPurge() duplicate hashes", async () => {
+    const purgeHash = repHash("1");
+
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(
+        `3\n${purgeHash}:80000000:fake_id:2:123\n${repHash("2")}:80000000:other_id:2:123\n`,
+      ), // root entries
+      emptyResponse(), // put root entries
+      jsonResponse({
+        hash: repHash("3"),
+        generation: 1,
+      }), // root hash
+    );
+
+    const api = await remarkable("");
+    const res = await api.bulkPurge([purgeHash, purgeHash]);
+
+    expect(res[purgeHash]).toBeTrue();
+    expect(Object.keys(res)).toHaveLength(1);
+  });
+
+  test("#bulkPurge() request flow matches desktop app", async () => {
+    const purgeHash = repHash("1");
+    const keepHash = repHash("2");
+    const fetch = mockFetch(
+      emptyResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 1782941553864917,
+        schemaVersion: 4,
+      }), // root hash
+      textResponse(
+        `4\n0:.:2:246\n${purgeHash}:0:doc-a:2:123\n${keepHash}:0:doc-b:2:123\n`,
+      ), // root entries
+      emptyResponse(), // put root.docSchema
+      jsonResponse({
+        hash: repHash("3"),
+        generation: 1782941580110417,
+      }), // put root hash response
+    );
+
+    const api = await remarkable("");
+    await api.bulkPurge([purgeHash]);
+
+    expect(fetch.mock.calls).toHaveLength(5);
+    const syncCalls = fetch.mock.calls.slice(1);
+    expect(syncCalls).toHaveLength(4);
+
+    const [getRoot, getRootEntries, putRootEntries, putRootHash] = syncCalls;
+
+    expect(getRoot?.[1]?.method).toBe("GET");
+    expect(getRoot?.[0]).toContain("/sync/v4/root");
+
+    expect(getRootEntries?.[1]?.method).toBe("GET");
+    expect(getRootEntries?.[0]).toContain("/sync/v3/files/");
+    expect(new Headers(getRootEntries?.[1]?.headers).get("rm-filename")).toBe(
+      "root.docSchema",
+    );
+
+    expect(putRootEntries?.[1]?.method).toBe("PUT");
+    expect(putRootEntries?.[0]).toContain("/sync/v3/files/");
+    expect(new Headers(putRootEntries?.[1]?.headers).get("rm-filename")).toBe(
+      "root.docSchema",
+    );
+
+    expect(putRootHash?.[1]?.method).toBe("PUT");
+    expect(putRootHash?.[0]).toContain("/sync/v3/root");
+    const rootReqBody = JSON.parse(
+      (putRootHash?.[1]?.body as string | undefined) ?? "{}",
+    ) as { hash?: string; generation?: number; broadcast?: boolean };
+
+    const rootEntriesUrl = String(putRootEntries?.[0]);
+    const rootEntriesHash = /\/sync\/v3\/files\/([0-9a-f]{64})$/u.exec(
+      rootEntriesUrl,
+    )?.[1];
+    expect(rootEntriesHash).toBeDefined();
+    expect(rootReqBody.hash).toBe(rootEntriesHash);
+    expect(rootReqBody.generation).toBe(1782941553864917);
+    expect(rootReqBody.broadcast).toBeTrue();
   });
 
   test("#pruneCache()", async () => {

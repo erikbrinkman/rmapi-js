@@ -635,6 +635,17 @@ export interface RemarkableApi {
   delete(hash: string, refresh?: boolean): Promise<HashEntry>;
 
   /**
+   * permanently delete an entry from all devices connected to the account
+   *
+   * @example
+   * ```ts
+   * await api.purge(file.hash);
+   * ```
+   * @param hash - the hash of the entry to delete
+   */
+  purge(hash: string, refresh?: boolean): Promise<boolean>;
+
+  /**
    * rename an entry
    *
    * @example
@@ -693,6 +704,21 @@ export interface RemarkableApi {
     hashes: readonly string[],
     refresh?: boolean,
   ): Promise<HashesEntry>;
+
+  /**
+   * delete many entries permanently from all devices connected to the account
+   *
+   * @example
+   * ```ts
+   * await api.bulkPurge([file.hash]);
+   * ```
+   *
+   * @param hashes - the hashes of the entries to delete
+   */
+  bulkPurge(
+    hashes: readonly string[],
+    refresh?: boolean,
+  ): Promise<Record<string, boolean>>;
 
   /**
    * get the current cache value as a string
@@ -1344,6 +1370,12 @@ class Remarkable implements RemarkableApi {
     return await this.move(hash, "trash", refresh);
   }
 
+  /** permanently delete an entry */
+  async purge(hash: string, refresh: boolean = false): Promise<boolean> {
+    const purged = await this.bulkPurge([hash], refresh);
+    return purged[hash] ?? false;
+  }
+
   /** rename an entry */
   async rename(
     hash: string,
@@ -1418,6 +1450,50 @@ class Remarkable implements RemarkableApi {
     refresh: boolean = false,
   ): Promise<HashesEntry> {
     return await this.bulkMove(hashes, "trash", refresh);
+  }
+
+  /** permanent delete many hashes */
+  async bulkPurge(
+    hashes: readonly string[],
+    refresh: boolean = false,
+  ): Promise<Record<string, boolean>> {
+    const result: Record<string, boolean> = {};
+    for (const hash of hashes) {
+      result[hash] = false;
+    }
+
+    if (hashes.length === 0) {
+      return result;
+    }
+
+    const [rootHash, generation] = await this.#getRootHash(refresh);
+    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
+
+    const hashSet = new Set(hashes);
+    const newEntries: RawEntry[] = [];
+    let noneRemoved = true;
+
+    for (const entry of entries) {
+      if (hashSet.has(entry.hash)) {
+        result[entry.hash] = true;
+        noneRemoved = false;
+      } else {
+        newEntries.push(entry);
+      }
+    }
+
+    if (noneRemoved) {
+      return result;
+    }
+
+    const [rootEntry, uploadRoot] = await this.raw.putEntries(
+      "root",
+      newEntries,
+      4,
+    );
+    await uploadRoot;
+    await this.#putRootHash(rootEntry.hash, generation);
+    return result;
   }
 
   /** dump the raw cache */
