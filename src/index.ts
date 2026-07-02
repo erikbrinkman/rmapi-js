@@ -634,7 +634,6 @@ export interface RemarkableApi {
    */
   delete(hash: string, refresh?: boolean): Promise<HashEntry>;
 
-  
   /**
    * permanently delete an entry from all devices connected to the account
    *
@@ -1370,7 +1369,7 @@ class Remarkable implements RemarkableApi {
   async delete(hash: string, refresh: boolean = false): Promise<HashEntry> {
     return await this.move(hash, "trash", refresh);
   }
-  
+
   /** permanently delete an entry */
   async purge(hash: string, refresh: boolean = false): Promise<boolean> {
     const purged = await this.bulkPurge([hash], refresh);
