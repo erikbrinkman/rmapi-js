@@ -1238,7 +1238,6 @@ export class RawRemarkable implements RawRemarkableApi {
     mime: UploadMimeType,
   ): Promise<SimpleEntry> {
     const enc = new TextEncoder();
-
     const meta = enc
       .encode(JSON.stringify({ file_name: visibleName }))
       .toBase64();

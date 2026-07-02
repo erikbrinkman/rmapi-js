@@ -911,7 +911,7 @@ ${epubHash}:0:doc.epub:0:1
     const api = await remarkable("");
     const res = await api.purge(purgeHash);
 
-    expect(res.hash).toBe(purgeHash);
+    expect(res).toBeTrue();
   });
 
   test("#purge() failure", async () => {
@@ -928,7 +928,8 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    expect(api.purge(purgeHash)).rejects.toThrow("not found in the root hash");
+    const res = await api.purge(purgeHash);
+    expect(res).toBeFalse();
   });
 
   test("#rename()", async () => {
@@ -1065,8 +1066,8 @@ ${epubHash}:0:doc.epub:0:1
     const api = await remarkable("");
     const res = await api.bulkPurge([purgeHash, repHash("9")]);
 
-    expect(res.hashes[purgeHash]).toBe(purgeHash);
-    expect(repHash("9") in res.hashes).toBeFalse();
+    expect(res[purgeHash]).toBeTrue();
+    expect(res[repHash("9")]).toBeFalse();
   });
 
   test("#bulkPurge() no-op", async () => {
@@ -1085,7 +1086,7 @@ ${epubHash}:0:doc.epub:0:1
     const api = await remarkable("");
     const res = await api.bulkPurge([purgeHash]);
 
-    expect(res.hashes).toEqual({});
+    expect(res).toEqual({ [purgeHash]: false });
   });
 
   test("#bulkPurge() empty hashes", async () => {
@@ -1094,7 +1095,7 @@ ${epubHash}:0:doc.epub:0:1
     const api = await remarkable("");
     const res = await api.bulkPurge([]);
 
-    expect(res.hashes).toEqual({});
+    expect(res).toEqual({});
     expect(fetch.mock.calls).toHaveLength(1);
   });
 
@@ -1121,8 +1122,8 @@ ${epubHash}:0:doc.epub:0:1
     const api = await remarkable("");
     const res = await api.bulkPurge([purgeHash, purgeHash]);
 
-    expect(res.hashes[purgeHash]).toBe(purgeHash);
-    expect(Object.keys(res.hashes)).toHaveLength(1);
+    expect(res[purgeHash]).toBeTrue();
+    expect(Object.keys(res)).toHaveLength(1);
   });
 
   test("#bulkPurge() request flow matches desktop app", async () => {

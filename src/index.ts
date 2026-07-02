@@ -232,13 +232,13 @@ export interface RegisterOptions {
    * Using an improper one will results in the registration being rejected.
    */
   deviceDesc?:
-  | "desktop-windows"
-  | "desktop-macos"
-  | "desktop-linux"
-  | "mobile-android"
-  | "mobile-ios"
-  | "browser-chrome"
-  | "remarkable";
+    | "desktop-windows"
+    | "desktop-macos"
+    | "desktop-linux"
+    | "mobile-android"
+    | "mobile-ios"
+    | "browser-chrome"
+    | "remarkable";
   /**
    * the unique id of this device
    *
@@ -644,7 +644,7 @@ export interface RemarkableApi {
    * ```
    * @param hash - the hash of the entry to delete
    */
-  purge(hash: string, refresh?: boolean): Promise<HashEntry>;
+  purge(hash: string, refresh?: boolean): Promise<boolean>;
 
   /**
    * rename an entry
@@ -719,7 +719,7 @@ export interface RemarkableApi {
   bulkPurge(
     hashes: readonly string[],
     refresh?: boolean,
-  ): Promise<HashesEntry>;
+  ): Promise<Record<string, boolean>>;
 
   /**
    * get the current cache value as a string
@@ -1372,14 +1372,9 @@ class Remarkable implements RemarkableApi {
   }
   
   /** permanently delete an entry */
-  async purge(hash: string, refresh: boolean = false): Promise<HashEntry> {
-    const {
-      hashes: { [hash]: purgedHash },
-    } = await this.bulkPurge([hash], refresh);
-    if (purgedHash === undefined) {
-      throw new HashNotFoundError(hash);
-    }
-    return { hash: purgedHash };
+  async purge(hash: string, refresh: boolean = false): Promise<boolean> {
+    const purged = await this.bulkPurge([hash], refresh);
+    return purged[hash] ?? false;
   }
 
   /** rename an entry */
@@ -1462,9 +1457,14 @@ class Remarkable implements RemarkableApi {
   async bulkPurge(
     hashes: readonly string[],
     refresh: boolean = false,
-  ): Promise<HashesEntry> {
+  ): Promise<Record<string, boolean>> {
+    const result: Record<string, boolean> = {};
+    for (const hash of hashes) {
+      result[hash] = false;
+    }
+
     if (hashes.length === 0) {
-      return { hashes: {} };
+      return result;
     }
 
     const [rootHash, generation] = await this.#getRootHash(refresh);
@@ -1479,7 +1479,11 @@ class Remarkable implements RemarkableApi {
     }
 
     if (removed.length === 0) {
-      return { hashes: {} };
+      return result;
+    }
+
+    for (const entry of removed) {
+      result[entry.hash] = true;
     }
 
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
@@ -1489,12 +1493,7 @@ class Remarkable implements RemarkableApi {
     );
     await uploadRoot;
     await this.#putRootHash(rootEntry.hash, generation);
-
-    const result: Record<string, string> = {};
-    for (const entry of removed) {
-      result[entry.hash] = entry.hash;
-    }
-    return { hashes: result };
+    return result;
   }
 
   /** dump the raw cache */
