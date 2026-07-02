@@ -1161,7 +1161,7 @@ ${epubHash}:0:doc.epub:0:1
     expect(getRootEntries?.[1]?.method).toBe("GET");
     expect(getRootEntries?.[0]).toContain("/sync/v3/files/");
     expect(new Headers(getRootEntries?.[1]?.headers).get("rm-filename")).toBe(
-      "root.docSchema"
+      "root.docSchema",
     );
 
     expect(putRootEntries?.[1]?.method).toBe("PUT");
@@ -1178,7 +1178,7 @@ ${epubHash}:0:doc.epub:0:1
 
     const rootEntriesUrl = String(putRootEntries?.[0]);
     const rootEntriesHash = /\/sync\/v3\/files\/([0-9a-f]{64})$/u.exec(
-      rootEntriesUrl
+      rootEntriesUrl,
     )?.[1];
     expect(rootEntriesHash).toBeDefined();
     expect(rootReqBody.hash).toBe(rootEntriesHash);
