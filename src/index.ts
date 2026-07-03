@@ -1427,8 +1427,9 @@ class Remarkable implements RemarkableApi {
 
   async pruneCache(refresh?: boolean): Promise<void> {
     const [rootHash] = await this.#getRootHash(refresh);
-    // the keys to delete, we'll drop every key we can currently reach
+    // start by assuming every cached hash is unreachable, then keep the ones we reach
     const toDelete = new Set(this.#cache.keys());
+    toDelete.delete(rootHash);
 
     // bfs through entries (to semi-optimize promise waiting, although this
     // should only go one step) to track all hashes encountered
@@ -1439,9 +1440,9 @@ class Remarkable implements RemarkableApi {
     let nextEntries: Promise<Entries>[] = [];
     while (entries.length) {
       for (const entryList of entries) {
-        for (const { hash, type, id } of entryList) {
-          toDelete.add(hash);
-          if (type === 80000000) {
+        for (const { hash, subfiles, id } of entryList) {
+          toDelete.delete(hash);
+          if (subfiles > 0) {
             nextEntries.push(this.raw.getEntries(`${id}.docSchema`, hash));
           }
         }
@@ -1455,7 +1456,6 @@ class Remarkable implements RemarkableApi {
     }
   }
 
-  // finally remove any values we had in the cache initially, but couldn't reach
   clearCache(): void {
     this.raw.clearCache();
   }
