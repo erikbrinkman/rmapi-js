@@ -530,7 +530,7 @@ const templateContent: z.ZodType<TemplateContent> = z
     orientation: z.enum(["portrait", "landscape"]),
     templateVersion: z.string(),
     supportedScreens: z.array(z.enum(["rm2", "rmPP"])),
-    constants: z.array(z.record(z.string(), z.number().int())),
+    constants: z.array(z.record(z.string(), z.number().int())).optional(),
     items: z.array(z.unknown() as unknown as z.ZodType<object>),
     formatVersion: z.number().int().nonnegative().optional(),
   })

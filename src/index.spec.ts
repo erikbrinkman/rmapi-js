@@ -438,6 +438,32 @@ hash:0:tpl.template:0:1
       expect(cont).toEqual(content);
     });
 
+    test("TemplateType without constants", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:tpl.content:0:1
+hash:0:tpl.metadata:0:1
+hash:0:tpl.template:0:1
+`;
+      const content: TemplateContent = {
+        author: "",
+        categories: ["a", "b"],
+        formatVersion: 1,
+        iconData: "",
+        labels: [],
+        name: "Template",
+        orientation: "portrait",
+        supportedScreens: ["rm2", "rmPP"],
+        templateVersion: "0.0.1",
+        items: [],
+      };
+      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+
+      const api = await remarkable("");
+      const cont = await api.getContent("test-id", repHash("0"));
+      expect(cont).toEqual(content);
+    });
+
     test("Validation Error", async () => {
       const realHash = repHash("1");
       const file = `3
