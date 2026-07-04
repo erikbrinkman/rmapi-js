@@ -734,7 +734,8 @@ class Remarkable implements RemarkableApi {
   /** the same cache that underlies the raw api, allowing us to modify it */
   readonly #cache: Map<string, string | null>;
   readonly raw: RawRemarkable;
-  #lastHashGen: readonly [string, number, SchemaVersion] | undefined;
+  #lastHashGen: readonly [string, number] | undefined;
+  #schemaVersion: SchemaVersion | undefined;
 
   constructor(
     sessionToken: string,
@@ -757,16 +758,17 @@ class Remarkable implements RemarkableApi {
     refresh: boolean = false,
   ): Promise<readonly [string, number, SchemaVersion]> {
     if (refresh || this.#lastHashGen === undefined) {
-      this.#lastHashGen = await this.raw.getRootHash();
+      const [hash, generation, schemaVersion] = await this.raw.getRootHash();
+      this.#lastHashGen = [hash, generation];
+      this.#schemaVersion = schemaVersion;
     }
-    return this.#lastHashGen;
+    return [...this.#lastHashGen, this.#schemaVersion!];
   }
 
   async #putRootHash(hash: string, generation: number): Promise<void> {
     try {
       const [rootHash, gen] = await this.raw.putRootHash(hash, generation);
-      const [, , schemaVersion] = this.#lastHashGen!; // guaranteed to be set
-      this.#lastHashGen = [rootHash, gen, schemaVersion];
+      this.#lastHashGen = [rootHash, gen];
     } catch (ex) {
       // if we hit a generation error, invalidate our cached generation
       if (ex instanceof GenerationError) {
