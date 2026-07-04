@@ -1002,27 +1002,40 @@ ${epubHash}:0:doc.epub:0:1
   });
 
   test("#pruneCache()", async () => {
+    const rootHash = repHash("0");
     const entryHash = repHash("1");
-    const file = `3
+    const fileHash = repHash("2");
+    const unreachableHash = repHash("9");
+    const rootEntries = `3
 ${entryHash}:80000000:document:1:1
 `;
-    const fileHash = repHash("2");
-    const ent = `3
+    const documentEntries = `3
 ${fileHash}:0:document.content:0:1
 `;
+    // warm start with the full document plus an orphaned entry that nothing points at
+    const cache = JSON.stringify({
+      [rootHash]: rootEntries,
+      [entryHash]: documentEntries,
+      [fileHash]: "leaf",
+      [unreachableHash]: "orphan",
+    });
     mockFetch(
       emptyResponse(),
       jsonResponse({
-        hash: repHash("0"),
+        hash: rootHash,
         generation: 0,
         schemaVersion: 3,
       }),
-      textResponse(file),
-      textResponse(ent),
     );
 
-    const api = await remarkable("");
+    const api = await remarkable("", { cache });
     await api.pruneCache();
+
+    const pruned = JSON.parse(api.dumpCache()) as Record<string, string | null>;
+    expect(rootHash in pruned).toBeTrue();
+    expect(entryHash in pruned).toBeTrue();
+    expect(fileHash in pruned).toBeTrue();
+    expect(unreachableHash in pruned).toBeFalse();
   });
 
   test("#dumpCache()", async () => {
