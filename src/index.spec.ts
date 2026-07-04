@@ -152,7 +152,7 @@ fake_template_hash:0:${docId}.template:0:1
       visibleName: "doc name",
     };
     const templateMetadata: Metadata = {
-      createdTime: "",
+      createdTime: "2024-01-02T03:04:05Z",
       lastModified: "",
       new: false,
       parent: "",
@@ -210,9 +210,23 @@ fake_template_hash:0:${docId}.template:0:1
       jsonResponse(templateContent),
     );
 
+    const expectedTemplate: Entry = {
+      id: templateId,
+      hash: templateEntryHash,
+      visibleName: templateMetadata.visibleName,
+      lastModified: templateMetadata.lastModified,
+      new: templateMetadata.new,
+      pinned: templateMetadata.pinned,
+      source: templateMetadata.source,
+      parent: templateMetadata.parent,
+      createdTime: templateMetadata.createdTime,
+      type: "TemplateType",
+    };
+
     const api = await remarkable("");
-    const [loaded] = await api.listItems();
+    const [loaded, template] = await api.listItems();
     expect(loaded).toEqual(expected);
+    expect(template).toEqual(expectedTemplate);
   });
 
   test("#getMetadata() accepts lastOpenedPage -1", async () => {

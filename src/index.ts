@@ -828,6 +828,7 @@ class Remarkable implements RemarkableApi {
         pinned,
         parent,
         lastOpened,
+        createdTime,
         new: isNew,
         source,
       },
@@ -849,6 +850,7 @@ class Remarkable implements RemarkableApi {
         pinned,
         source,
         parent,
+        createdTime,
         type: "TemplateType",
       };
     } else if (content.fileType === undefined) {
