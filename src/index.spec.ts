@@ -698,7 +698,6 @@ ${epubHash}:0:doc.epub:0:1
       }),
       emptyResponse(), // .content
       emptyResponse(), // .metadata
-      // eslint-disable-next-line spellcheck/spell-checker
       emptyResponse(), // .pagedata
       emptyResponse(), // .pdf
       textResponse("3\n"),
@@ -747,7 +746,6 @@ ${epubHash}:0:doc.epub:0:1
       }),
       emptyResponse(), // .content
       emptyResponse(), // .metadata
-      // eslint-disable-next-line spellcheck/spell-checker
       emptyResponse(), // .pagedata
       emptyResponse(), // .epub
       textResponse("3\n"),

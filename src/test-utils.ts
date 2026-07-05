@@ -102,7 +102,6 @@ export function createMockFetch(
     } else {
       const serialized = JSON.stringify(init, null, 2);
       throw new Error(
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions
         `didn't set next response to ${init?.method} ${url}:\n${serialized}`,
       );
     }

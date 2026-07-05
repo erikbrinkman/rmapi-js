@@ -111,9 +111,6 @@ const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
 const UPLOAD_HOST = "https://internal.cloud.remarkable.com";
 
-// ------------ //
-// Request Info //
-// ------------ //
 // The section has all the types that are stored in the remarkable cloud.
 
 const idReg =
@@ -219,10 +216,6 @@ export class ResponseError extends Error {
     this.statusText = statusText;
   }
 }
-
-// -------------- //
-// Remarkable API //
-// -------------- //
 
 /** options for registering with the api */
 export interface RegisterOptions {
@@ -1023,7 +1016,6 @@ class Remarkable implements RemarkableApi {
     ] = await Promise.all([
       this.raw.putContent(`${id}.content`, content),
       this.raw.putMetadata(`${id}.metadata`, metadata),
-      // eslint-disable-next-line spellcheck/spell-checker
       this.raw.putText(`${id}.pagedata`, "\n"),
       this.raw.putFile(`${id}.${fileType}`, buffer),
       this.#getRootHash(refresh),

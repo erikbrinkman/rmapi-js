@@ -2,7 +2,6 @@ import CRC32C from "crc-32/crc32c";
 import { z } from "zod";
 import { ValidationError } from "./error.js";
 import { concatArrays } from "./utils.js";
-import "core-js/proposals/array-buffer-base64";
 
 const hashReg = /^[0-9a-f]{64}$/;
 
@@ -115,7 +114,6 @@ export type ZoomMode = "bestFit" | "customFit" | "fitToHeight" | "fitToWidth";
  * contrast filter to the entire page. If this is omitted, reMarkable will try
  * to apply the filter only to text areas.
  */
-// eslint-disable-next-line spellcheck/spell-checker
 export type BackgroundFilter = "off" | "fullpage";
 
 /** document metadata stored in {@link Content} */
@@ -302,7 +300,6 @@ export interface CommonDocumentContent {
   extraMetadata: Record<string, string>;
   /** the underlying file type of this document */
   fileType: FileType;
-  // eslint-disable-next-line spellcheck/spell-checker
   /**
    * the name of the font to use for text rendering
    *
@@ -464,7 +461,6 @@ const documentContentOptional = {
     })
     .passthrough()
     .optional(),
-  // eslint-disable-next-line spellcheck/spell-checker
   viewBackgroundFilter: z.enum(["off", "fullpage"]).optional(),
   zoomMode: z
     .enum(["bestFit", "customFit", "fitToHeight", "fitToWidth"])
@@ -1118,7 +1114,6 @@ export class RawRemarkable implements RawRemarkableApi {
         body: bytes,
         headers: {
           "rm-filename": fileName,
-          // eslint-disable-next-line spellcheck/spell-checker
           "x-goog-hash": `crc32c=${crcHash}`,
         },
       });
