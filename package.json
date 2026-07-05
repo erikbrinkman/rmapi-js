@@ -13,9 +13,13 @@
     "remarkable"
   ],
   "type": "module",
-  "types": "dist/index.d.ts",
-  "main": "dist/rmapi-js.esm.min.js",
-  "module": "dist/rmapi-js.esm.min.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "unpkg": "./dist/rmapi-js.esm.min.js",
   "engines": {
     "node": ">=22"
   },
