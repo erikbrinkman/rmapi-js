@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [11.0.0] - 2026-07-05
+
 ## [10.2.0] - 2026-07-05
 
 ## [10.1.1] - 2026-06-16
@@ -206,7 +208,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -   Initial release
 
-[Unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v10.2.0...HEAD
+[Unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v11.0.0...HEAD
+
+[11.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v10.2.0...v11.0.0
 
 [10.2.0]: https://github.com/erikbrinkman/rmapi-js/compare/v10.1.1...v10.2.0
 
