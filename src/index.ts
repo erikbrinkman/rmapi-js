@@ -1478,13 +1478,6 @@ export interface AuthOptions {
 /** options for constructing an api instance from a session token */
 export interface RemarkableSessionOptions {
   /**
-   * the url for making synchronization requests
-   *
-   * @defaultValue "https://web.eu.tectonic.remarkable.com"
-   */
-  syncHost?: string;
-
-  /**
    * the base url for making upload requests
    *
    * @defaultValue "https://internal.cloud.remarkable.com"
@@ -1598,14 +1591,12 @@ export async function remarkable(
   deviceToken: string,
   options: RemarkableOptions = {},
 ): Promise<RemarkableApi> {
-  const { authHost, rawHost, uploadHost, cache, maxCacheSize, syncHost } =
-    options ?? {};
+  const { authHost, rawHost, uploadHost, cache, maxCacheSize } = options ?? {};
   const sessionToken = await auth(deviceToken, { authHost });
   return session(sessionToken, {
     rawHost,
     uploadHost,
     cache,
     maxCacheSize,
-    syncHost,
   });
 }
