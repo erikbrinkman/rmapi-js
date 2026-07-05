@@ -1,6 +1,8 @@
 name: build
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_call:
 
@@ -9,9 +11,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
-      - run: bun install
+      - run: bun install --frozen-lockfile
       - run: bun lint
       - run: bun test
       - run: bun export
+      - run: bunx publint --strict
+      - run: npm pack --ignore-scripts
+      - run: bunx @arethetypeswrong/cli --profile esm-only rmapi-js-*.tgz
