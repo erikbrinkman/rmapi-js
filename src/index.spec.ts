@@ -11,14 +11,14 @@ import {
   remarkable,
   session,
   type TemplateContent,
-} from ".";
+} from "./index.js";
 import {
   bytesResponse,
   emptyResponse,
   jsonResponse,
   mockFetch,
   textResponse,
-} from "./test-utils";
+} from "./test-utils.js";
 
 function repHash(hash: string): string {
   const mult = 64 / hash.length;
