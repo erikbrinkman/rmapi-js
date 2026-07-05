@@ -35,7 +35,7 @@ const fileEntries = await api.listItems();
 
 // In stateless environments, exchange once and reuse.
 const sessionToken = await auth(token);
-const api = session(sessionToken);
+const sessionApi = session(sessionToken);
 // cache `sessionToken` and reuse it across workers
 ```
 
@@ -62,8 +62,8 @@ Using these apis is a little riskier since they can potentially result in data l
 // upload with custom line height not avilable through reMarkable
 await api.putEpub("name", buffer, { lineHeight: 180 })
 
-// fetch an uploaded pdf, using the hash (from listItems)
-const buffer = await api.getEpub(hash)
+// fetch an uploaded epub, using the id and hash (from listItems)
+const buffer = await api.getEpub(id, hash)
 ```
 
 ### Gotchas
