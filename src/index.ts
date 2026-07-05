@@ -17,9 +17,9 @@
  * // persist token
  * const api = await remarkable(token);
  * // list all items (documents and collections)
- * const [first, ...rest] = api.listItems();
+ * const [first, ...rest] = await api.listItems();
  * // rename first item
- * const entry = api.rename(first.hash, "new name");
+ * const entry = await api.rename(first.hash, "new name");
  * ```
  *
  * @example
