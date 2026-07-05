@@ -54,8 +54,8 @@
 import JSZip from "jszip";
 import { v4 as uuid4 } from "uuid";
 import { z } from "zod";
-import { HashNotFoundError, ValidationError } from "./error";
-import { LruCache } from "./lru";
+import { HashNotFoundError, ValidationError } from "./error.js";
+import { LruCache } from "./lru.js";
 import {
   type BackgroundFilter,
   type CollectionContent,
@@ -74,9 +74,9 @@ import {
   type TemplateContent,
   type TextAlignment,
   type ZoomMode,
-} from "./raw";
+} from "./raw.js";
 
-export { HashNotFoundError, ValidationError } from "./error";
+export { HashNotFoundError, ValidationError } from "./error.js";
 export type {
   BackgroundFilter,
   CollectionContent,
@@ -105,7 +105,7 @@ export type {
   TextAlignment,
   UploadMimeType,
   ZoomMode,
-} from "./raw";
+} from "./raw.js";
 
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
