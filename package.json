@@ -16,6 +16,9 @@
   "types": "dist/index.d.ts",
   "main": "dist/rmapi-js.esm.min.js",
   "module": "dist/rmapi-js.esm.min.js",
+  "engines": {
+    "node": ">=22"
+  },
   "files": [
     "./dist/**/*.js",
     "./dist/**/*.d.ts"
@@ -29,7 +32,6 @@
     "prepack": "bun lint && bun test --coverage && bun export"
   },
   "dependencies": {
-    "core-js": "^3.49.0",
     "crc-32": "^1.2.2",
     "jszip": "^3.10.1",
     "uuid": "^14.0.0",

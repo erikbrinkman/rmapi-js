@@ -3,7 +3,13 @@
 coverage
 node_modules
 tsconfig.tsbuildinfo
+tsconfig.build.tsbuildinfo
 .eslintcache
+
+# OS / editor #
+###############
+.DS_Store
+*.un~
 
 # Artifacts #
 #############
