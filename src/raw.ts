@@ -876,7 +876,7 @@ export interface RawRemarkableApi {
    */
   putEntries(
     id: string,
-    entries: RawEntry[],
+    entries: readonly RawEntry[],
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<void>]>;
 
@@ -1182,7 +1182,7 @@ export class RawRemarkable implements RawRemarkableApi {
 
   async putEntries(
     id: string,
-    entries: RawEntry[],
+    entries: readonly RawEntry[],
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<void>]> {
     if (id === "root" && schemaVersion === 3) {
@@ -1192,15 +1192,15 @@ export class RawRemarkable implements RawRemarkableApi {
     }
     // NOTE v3 collections have a special hash function, the hash of their
     // contents, so this needs to be different
-    entries.sort((a, b) => a.id.localeCompare(b.id));
-    const size = entries.reduce((acc, ent) => acc + ent.size, 0);
+    const sorted = [...entries].sort((a, b) => a.id.localeCompare(b.id));
+    const size = sorted.reduce((acc, ent) => acc + ent.size, 0);
 
     const records = [`${schemaVersion}\n`];
     if (schemaVersion === 4) {
       const name = id === "root" ? "." : id;
-      records.push(`0:${name}:${entries.length}:${size}\n`);
+      records.push(`0:${name}:${sorted.length}:${size}\n`);
     }
-    for (const { hash, type, id, subfiles, size } of entries) {
+    for (const { hash, type, id, subfiles, size } of sorted) {
       const lineType = schemaVersion === 4 ? 0 : type;
       records.push(`${hash}:${lineType}:${id}:${subfiles}:${size}\n`);
     }
@@ -1211,7 +1211,7 @@ export class RawRemarkable implements RawRemarkableApi {
     if (schemaVersion === 3) {
       // in schema version 3 an entry's hash is the hash of the concatenated hashes
       const hashBuffs: Uint8Array[] = [];
-      for (const { hash } of entries) {
+      for (const { hash } of sorted) {
         hashBuffs.push(Uint8Array.fromHex(hash));
       }
       hash = await digest(concatArrays(hashBuffs));
@@ -1226,7 +1226,7 @@ export class RawRemarkable implements RawRemarkableApi {
       id,
       hash,
       type: schemaVersion > 3 ? 0 : 80000000,
-      subfiles: entries.length,
+      subfiles: sorted.length,
       size,
     };
     return [res, this.#putFile(`${id}.docSchema`, hash, entryBuff)];
