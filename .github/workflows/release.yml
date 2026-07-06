@@ -35,7 +35,7 @@ jobs:
           VERSION=$(npm version --no-git-tag-version ${{ inputs.bump }} | sed 's/^v//')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - uses: thomaseizinger/keep-a-changelog-new-release@v2
+      - uses: thomaseizinger/keep-a-changelog-new-release@v3
         with:
           tag: v${{ steps.version.outputs.version }}
 
