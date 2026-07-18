@@ -352,38 +352,43 @@ export interface CommonDocumentContent {
    */
   textScale: number;
   /**
-   * the center of the zoom for customFit zoom
+   * the horizontal center of a customFit zoom
    *
-   * This is an absolute offset from the center of the page. Negative numbers
-   * indicate shifted left and positive numbers indicate shifted right. The
-   * units are relative to the document pixels, but it's not sure how the
-   * document size is calculated.
+   * An offset in device pixels from the horizontal center of the page (0 =
+   * centered, negative = left, positive = right). This and
+   * {@link customZoomCenterY} are in the page's own frame, so device
+   * orientation does not affect them.
    */
   customZoomCenterX?: number;
   /**
-   * the center of the zoom for customFit documents
+   * the vertical center of a customFit zoom
    *
-   * This is an absolute number relative to the top of the page. Negative
-   * numbers indicate shifted up, while positive numbers indicate shifted down.
-   * The units are relative to the document pixels, but it's not sure how the
-   * document size is calculated.
+   * An absolute distance in device pixels from the top of the page (negative =
+   * up, positive = down); centering is half the page's rendered height.
    */
   customZoomCenterY?: number;
-  /** this seems unused */
+  /** the orientation the customFit zoom was set in */
   customZoomOrientation?: Orientation;
-  /** this seems unused */
+  /**
+   * the rendered height of the pdf page, in device pixels
+   *
+   * Computed from the pdf page height in points and the device dpi as
+   * `heightPt * dpi / 72`; the dpi depends on the model (see
+   * {@link deviceScreens | `deviceScreens`}).
+   */
   customZoomPageHeight?: number;
-  /** this seems unused */
+  /** the rendered width of the pdf page, in device pixels */
   customZoomPageWidth?: number;
   /**
-   * the scale for customFit documents
+   * the scale for a customFit zoom
    *
-   * 1 indicates no zoom, smaller numbers indicate zoomed out, larger numbers
-   * indicate zoomed in. reMarkable generally allows setting this from 0.5 to 5,
-   * but values outside that bound are still supported.
+   * Calibrated on the page's fit-to-height: at 1 the rendered page height fills
+   * the screen and the linear magnification is customZoomScale squared. 1
+   * indicates no zoom; reMarkable generally allows 0.5 to 5, but values outside
+   * that bound are still supported.
    */
   customZoomScale?: number;
-  /** what zoom mode is set for the page */
+  /** the zoom mode; customFit applies the customZoom* fields, the rest auto-fit */
   zoomMode?: ZoomMode;
   /** [speculative] a transform matrix, a. la. css matrix transform */
   transform?: Partial<Record<`m${"1" | "2" | "3"}${"1" | "2" | "3"}`, number>>;
