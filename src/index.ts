@@ -76,6 +76,11 @@ import {
   type ZoomMode,
 } from "./raw.js";
 
+export {
+  type DeviceModel,
+  type DeviceScreen,
+  deviceScreens,
+} from "./devices.js";
 export { HashNotFoundError, ValidationError } from "./error.js";
 export type {
   BackgroundFilter,
@@ -334,6 +339,18 @@ export interface PutOptions {
   zoomMode?: ZoomMode;
   /** the contrast filter setting */
   viewBackgroundFilter?: BackgroundFilter;
+  /** the custom zoom scale, applied when zoomMode is "customFit" */
+  customZoomScale?: number;
+  /** the horizontal center offset for customFit zoom */
+  customZoomCenterX?: number;
+  /** the vertical center offset for customFit zoom */
+  customZoomCenterY?: number;
+  /** the rendered page width in pixels, the unit customFit centers use */
+  customZoomPageWidth?: number;
+  /** the rendered page height in pixels, the unit customFit centers use */
+  customZoomPageHeight?: number;
+  /** the orientation the customFit zoom was set in */
+  customZoomOrientation?: Orientation;
   /**
    * whether to refresh current file structure before putting
    *
@@ -476,6 +493,28 @@ export interface RemarkableApi {
    * may throw a {@link GenerationError | `GenerationError`} if the generation
    * doesn't match the current server generation, requiring you to retry until
    * it works.
+   *
+   * @remarks
+   * When `zoomMode` is `"customFit"` the `customZoom*` fields describe the view,
+   * all in the source page's device pixels: `customZoomPageWidth` and
+   * `customZoomPageHeight` are the page dimensions scaled by the device dpi
+   * (`pagePt * dpi / 72`, see {@link deviceScreens | `deviceScreens`}), and the
+   * centers are in those pixels.
+   *
+   * The view always has the device's aspect ratio — you control its height and
+   * position, not its shape. `customZoomScale` is a fit-to-height zoom: at `1`
+   * the page height fills the screen, and the linear magnification is
+   * `customZoomScale` squared. `customZoomCenterX` offsets the center of the
+   * view horizontally from the page center, and `customZoomCenterY` is the
+   * absolute distance of the center down from the top of the page; the view's
+   * width follows from its height and the device aspect ratio.
+   *
+   * The fields are a single document-wide setting, but `customZoomCenterY` is
+   * applied against each page's own rendered height. On a page rendered taller
+   * than `customZoomPageHeight` that distance is a smaller fraction of the page,
+   * so the view sits higher and cuts off the bottom; on a shorter page it sits
+   * lower and cuts off the top. `customZoomScale` (a ratio) and
+   * `customZoomCenterX` (an offset from center) do not shift with page size.
    *
    * @param visibleName - the name to display on the reMarkable
    * @param buffer - the raw pdf
@@ -960,6 +999,12 @@ class Remarkable implements RemarkableApi {
       margins = 125,
       orientation = "portrait",
       tags,
+      customZoomScale,
+      customZoomCenterX,
+      customZoomCenterY,
+      customZoomPageWidth,
+      customZoomPageHeight,
+      customZoomOrientation,
     }: PutOptions,
   ): Promise<SimpleEntry> {
     if (parent && !idReg.test(parent)) {
@@ -995,6 +1040,12 @@ class Remarkable implements RemarkableApi {
       textAlignment,
       textScale,
       zoomMode,
+      customZoomScale,
+      customZoomCenterX,
+      customZoomCenterY,
+      customZoomPageWidth,
+      customZoomPageHeight,
+      customZoomOrientation,
       viewBackgroundFilter,
       // NOTE for some reason we need to "fake" the number of pages at 1, and
       // create "valid" output for that
