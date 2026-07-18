@@ -502,9 +502,13 @@ export interface RemarkableApi {
    * centers are in those pixels.
    *
    * The view always has the device's aspect ratio — you control its height and
-   * position, not its shape. `customZoomScale` is a fit-to-height zoom: at `1`
-   * the page height fills the screen, and the linear magnification is
-   * `customZoomScale` squared. `customZoomCenterX` offsets the center of the
+   * position, not its shape. `customZoomScale` sets a fit-to-height zoom whose
+   * linear magnification is proportional to it: the visible page-height
+   * fraction is `sqrt(deviceAspect) / customZoomScale`, where `deviceAspect` is
+   * `screenWidth / screenHeight` (`0.75` for 3:4 models, `0.5625` for the Paper
+   * Pro Move). The page height fills the screen at
+   * `customZoomScale = sqrt(deviceAspect)` (≈`0.87` for 3:4 devices), not at
+   * `1`. `customZoomCenterX` offsets the center of the
    * view horizontally from the page center, and `customZoomCenterY` is the
    * absolute distance of the center down from the top of the page; the view's
    * width follows from its height and the device aspect ratio.
