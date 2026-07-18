@@ -382,10 +382,13 @@ export interface CommonDocumentContent {
   /**
    * the scale for a customFit zoom
    *
-   * Calibrated on the page's fit-to-height: at 1 the rendered page height fills
-   * the screen and the linear magnification is customZoomScale squared. 1
-   * indicates no zoom; reMarkable generally allows 0.5 to 5, but values outside
-   * that bound are still supported.
+   * The linear magnification is proportional to customZoomScale: the visible
+   * page-height fraction is `sqrt(deviceAspect) / customZoomScale`, where
+   * `deviceAspect` is `screenWidth / screenHeight` (0.75 for 3:4 models, 0.5625
+   * for the Paper Pro Move). The rendered page height fills the screen at
+   * `customZoomScale = sqrt(deviceAspect)` (≈0.87 for 3:4 devices), not at 1.
+   * reMarkable generally allows 0.5 to 5, but values outside that bound are
+   * still supported.
    */
   customZoomScale?: number;
   /** the zoom mode; customFit applies the customZoom* fields, the rest auto-fit */
