@@ -116,6 +116,15 @@ const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
 const UPLOAD_HOST = "https://internal.cloud.remarkable.com";
 
+/** the parent id of the root directory */
+const ROOT_ID = "";
+/** the parent id of the trash */
+const TRASH_ID = "trash";
+/** the id of the root entry list */
+const ROOT_LIST = "root";
+/** the file name of the root entry index */
+const ROOT_SCHEMA = `${ROOT_LIST}.docSchema`;
+
 // The section has all the types that are stored in the remarkable cloud.
 
 const idReg =
@@ -925,7 +934,7 @@ class Remarkable implements RemarkableApi {
 
   async listIds(refresh: boolean = false): Promise<SimpleEntry[]> {
     const [hash] = await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", hash);
+    const { entries } = await this.raw.getEntries(ROOT_SCHEMA, hash);
     return entries.map(({ id, hash }) => ({ id, hash }));
   }
 
@@ -985,7 +994,7 @@ class Remarkable implements RemarkableApi {
     buffer: Uint8Array,
     {
       refresh,
-      parent = "",
+      parent = ROOT_ID,
       pinned = false,
       zoomMode = "bestFit",
       viewBackgroundFilter,
@@ -1083,13 +1092,13 @@ class Remarkable implements RemarkableApi {
           [contentEntry, metadataEntry, pagedataEntry, fileEntry],
           schemaVersion,
         ),
-        this.raw.getEntries("root.docSchema", rootHash),
+        this.raw.getEntries(ROOT_SCHEMA, rootHash),
       ]);
 
     // now upload a new root entry
     rootEntries.push(collectionEntry);
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
+      ROOT_LIST,
       rootEntries,
       4,
     );
@@ -1131,7 +1140,7 @@ class Remarkable implements RemarkableApi {
   /** create a folder */
   async putFolder(
     visibleName: string,
-    { parent = "" }: FolderOptions = {},
+    { parent = ROOT_ID }: FolderOptions = {},
     refresh: boolean = false,
   ): Promise<SimpleEntry> {
     if (parent && !idReg.test(parent)) {
@@ -1170,13 +1179,13 @@ class Remarkable implements RemarkableApi {
     const [[collectionEntry, uploadCollection], { entries: rootEntries }] =
       await Promise.all([
         this.raw.putEntries(id, [contentEntry, metadataEntry], schemaVersion),
-        this.raw.getEntries("root.docSchema", rootHash),
+        this.raw.getEntries(ROOT_SCHEMA, rootHash),
       ]);
 
     // now upload a new root entry
     rootEntries.push(collectionEntry);
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
+      ROOT_LIST,
       rootEntries,
       4,
     );
@@ -1257,7 +1266,7 @@ class Remarkable implements RemarkableApi {
   ): Promise<HashEntry> {
     const [rootHash, generation, schemaVersion] =
       await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
+    const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
     const hashInd = entries.findIndex((ent) => ent.hash === hash);
     const hashEnt = entries[hashInd];
     if (hashEnt === undefined) {
@@ -1276,7 +1285,7 @@ class Remarkable implements RemarkableApi {
 
     entries[hashInd] = newEnt;
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
+      ROOT_LIST,
       entries,
       4,
     );
@@ -1348,7 +1357,7 @@ class Remarkable implements RemarkableApi {
   ): Promise<HashEntry> {
     const [rootHash, generation, schemaVersion] =
       await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
+    const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
     const hashInd = entries.findIndex((ent) => ent.hash === hash);
     const hashEnt = entries[hashInd];
     if (hashEnt === undefined) {
@@ -1362,7 +1371,7 @@ class Remarkable implements RemarkableApi {
     );
     entries[hashInd] = newEnt;
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
+      ROOT_LIST,
       entries,
       4,
     );
@@ -1391,7 +1400,7 @@ class Remarkable implements RemarkableApi {
 
   /** delete an entry */
   async delete(hash: string, refresh: boolean = false): Promise<HashEntry> {
-    return await this.move(hash, "trash", refresh);
+    return await this.move(hash, TRASH_ID, refresh);
   }
 
   /** rename an entry */
@@ -1428,7 +1437,7 @@ class Remarkable implements RemarkableApi {
 
     const [rootHash, generation, schemaVersion] =
       await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
+    const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
 
     const hashSet = new Set(hashes);
     const toUpdate: RawEntry[] = [];
@@ -1452,7 +1461,7 @@ class Remarkable implements RemarkableApi {
     }
 
     const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
+      ROOT_LIST,
       newEntries,
       4,
     );
@@ -1467,7 +1476,7 @@ class Remarkable implements RemarkableApi {
     hashes: readonly string[],
     refresh: boolean = false,
   ): Promise<HashesEntry> {
-    return await this.bulkMove(hashes, "trash", refresh);
+    return await this.bulkMove(hashes, TRASH_ID, refresh);
   }
 
   /** dump the raw cache */
@@ -1485,7 +1494,7 @@ class Remarkable implements RemarkableApi {
     // should only go one step) to track all hashes encountered
     // NOTE that we could increase the cache in this process, or it's possible
     // for other calls to increase the cache with misc values.
-    const base = await this.raw.getEntries("root.docSchema", rootHash);
+    const base = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
     let entries = [base.entries];
     let nextEntries: Promise<Entries>[] = [];
     while (entries.length) {
