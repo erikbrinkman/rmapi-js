@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import JSZip from "jszip";
 import {
   auth,
   type Content,
@@ -1142,5 +1143,111 @@ hash2:80000000:other:0:2
 
     const api = await remarkable("");
     expect(api.listItems()).rejects.toThrow("Expected object");
+  });
+});
+
+describe("putDocument() / getDocument()", () => {
+  test("round-trips an archive, rewriting id and metadata", async () => {
+    const oldId = "11111111-1111-4111-8111-111111111111";
+    const pageId = "22222222-2222-4222-8222-222222222222";
+    const parent = "33333333-3333-4333-8333-333333333333";
+
+    const metadata: Metadata = {
+      lastModified: "100",
+      visibleName: "original",
+      parent: "",
+      pinned: false,
+      type: "DocumentType",
+      version: 1,
+    };
+
+    // build a source archive with a nested page file
+    const src = new JSZip();
+    src.file(`${oldId}.metadata`, JSON.stringify(metadata));
+    src.file(`${oldId}.content`, JSON.stringify({ fileType: "pdf" }));
+    src.file(`${oldId}.pagedata`, "\n");
+    src.file(`${oldId}.pdf`, new Uint8Array([1, 2, 3, 4]));
+    src.file(`${oldId}/${pageId}.rm`, new Uint8Array([5, 6, 7]));
+    const archive = await src.generateAsync({ type: "uint8array" });
+
+    // a stateful content-addressed backend, seeded with an empty root index
+    const blobs = new Map<string, Uint8Array>();
+    const rootStart = "0".repeat(64);
+    blobs.set(rootStart, new TextEncoder().encode("4\n0:.:0:0\n"));
+    let root = { hash: rootStart, generation: 1 };
+
+    const spy = spyOn(globalThis, "fetch");
+    spy.mockImplementation((async (
+      input: string | Request | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const url = input.toString();
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/token/json/2/user/new")) {
+        return textResponse("session");
+      } else if (url.endsWith("/sync/v4/root")) {
+        return jsonResponse({ ...root, schemaVersion: 4 });
+      } else if (url.endsWith("/sync/v3/root") && method === "PUT") {
+        const body = JSON.parse(init!.body as string) as { hash: string };
+        root = { hash: body.hash, generation: root.generation + 1 };
+        return jsonResponse(root);
+      } else if (url.includes("/sync/v3/files/")) {
+        const hash = url.slice(url.indexOf("/sync/v3/files/") + 15);
+        if (method === "PUT") {
+          blobs.set(hash, init!.body as Uint8Array);
+          return emptyResponse();
+        }
+        const blob = blobs.get(hash);
+        return blob
+          ? bytesResponse(blob)
+          : emptyResponse({ status: 404, statusText: "not found" });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    }) as unknown as typeof fetch);
+
+    const api = await remarkable("");
+    const { id: newId, hash } = await api.putDocument(archive, {
+      parent,
+      visibleName: "renamed",
+    });
+
+    // a fresh id was minted and the root advanced to point at the new doc
+    expect(newId).not.toBe(oldId);
+    expect(newId).toHaveLength(36);
+    expect(root.hash).not.toBe(rootStart);
+
+    // read it back and confirm every file survived with the new id prefix
+    const out = await api.getDocument(newId, hash);
+    const zip = await JSZip.loadAsync(out);
+    const files = Object.keys(zip.files).filter(
+      (path) => !zip.files[path]!.dir,
+    );
+    expect(files.sort()).toEqual(
+      [
+        `${newId}.content`,
+        `${newId}.metadata`,
+        `${newId}.pagedata`,
+        `${newId}.pdf`,
+        `${newId}/${pageId}.rm`,
+      ].sort(),
+    );
+
+    // metadata overrides applied, lastModified bumped
+    const outMeta = JSON.parse(
+      await zip.file(`${newId}.metadata`)!.async("string"),
+    ) as Metadata;
+    expect(outMeta.parent).toBe(parent);
+    expect(outMeta.visibleName).toBe("renamed");
+    expect(outMeta.lastModified).not.toBe("100");
+
+    // binary payloads round-trip byte-for-byte
+    expect(
+      Array.from(await zip.file(`${newId}.pdf`)!.async("uint8array")),
+    ).toEqual([1, 2, 3, 4]);
+    expect(
+      Array.from(await zip.file(`${newId}/${pageId}.rm`)!.async("uint8array")),
+    ).toEqual([5, 6, 7]);
+
+    spy.mockRestore();
   });
 });

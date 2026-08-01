@@ -64,6 +64,7 @@ import {
   type Entries,
   type Metadata,
   type Orientation,
+  parseMetadata,
   type RawEntry,
   RawRemarkable,
   type RawRemarkableApi,
@@ -200,6 +201,23 @@ export interface HashesEntry {
 export interface FolderOptions {
   /** the id of the folder's parent directory, "" or omitted for root */
   parent?: string;
+}
+
+/** options for uploading a full document archive */
+export interface PutDocumentOptions {
+  /** if true, refresh the root hash before uploading */
+  refresh?: boolean;
+  /** the parent to place the document under, overriding the archived value */
+  parent?: string;
+  /** the visible name to use, overriding the archived value */
+  visibleName?: string;
+  /**
+   * reuse this document id instead of generating a fresh one
+   *
+   * By default a new uuid is generated so re-uploading an archive to the same
+   * account doesn't collide with the original. Pass an id to restore in place.
+   */
+  id?: string;
 }
 
 /** An error that gets thrown when the backend while trying to update
@@ -484,15 +502,35 @@ export interface RemarkableApi {
    * zip archive.
    *
    * @remarks
-   * This is an experimental feature, that works for downloading the raw version
-   * of the document, but this format isn't understood enoguh to reput this on a
-   * different remarkable, so that functionality is currently disabled.
+   * This is an experimental feature. The resulting archive round-trips back
+   * through {@link putDocument | `putDocument`}.
    *
    * @param id - the id of the document (as returned by `listIds`)
    * @param hash - the hash of the document to get contents for (e.g. the
    *    hash received from `listItems`)
    */
   getDocument(id: string, hash: string): Promise<Uint8Array>;
+
+  /**
+   * upload a full document archive produced by {@link getDocument | `getDocument`}
+   *
+   * This explodes the zip archive back into its constituent files, uploads each
+   * as a blob, and commits a new document into the root.
+   *
+   * @remarks
+   * This is an experimental feature. By default a fresh document id is generated
+   * so re-uploading to the same account doesn't collide with the original; pass
+   * {@link PutDocumentOptions.id | `id`} to keep the original id. Like the other
+   * low-level puts, this may throw a {@link GenerationError | `GenerationError`}
+   * if the generation is stale, requiring a retry.
+   *
+   * @param buffer - the archive bytes, as returned by `getDocument`
+   * @param options - overrides for parent, visible name, and id
+   */
+  putDocument(
+    buffer: Uint8Array,
+    options?: PutDocumentOptions,
+  ): Promise<SimpleEntry>;
 
   /**
    * use the low-level api to add a pdf document
@@ -993,6 +1031,86 @@ class Remarkable implements RemarkableApi {
       zip.file(entry.id, this.raw.getHash(entry.id, entry.hash));
     }
     return zip.generateAsync({ type: "uint8array" });
+  }
+
+  async putDocument(
+    buffer: Uint8Array,
+    {
+      refresh = false,
+      parent,
+      visibleName,
+      id: keepId,
+    }: PutDocumentOptions = {},
+  ): Promise<SimpleEntry> {
+    if (parent !== undefined && parent && !idReg.test(parent)) {
+      throw new ValidationError(
+        parent,
+        idReg,
+        "parent must be a valid document id",
+      );
+    }
+    const zip = await JSZip.loadAsync(buffer);
+    const paths = Object.keys(zip.files).filter(
+      (path) => !zip.files[path]!.dir,
+    );
+    const metaPath = paths.find((path) => path.endsWith(".metadata"));
+    if (metaPath === undefined) {
+      throw new Error("archive did not contain a .metadata file");
+    }
+    const oldId = metaPath.slice(0, -9);
+    if (oldId.includes("/")) {
+      throw new Error(`unexpected nested .metadata path '${metaPath}'`);
+    }
+    const newId = keepId ?? uuid4();
+
+    // rewrite the old document id prefix on every archived file to the new id,
+    // patching the .metadata as we pass it (parent/name/lastModified)
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const [rootHash, generation, schemaVersion] =
+      await this.#getRootHash(refresh);
+    const fileUploads = await Promise.all(
+      paths.map(async (path) => {
+        if (!path.startsWith(oldId)) {
+          throw new Error(
+            `archived file '${path}' did not start with '${oldId}'`,
+          );
+        }
+        const newPath = `${newId}${path.slice(oldId.length)}`;
+        let bytes = await zip.files[path]!.async("uint8array");
+        if (path === metaPath) {
+          const meta = parseMetadata(dec.decode(bytes));
+          if (parent !== undefined) meta.parent = parent;
+          if (visibleName !== undefined) meta.visibleName = visibleName;
+          meta.lastModified = Date.now().toFixed();
+          bytes = enc.encode(JSON.stringify(meta));
+        }
+        return this.raw.putFile(newPath, bytes);
+      }),
+    );
+    const fileEntries = fileUploads.map(([entry]) => entry);
+
+    // build the document index, splice it into the root, then commit
+    const [[docEntry, uploadDoc], { entries: rootEntries }] = await Promise.all(
+      [
+        this.raw.putEntries(newId, fileEntries, schemaVersion),
+        this.raw.getEntries(ROOT_SCHEMA, rootHash),
+      ],
+    );
+    rootEntries.push(docEntry);
+    const [rootEntry, uploadRoot] = await this.raw.putEntries(
+      ROOT_LIST,
+      rootEntries,
+      4,
+    );
+
+    await Promise.all([
+      ...fileUploads.map(([, upload]) => upload),
+      uploadDoc,
+      uploadRoot,
+    ]);
+    await this.#putRootHash(rootEntry.hash, generation);
+    return { id: newId, hash: docEntry.hash };
   }
 
   async #putFile(

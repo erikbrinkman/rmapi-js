@@ -627,6 +627,12 @@ const metadata: z.ZodType<Metadata> = z
   })
   .passthrough();
 
+/** parse and validate the json text of a `.metadata` file */
+export function parseMetadata(text: string): Metadata {
+  const loaded = JSON.parse(text) as unknown;
+  return metadata.parse(loaded);
+}
+
 interface UpdatedRootHash {
   hash: string;
   generation: number;
