@@ -47,6 +47,6 @@
     "@types/uuid": "^11.0.0",
     "typedoc-plugin-markdown": "^4.11.0",
     "typedoc": "^0.28.19",
-    "typescript": "~6.0.3"
+    "typescript": "~7.0.2"
   }
 }
