@@ -1343,6 +1343,8 @@ class Remarkable implements RemarkableApi {
     }
     const meta = await this.raw.getMetadata(metaEntry.id, metaEntry.hash);
     Object.assign(meta, update);
+    meta.version = (meta.version ?? 0) + 1;
+    meta.metadatamodified = true;
     const [newMetaEntry, uploadMeta] = await this.raw.putMetadata(
       metaEntry.id,
       meta,
