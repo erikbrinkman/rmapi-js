@@ -695,14 +695,21 @@ export interface RemarkableApi {
   ): Promise<HashEntry>;
 
   /**
-   * set if an entry is stared
+   * star or unstar an entry
    *
    * @example
    * ```ts
-   * await api.stared(file.hash, true);
+   * await api.star(file.hash, true);
    * ```
-   * @param hash - the hash of the entry to rename
-   * @param stared - whether the entry should be stared or not
+   * @param hash - the hash of the entry to star
+   * @param starred - whether the entry should be starred or not
+   */
+  star(hash: string, starred: boolean, refresh?: boolean): Promise<HashEntry>;
+
+  /**
+   * set if an entry is starred
+   *
+   * @deprecated misspelling; use {@link star | `star`} instead
    */
   stared(hash: string, stared: boolean, refresh?: boolean): Promise<HashEntry>;
 
@@ -1412,13 +1419,22 @@ class Remarkable implements RemarkableApi {
     return await this.#editMeta(hash, { visibleName }, refresh);
   }
 
-  /** stared */
+  /** star or unstar an entry */
+  async star(
+    hash: string,
+    starred: boolean,
+    refresh: boolean = false,
+  ): Promise<HashEntry> {
+    return await this.#editMeta(hash, { pinned: starred }, refresh);
+  }
+
+  /** @deprecated misspelling; use {@link star | `star`} */
   async stared(
     hash: string,
     stared: boolean,
     refresh: boolean = false,
   ): Promise<HashEntry> {
-    return await this.#editMeta(hash, { pinned: stared }, refresh);
+    return await this.star(hash, stared, refresh);
   }
 
   /** move many hashes */
