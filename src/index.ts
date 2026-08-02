@@ -487,433 +487,11 @@ export interface PutOptions {
  * you should be able to use the low level api to work around any restrictive
  * validation.
  */
-export interface RemarkableApi {
-  /** scoped access to the raw low-level api */
-  raw: RawRemarkableApi;
-
-  /**
-   * list all items
-   *
-   * Items include both collections and documents. Documents that are in folders
-   * will have their parent set to something other than "" or "trash", but
-   * everything will be returned by this function.
-   *
-   * @example
-   * ```ts
-   * await api.listItems();
-   * ```
-   *
-   * @remarks
-   * This is now backed by the low level api, and you may notice some
-   * performance degradation if not taking advantage of the cache.
-   *
-   * @param refresh - if true, refresh the root hash before listing
-   * @returns a list of all items with some metadata
-   */
-  listItems(refresh?: boolean): Promise<Entry[]>;
-
-  /**
-   * similar to {@link listItems | `listItems`} but backed by the low level api
-   *
-   * @param refresh - if true, refresh the root hash before listing
-   */
-  listIds(refresh?: boolean): Promise<ItemRef[]>;
-
-  /**
-   * get the content metadata for an item
-   *
-   * @remarks
-   * If this fails validation and you still want to get the content, you can use
-   * the low-level api to get the raw text of the `.content` file in the
-   * `RawEntry` for this hash.
-   *
-   * @param ref - a reference to the item (e.g. from `listItems` or `listIds`)
-   * @returns the content
-   */
-  getContent(ref: ItemRef): Promise<Content>;
-
-  /**
-   * get the metadata for an item
-   *
-   * @remarks
-   * If this fails validation and you still want to get the content, you can use
-   * the low-level api to get the raw text of the `.metadata` file in the
-   * `RawEntry` for this hash.
-   *
-   * @param ref - a reference to the item (e.g. from `listItems` or `listIds`)
-   * @returns the metadata
-   */
-  getMetadata(ref: ItemRef): Promise<Metadata>;
-
-  /**
-   * get the pdf associated with a document
-   *
-   * This returns the raw input pdf, not the rendered pdf with any markup.
-   *
-   * @param ref - a reference to the document (e.g. from `listItems`)
-   * @returns the pdf bytes
-   */
-  getPdf(ref: ItemRef): Promise<Uint8Array>;
-
-  /**
-   * get the epub associated with a document
-   *
-   * This returns the raw input epub if a document was created from an epub.
-   *
-   * @param ref - a reference to the document (e.g. from `listItems`)
-   * @returns the epub bytes
-   */
-  getEpub(ref: ItemRef): Promise<Uint8Array>;
-
-  /**
-   * get a single page's parsed reMarkable lines (`.rm`) drawing
-   *
-   * @param ref - a reference to the document (e.g. from `listItems`)
-   * @param pageId - the id of the page, from the document's `.content` page
-   *     list (see {@link getRmPages | `getRmPages`} for every page)
-   * @returns the parsed page, or `undefined` if the page exists but has no
-   *     `.rm` drawing (a page you haven't drawn on has no `.rm` file)
-   * @throws if `pageId` is not a page of the document
-   */
-  getRmPage(ref: ItemRef, pageId: string): Promise<RmPage | undefined>;
-
-  /**
-   * get every drawn page of a document, parsed, keyed by page id
-   *
-   * Returns a map from page id to its parsed {@link RmPage | `RmPage`},
-   * iterating in the page order given by the document's `.content`. Pages with
-   * no drawing (and soft-deleted pages) are omitted. Version 3, 5, and 6 pages
-   * are all supported.
-   *
-   * @param ref - a reference to the document (e.g. from `listItems`)
-   * @returns the drawn pages, keyed by page id, in document order
-   */
-  getRmPages(ref: ItemRef): Promise<Map<string, RmPage>>;
-
-  /**
-   * get a document's entire contents as a zip archive
-   *
-   * This gets every file associated with a document and puts them into a zip
-   * archive.
-   *
-   * @remarks
-   * This is an experimental feature. The resulting archive round-trips back
-   * through {@link putDocumentArchive | `putDocumentArchive`}.
-   *
-   * @param ref - a reference to the document (e.g. from `listItems`)
-   */
-  getDocumentArchive(ref: ItemRef): Promise<Uint8Array>;
-
-  /**
-   * upload a document archive produced by {@link getDocumentArchive | `getDocumentArchive`}
-   *
-   * This explodes the zip archive back into its constituent files, uploads each
-   * as a blob, and commits a new document into the root.
-   *
-   * @remarks
-   * This is an experimental feature. By default a fresh document id is generated
-   * so re-uploading to the same account doesn't collide with the original; pass
-   * {@link PutDocumentOptions.id | `id`} to keep the original id. Like the other
-   * low-level puts, this may throw a {@link GenerationError | `GenerationError`}
-   * if the generation is stale, requiring a retry.
-   *
-   * @param buffer - the archive bytes, as returned by `getDocumentArchive`
-   * @param options - overrides for parent, visible name, and id
-   */
-  putDocumentArchive(
-    buffer: Uint8Array,
-    options?: PutDocumentOptions,
-  ): Promise<ItemRef>;
-
-  /**
-   * use the low-level api to add a pdf document
-   *
-   * Since this uses the low-level api, it provides more options than
-   * {@link uploadPdf | `uploadPdf`}, but is a little more finicky. Notably, it
-   * may throw a {@link GenerationError | `GenerationError`} if the generation
-   * doesn't match the current server generation, requiring you to retry until
-   * it works.
-   *
-   * @remarks
-   * When `zoomMode` is `"customFit"` the `customZoom*` fields describe the view,
-   * all in the source page's device pixels: `customZoomPageWidth` and
-   * `customZoomPageHeight` are the page dimensions scaled by the device dpi
-   * (`pagePt * dpi / 72`, see {@link deviceScreens | `deviceScreens`}), and the
-   * centers are in those pixels.
-   *
-   * The view always has the device's aspect ratio — you control its height and
-   * position, not its shape. `customZoomScale = screenHeight / viewHeight` in
-   * device pixels (`screenHeight` fixed per model, see {@link deviceScreens |
-   * `deviceScreens`}), normalized to 1:1 native pixels: at `1` the view is
-   * screen-tall, showing `screenHeight / customZoomPageHeight` of the page.
-   *
-   * `customZoomCenterX` offsets the center of the view horizontally from the
-   * page center, and `customZoomCenterY` is the absolute distance of the center
-   * down from the top of the page; the view's width follows from its height and
-   * the device aspect ratio.
-   *
-   * The fields are a single document-wide setting, but `customZoomCenterY` is
-   * applied against each page's own rendered height. On a page rendered taller
-   * than `customZoomPageHeight` that distance is a smaller fraction of the page,
-   * so the view sits higher and cuts off the bottom; on a shorter page it sits
-   * lower and cuts off the top. `customZoomScale` (a ratio) and
-   * `customZoomCenterX` (an offset from center) do not shift with page size.
-   *
-   * @param visibleName - the name to display on the reMarkable
-   * @param buffer - the raw pdf
-   * @param opts - put options
-   * @throws GenerationError if the generation doesn't match the current server generation
-   * @returns the entry for the newly inserted document
-   */
-  putPdf(
-    visibleName: string,
-    buffer: Uint8Array,
-    opts?: PutOptions,
-  ): Promise<ItemRef>;
-
-  /**
-   * use the low-level api to add an epub document
-   *
-   * Since this uses the low-level api, it provides more options than
-   * {@link uploadEpub | `uploadEpub`}, but is a little more finicky. Notably, it
-   * may throw a {@link GenerationError | `GenerationError`} if the generation
-   * doesn't match the current server generation, requiring you to retry until
-   * it works.
-   *
-   * @param visibleName - the name to display on the reMarkable
-   * @param buffer - the raw epub
-   * @param opts - put options
-   * @throws GenerationError if the generation doesn't match the current server generation
-   * @returns the entry for the newly inserted document
-   */
-  putEpub(
-    visibleName: string,
-    buffer: Uint8Array,
-    opts?: PutOptions,
-  ): Promise<ItemRef>;
-
-  /** create a folder */
-  putFolder(
-    visibleName: string,
-    opts?: FolderOptions,
-    refresh?: boolean,
-  ): Promise<ItemRef>;
-
-  /**
-   * upload an epub
-   *
-   * @example
-   * ```ts
-   * await api.uploadEpub("My EPub", ...);
-   * ```
-   *
-   * @remarks
-   * this uses a simpler api that works even with schema version 4.
-   *
-   * @param visibleName - the name to show for the uploaded epub
-   * @param buffer - the epub contents
-   */
-  uploadEpub(visibleName: string, buffer: Uint8Array): Promise<ItemRef>;
-
-  /**
-   * upload a pdf
-   *
-   * @example
-   * ```ts
-   * await api.uploadPdf("My PDF", ...);
-   * ```
-   *
-   * @remarks
-   * this uses a simpler api that works even with schema version 4.
-   *
-   * @param visibleName - the name to show for the uploaded epub
-   * @param buffer - the epub contents
-   */
-  uploadPdf(visibleName: string, buffer: Uint8Array): Promise<ItemRef>;
-
-  /** create a folder using the simple api */
-  uploadFolder(visibleName: string): Promise<ItemRef>;
-
-  /**
-   * update content metadata for a document
-   *
-   * @example
-   * ```ts
-   * const next = await api.updateDocument(doc, { textAlignment: "left" });
-   * ```
-   *
-   * @param ref - a reference to the file to update
-   * @param content - the fields of content to update
-   * @returns a reference to the updated entry, with its new hash
-   */
-  updateDocument(
-    ref: ItemRef,
-    content: Partial<DocumentContent>,
-    refresh?: boolean,
-  ): Promise<ItemRef>;
-
-  /**
-   * update content metadata for a collection
-   *
-   * @example
-   * ```ts
-   * const next = await api.updateCollection(dir, { textAlignment: "left" });
-   * ```
-   *
-   * @param ref - a reference to the collection to update
-   * @param content - the fields of content to update
-   * @returns a reference to the updated entry, with its new hash
-   */
-  updateCollection(
-    ref: ItemRef,
-    content: Partial<CollectionContent>,
-    refresh?: boolean,
-  ): Promise<ItemRef>;
-
-  /**
-   * update content metadata for a template
-   *
-   * @example
-   * ```ts
-   * const next = await api.updateTemplate(tmpl, { textAlignment: "left" });
-   * ```
-   *
-   * @param ref - a reference to the template to update
-   * @param content - the fields of content to update
-   * @returns a reference to the updated entry, with its new hash
-   */
-  updateTemplate(
-    ref: ItemRef,
-    content: Partial<TemplateContent>,
-    refresh?: boolean,
-  ): Promise<ItemRef>;
-
-  /**
-   * move an entry
-   *
-   * @example
-   * ```ts
-   * const next = await api.move(doc, dir.id);
-   * ```
-   *
-   * @param ref - a reference to the entry to move
-   * @param parent - the id of the directory to move the entry to, "" (root) and "trash" are special parents
-   * @returns a reference to the moved entry, with its new hash
-   */
-  move(ref: ItemRef, parent: string, refresh?: boolean): Promise<ItemRef>;
-
-  /**
-   * delete an entry
-   *
-   * @example
-   * ```ts
-   * await api.delete(file);
-   * ```
-   * @param ref - a reference to the entry to delete
-   * @returns a reference to the deleted entry, with its new hash
-   */
-  delete(ref: ItemRef, refresh?: boolean): Promise<ItemRef>;
-
-  /**
-   * rename an entry
-   *
-   * @example
-   * ```ts
-   * const next = await api.rename(file, "new name");
-   * ```
-   * @param ref - a reference to the entry to rename
-   * @param visibleName - the new name to assign
-   * @returns a reference to the renamed entry, with its new hash
-   */
-  rename(
-    ref: ItemRef,
-    visibleName: string,
-    refresh?: boolean,
-  ): Promise<ItemRef>;
-
-  /**
-   * star or unstar an entry
-   *
-   * @example
-   * ```ts
-   * const next = await api.star(file, true);
-   * ```
-   * @param ref - a reference to the entry to star
-   * @param starred - whether the entry should be starred or not
-   * @returns a reference to the updated entry, with its new hash
-   */
-  star(ref: ItemRef, starred: boolean, refresh?: boolean): Promise<ItemRef>;
-
-  /**
-   * move many entries
-   *
-   * @example
-   * ```ts
-   * const next = await api.bulkMove([file], dir.id);
-   * ```
-   *
-   * @param refs - references to the entries to move
-   * @param parent - the directory id to move the entries to, "" (root) and "trash" are special ids
-   * @returns references to the moved entries, each with its new hash
-   */
-  bulkMove(
-    refs: readonly ItemRef[],
-    parent: string,
-    refresh?: boolean,
-  ): Promise<ItemRef[]>;
-
-  /**
-   * delete many entries
-   *
-   * @example
-   * ```ts
-   * await api.bulkDelete([file]);
-   * ```
-   *
-   * @param refs - references to the entries to delete
-   * @returns references to the deleted entries, each with its new hash
-   */
-  bulkDelete(refs: readonly ItemRef[], refresh?: boolean): Promise<ItemRef[]>;
-
-  /**
-   * get the current cache value as a string
-   *
-   * You can use this to warm start a new instance of
-   * {@link remarkable | `remarkable`} with any previously cached results.
-   */
-  dumpCache(): string;
-
-  /**
-   * prune the cache so that it contains only reachable hashes
-   *
-   * The cache is append only, so it can grow without bound, even as hashes
-   * become unreachable. In the future, this may have better cache management to
-   * track this in real time, but for now, you can call this method, to keep it
-   * from growing continuously.
-   *
-   * @remarks
-   * This won't necessarily reduce the cache size. In order to see if
-   * hashes are reachable we first have to search through all existing entry
-   * lists.
-   *
-   * @param refresh - whether to refresh the root hash before pruning
-   */
-  pruneCache(refresh?: boolean): Promise<void>;
-
-  /**
-   * completely delete the cache
-   *
-   * If the cache is causing memory issues, you can clear it, but this will hurt
-   * performance.
-   */
-  clearCache(): void;
-}
-
-/** the implementation of that api */
-class Remarkable implements RemarkableApi {
+class Remarkable {
   readonly #sessionToken: string;
   /** the same cache that underlies the raw api, allowing us to modify it */
   readonly #cache: Map<string, string | null>;
+  /** scoped access to the raw low-level api */
   readonly raw: RawRemarkable;
   readonly #maxGenerationRetries: number;
   readonly #maxTransientRetries: number;
@@ -1163,18 +741,52 @@ class Remarkable implements RemarkableApi {
     }
   }
 
-  /** list all items */
+  /**
+   * list all items
+   *
+   * Items include both collections and documents. Documents that are in folders
+   * will have their parent set to something other than "" or "trash", but
+   * everything will be returned by this function.
+   *
+   * @example
+   * ```ts
+   * await api.listItems();
+   * ```
+   *
+   * @remarks
+   * This is now backed by the low level api, and you may notice some
+   * performance degradation if not taking advantage of the cache.
+   *
+   * @param refresh - if true, refresh the root hash before listing
+   * @returns a list of all items with some metadata
+   */
   async listItems(refresh: boolean = false): Promise<Entry[]> {
     const ids = await this.listIds(refresh);
     return await Promise.all(ids.map((id) => this.#convertEntry(id)));
   }
 
+  /**
+   * similar to {@link listItems | `listItems`} but backed by the low level api
+   *
+   * @param refresh - if true, refresh the root hash before listing
+   */
   async listIds(refresh: boolean = false): Promise<ItemRef[]> {
     const [hash] = await this.#getRootHash(refresh);
     const { entries } = await this.raw.getEntries({ id: ROOT_SCHEMA, hash });
     return entries.map(({ id, hash }) => ({ id, hash }));
   }
 
+  /**
+   * get the content metadata for an item
+   *
+   * @remarks
+   * If this fails validation and you still want to get the content, you can use
+   * the low-level api to get the raw text of the `.content` file in the
+   * `RawEntry` for this hash.
+   *
+   * @param ref - a reference to the item (e.g. from `listItems` or `listIds`)
+   * @returns the content
+   */
   async getContent({ id, hash }: ItemRef): Promise<Content> {
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
@@ -1188,6 +800,17 @@ class Remarkable implements RemarkableApi {
     }
   }
 
+  /**
+   * get the metadata for an item
+   *
+   * @remarks
+   * If this fails validation and you still want to get the content, you can use
+   * the low-level api to get the raw text of the `.metadata` file in the
+   * `RawEntry` for this hash.
+   *
+   * @param ref - a reference to the item (e.g. from `listItems` or `listIds`)
+   * @returns the metadata
+   */
   async getMetadata({ id, hash }: ItemRef): Promise<Metadata> {
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
@@ -1201,6 +824,14 @@ class Remarkable implements RemarkableApi {
     }
   }
 
+  /**
+   * get the pdf associated with a document
+   *
+   * This returns the raw input pdf, not the rendered pdf with any markup.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @returns the pdf bytes
+   */
   async getPdf({ id, hash }: ItemRef): Promise<Uint8Array> {
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
@@ -1214,6 +845,14 @@ class Remarkable implements RemarkableApi {
     }
   }
 
+  /**
+   * get the epub associated with a document
+   *
+   * This returns the raw input epub if a document was created from an epub.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @returns the epub bytes
+   */
   async getEpub({ id, hash }: ItemRef): Promise<Uint8Array> {
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
@@ -1227,6 +866,16 @@ class Remarkable implements RemarkableApi {
     }
   }
 
+  /**
+   * get a single page's parsed reMarkable lines (`.rm`) drawing
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @param pageId - the id of the page, from the document's `.content` page
+   *     list (see {@link getRmPages | `getRmPages`} for every page)
+   * @returns the parsed page, or `undefined` if the page exists but has no
+   *     `.rm` drawing (a page you haven't drawn on has no `.rm` file)
+   * @throws if `pageId` is not a page of the document
+   */
   async getRmPage(ref: ItemRef, pageId: string): Promise<RmPage | undefined> {
     const { id, hash } = ref;
     const { entries } = await this.raw.getEntries({
@@ -1245,6 +894,17 @@ class Remarkable implements RemarkableApi {
     }
   }
 
+  /**
+   * get every drawn page of a document, parsed, keyed by page id
+   *
+   * Returns a map from page id to its parsed {@link RmPage | `RmPage`},
+   * iterating in the page order given by the document's `.content`. Pages with
+   * no drawing (and soft-deleted pages) are omitted. Version 3, 5, and 6 pages
+   * are all supported.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @returns the drawn pages, keyed by page id, in document order
+   */
   async getRmPages(ref: ItemRef): Promise<Map<string, RmPage>> {
     const { id, hash } = ref;
     const { entries } = await this.raw.getEntries({
@@ -1262,6 +922,18 @@ class Remarkable implements RemarkableApi {
     return new Map(drawn.map(([pageId], index) => [pageId, parsed[index]!]));
   }
 
+  /**
+   * get a document's entire contents as a zip archive
+   *
+   * This gets every file associated with a document and puts them into a zip
+   * archive.
+   *
+   * @remarks
+   * This is an experimental feature. The resulting archive round-trips back
+   * through {@link putDocumentArchive | `putDocumentArchive`}.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   */
   async getDocumentArchive({ id, hash }: ItemRef): Promise<Uint8Array> {
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
@@ -1275,6 +947,22 @@ class Remarkable implements RemarkableApi {
     return zip.generateAsync({ type: "uint8array" });
   }
 
+  /**
+   * upload a document archive produced by {@link getDocumentArchive | `getDocumentArchive`}
+   *
+   * This explodes the zip archive back into its constituent files, uploads each
+   * as a blob, and commits a new document into the root.
+   *
+   * @remarks
+   * This is an experimental feature. By default a fresh document id is generated
+   * so re-uploading to the same account doesn't collide with the original; pass
+   * {@link PutDocumentOptions.id | `id`} to keep the original id. Like the other
+   * low-level puts, this may throw a {@link GenerationError | `GenerationError`}
+   * if the generation is stale, requiring a retry.
+   *
+   * @param buffer - the archive bytes, as returned by `getDocumentArchive`
+   * @param options - overrides for parent, visible name, and id
+   */
   async putDocumentArchive(
     buffer: Uint8Array,
     {
@@ -1461,6 +1149,46 @@ class Remarkable implements RemarkableApi {
     return { id, hash: collectionEntry.hash };
   }
 
+  /**
+   * use the low-level api to add a pdf document
+   *
+   * Since this uses the low-level api, it provides more options than
+   * {@link uploadPdf | `uploadPdf`}, but is a little more finicky. Notably, it
+   * may throw a {@link GenerationError | `GenerationError`} if the generation
+   * doesn't match the current server generation, requiring you to retry until
+   * it works.
+   *
+   * @remarks
+   * When `zoomMode` is `"customFit"` the `customZoom*` fields describe the view,
+   * all in the source page's device pixels: `customZoomPageWidth` and
+   * `customZoomPageHeight` are the page dimensions scaled by the device dpi
+   * (`pagePt * dpi / 72`, see {@link deviceScreens | `deviceScreens`}), and the
+   * centers are in those pixels.
+   *
+   * The view always has the device's aspect ratio — you control its height and
+   * position, not its shape. `customZoomScale = screenHeight / viewHeight` in
+   * device pixels (`screenHeight` fixed per model, see {@link deviceScreens |
+   * `deviceScreens`}), normalized to 1:1 native pixels: at `1` the view is
+   * screen-tall, showing `screenHeight / customZoomPageHeight` of the page.
+   *
+   * `customZoomCenterX` offsets the center of the view horizontally from the
+   * page center, and `customZoomCenterY` is the absolute distance of the center
+   * down from the top of the page; the view's width follows from its height and
+   * the device aspect ratio.
+   *
+   * The fields are a single document-wide setting, but `customZoomCenterY` is
+   * applied against each page's own rendered height. On a page rendered taller
+   * than `customZoomPageHeight` that distance is a smaller fraction of the page,
+   * so the view sits higher and cuts off the bottom; on a shorter page it sits
+   * lower and cuts off the top. `customZoomScale` (a ratio) and
+   * `customZoomCenterX` (an offset from center) do not shift with page size.
+   *
+   * @param visibleName - the name to display on the reMarkable
+   * @param buffer - the raw pdf
+   * @param opts - put options
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @returns the entry for the newly inserted document
+   */
   async putPdf(
     visibleName: string,
     buffer: Uint8Array,
@@ -1469,6 +1197,21 @@ class Remarkable implements RemarkableApi {
     return await this.#putFile(visibleName, "pdf", buffer, opts);
   }
 
+  /**
+   * use the low-level api to add an epub document
+   *
+   * Since this uses the low-level api, it provides more options than
+   * {@link uploadEpub | `uploadEpub`}, but is a little more finicky. Notably, it
+   * may throw a {@link GenerationError | `GenerationError`} if the generation
+   * doesn't match the current server generation, requiring you to retry until
+   * it works.
+   *
+   * @param visibleName - the name to display on the reMarkable
+   * @param buffer - the raw epub
+   * @param opts - put options
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @returns the entry for the newly inserted document
+   */
   async putEpub(
     visibleName: string,
     buffer: Uint8Array,
@@ -1523,7 +1266,20 @@ class Remarkable implements RemarkableApi {
     return { id, hash: collectionEntry.hash };
   }
 
-  /** upload an epub */
+  /**
+   * upload an epub
+   *
+   * @example
+   * ```ts
+   * await api.uploadEpub("My EPub", ...);
+   * ```
+   *
+   * @remarks
+   * this uses a simpler api that works even with schema version 4.
+   *
+   * @param visibleName - the name to show for the uploaded epub
+   * @param buffer - the epub contents
+   */
   async uploadEpub(visibleName: string, buffer: Uint8Array): Promise<ItemRef> {
     return await this.raw.uploadFile(
       visibleName,
@@ -1532,12 +1288,25 @@ class Remarkable implements RemarkableApi {
     );
   }
 
-  /** upload a pdf */
+  /**
+   * upload a pdf
+   *
+   * @example
+   * ```ts
+   * await api.uploadPdf("My PDF", ...);
+   * ```
+   *
+   * @remarks
+   * this uses a simpler api that works even with schema version 4.
+   *
+   * @param visibleName - the name to show for the uploaded epub
+   * @param buffer - the epub contents
+   */
   async uploadPdf(visibleName: string, buffer: Uint8Array): Promise<ItemRef> {
     return await this.raw.uploadFile(visibleName, buffer, "application/pdf");
   }
 
-  /** upload a folder */
+  /** create a folder using the simple api */
   async uploadFolder(visibleName: string): Promise<ItemRef> {
     return await this.raw.uploadFile(visibleName, new Uint8Array(0), "folder");
   }
@@ -1617,7 +1386,18 @@ class Remarkable implements RemarkableApi {
     });
   }
 
-  /** update document content */
+  /**
+   * update content metadata for a document
+   *
+   * @example
+   * ```ts
+   * const next = await api.updateDocument(doc, { textAlignment: "left" });
+   * ```
+   *
+   * @param ref - a reference to the file to update
+   * @param content - the fields of content to update
+   * @returns a reference to the updated entry, with its new hash
+   */
   async updateDocument(
     ref: ItemRef,
     content: Partial<DocumentContent>,
@@ -1626,7 +1406,18 @@ class Remarkable implements RemarkableApi {
     return await this.#editContent(ref.hash, content, "DocumentType", refresh);
   }
 
-  /** update collection content */
+  /**
+   * update content metadata for a collection
+   *
+   * @example
+   * ```ts
+   * const next = await api.updateCollection(dir, { textAlignment: "left" });
+   * ```
+   *
+   * @param ref - a reference to the collection to update
+   * @param content - the fields of content to update
+   * @returns a reference to the updated entry, with its new hash
+   */
   async updateCollection(
     ref: ItemRef,
     content: Partial<CollectionContent>,
@@ -1640,7 +1431,18 @@ class Remarkable implements RemarkableApi {
     );
   }
 
-  /** update template content */
+  /**
+   * update content metadata for a template
+   *
+   * @example
+   * ```ts
+   * const next = await api.updateTemplate(tmpl, { textAlignment: "left" });
+   * ```
+   *
+   * @param ref - a reference to the template to update
+   * @param content - the fields of content to update
+   * @returns a reference to the updated entry, with its new hash
+   */
   async updateTemplate(
     ref: ItemRef,
     content: Partial<TemplateContent>,
@@ -1719,7 +1521,18 @@ class Remarkable implements RemarkableApi {
     });
   }
 
-  /** move an entry */
+  /**
+   * move an entry
+   *
+   * @example
+   * ```ts
+   * const next = await api.move(doc, dir.id);
+   * ```
+   *
+   * @param ref - a reference to the entry to move
+   * @param parent - the id of the directory to move the entry to, "" (root) and "trash" are special parents
+   * @returns a reference to the moved entry, with its new hash
+   */
   async move(
     ref: ItemRef,
     parent: string,
@@ -1735,12 +1548,31 @@ class Remarkable implements RemarkableApi {
     return await this.#editMeta(ref.hash, { parent }, refresh);
   }
 
-  /** delete an entry */
+  /**
+   * delete an entry
+   *
+   * @example
+   * ```ts
+   * await api.delete(file);
+   * ```
+   * @param ref - a reference to the entry to delete
+   * @returns a reference to the deleted entry, with its new hash
+   */
   async delete(ref: ItemRef, refresh: boolean = false): Promise<ItemRef> {
     return await this.move(ref, TRASH_ID, refresh);
   }
 
-  /** rename an entry */
+  /**
+   * rename an entry
+   *
+   * @example
+   * ```ts
+   * const next = await api.rename(file, "new name");
+   * ```
+   * @param ref - a reference to the entry to rename
+   * @param visibleName - the new name to assign
+   * @returns a reference to the renamed entry, with its new hash
+   */
   async rename(
     ref: ItemRef,
     visibleName: string,
@@ -1749,7 +1581,17 @@ class Remarkable implements RemarkableApi {
     return await this.#editMeta(ref.hash, { visibleName }, refresh);
   }
 
-  /** star or unstar an entry */
+  /**
+   * star or unstar an entry
+   *
+   * @example
+   * ```ts
+   * const next = await api.star(file, true);
+   * ```
+   * @param ref - a reference to the entry to star
+   * @param starred - whether the entry should be starred or not
+   * @returns a reference to the updated entry, with its new hash
+   */
   async star(
     ref: ItemRef,
     starred: boolean,
@@ -1758,7 +1600,18 @@ class Remarkable implements RemarkableApi {
     return await this.#editMeta(ref.hash, { pinned: starred }, refresh);
   }
 
-  /** move many entries */
+  /**
+   * move many entries
+   *
+   * @example
+   * ```ts
+   * const next = await api.bulkMove([file], dir.id);
+   * ```
+   *
+   * @param refs - references to the entries to move
+   * @param parent - the directory id to move the entries to, "" (root) and "trash" are special ids
+   * @returns references to the moved entries, each with its new hash
+   */
   async bulkMove(
     refs: readonly ItemRef[],
     parent: string,
@@ -1813,7 +1666,17 @@ class Remarkable implements RemarkableApi {
     });
   }
 
-  /** delete many entries */
+  /**
+   * delete many entries
+   *
+   * @example
+   * ```ts
+   * await api.bulkDelete([file]);
+   * ```
+   *
+   * @param refs - references to the entries to delete
+   * @returns references to the deleted entries, each with its new hash
+   */
   async bulkDelete(
     refs: readonly ItemRef[],
     refresh: boolean = false,
@@ -1821,11 +1684,31 @@ class Remarkable implements RemarkableApi {
     return await this.bulkMove(refs, TRASH_ID, refresh);
   }
 
-  /** dump the raw cache */
+  /**
+   * get the current cache value as a string
+   *
+   * You can use this to warm start a new instance of
+   * {@link remarkable | `remarkable`} with any previously cached results.
+   */
   dumpCache(): string {
     return this.raw.dumpCache();
   }
 
+  /**
+   * prune the cache so that it contains only reachable hashes
+   *
+   * The cache is append only, so it can grow without bound, even as hashes
+   * become unreachable. In the future, this may have better cache management to
+   * track this in real time, but for now, you can call this method, to keep it
+   * from growing continuously.
+   *
+   * @remarks
+   * This won't necessarily reduce the cache size. In order to see if
+   * hashes are reachable we first have to search through all existing entry
+   * lists.
+   *
+   * @param refresh - whether to refresh the root hash before pruning
+   */
   async pruneCache(refresh?: boolean): Promise<void> {
     const [rootHash] = await this.#getRootHash(refresh);
     // start by assuming every cached hash is unreachable, then keep the ones we reach
@@ -1859,10 +1742,18 @@ class Remarkable implements RemarkableApi {
     }
   }
 
+  /**
+   * completely delete the cache
+   *
+   * If the cache is causing memory issues, you can clear it, but this will hurt
+   * performance.
+   */
   clearCache(): void {
     this.raw.clearCache();
   }
 }
+
+export type { Remarkable as RemarkableApi };
 
 /** configuration for exchanging a device token */
 export interface AuthOptions {
@@ -1984,7 +1875,7 @@ export function session(
     maxGenerationRetries = 10,
     maxTransientRetries = 3,
   }: RemarkableSessionOptions = {},
-): RemarkableApi {
+): Remarkable {
   const initCache = JSON.parse(cache ?? "{}") as unknown;
   const parsedCache = cached.safeParse(initCache);
   if (parsedCache.success) {
@@ -2020,7 +1911,7 @@ export function session(
 export async function remarkable(
   deviceToken: string,
   options: RemarkableOptions = {},
-): Promise<RemarkableApi> {
+): Promise<Remarkable> {
   const {
     authHost,
     rawHost,

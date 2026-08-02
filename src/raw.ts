@@ -736,6 +736,35 @@ async function digest(buff: Uint8Array): Promise<string> {
   return new Uint8Array(digest).toHex();
 }
 
+type AuthedFetch = (
+  method: RequestMethod,
+  url: string,
+  init?: { body?: string | Uint8Array; headers?: Record<string, string> },
+) => Promise<Response>;
+
+function parseRawEntryLine(line: string): RawEntry {
+  const [hash, type, id, subfiles, size] = line.split(":");
+  if (
+    hash === undefined ||
+    type === undefined ||
+    id === undefined ||
+    subfiles === undefined ||
+    size === undefined
+  ) {
+    throw new Error(`line '${line}' was not formatted correctly`);
+  } else if (type === "80000000" || type === "0") {
+    return {
+      hash,
+      type: type === "0" ? 0 : 80000000,
+      id,
+      subfiles: parseInt(subfiles, 10),
+      size: parseInt(size, 10),
+    };
+  } else {
+    throw new Error(`line '${line}' was not formatted correctly`);
+  }
+}
+
 /**
  * access to the low-level reMarkable api
  *
@@ -795,241 +824,7 @@ async function digest(buff: Uint8Array): Promise<string> {
  *
  * Generally all hashes are 64 character hex strings, and all ids are uuid4.
  */
-export interface RawRemarkableApi {
-  /**
-   * gets the root hash and the current generation
-   *
-   * When calling `putRootHash`, you should pass the generation you got from
-   * this call. That way you tell reMarkable you're updating the previous state.
-   *
-   * @returns the root hash and the current generation
-   */
-  getRootHash(): Promise<[string, number, SchemaVersion]>;
-
-  /**
-   * get the raw binary data associated with a hash
-   *
-   * @param ref - a reference to the stored file. Its `id` is the logical file
-   *   name (`<id>.<ext>` for files, or `<id>.docSchema` / `"root.docSchema"`
-   *   for entry indexes), which reMarkable validates against the rm-filename
-   *   header. Sub-entries from {@link getEntries | `getEntries`} can be passed
-   *   directly.
-   * @returns the data
-   */
-  getHash(ref: ItemRef): Promise<Uint8Array>;
-
-  /**
-   * get raw text data associated with a hash
-   *
-   * We assume text data are small, and so cache the entire text. If you want to
-   * avoid this, use {@link getHash | `getHash`} combined with a TextDecoder.
-   *
-   * @param ref - a reference to the stored file (see {@link getHash})
-   * @returns the text
-   */
-  getText(ref: ItemRef): Promise<string>;
-
-  /**
-   * get the entries associated with a list hash
-   *
-   * A list hash is the root hash, or any hash with the type 80000000. NOTE
-   * these are hashed differently than files.
-   *
-   * @param ref - a reference whose `id` is `"root.docSchema"` for the root, or
-   *   `"<id>.docSchema"` for a sub-document's entry index
-   * @returns the entries
-   */
-  getEntries(ref: ItemRef): Promise<Entries>;
-
-  /**
-   * get the parsed and validated `Content` of a content hash
-   *
-   * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
-   * validation
-   *
-   * @param ref - a reference to the stored file, typically `"<id>.content"`
-   * @returns the content
-   */
-  getContent(ref: ItemRef): Promise<Content>;
-
-  /**
-   * get the parsed and validated `Metadata` of a metadata hash
-   *
-   * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
-   * validation
-   *
-   * @param ref - a reference to the stored file, typically `"<id>.metadata"`
-   * @returns the metadata
-   */
-  getMetadata(ref: ItemRef): Promise<Metadata>;
-
-  /**
-   * get the parsed reMarkable lines (`.rm`) drawing of a page hash
-   *
-   * @param ref - a reference to the stored file, typically `"<id>/<pageid>.rm"`
-   * @returns the parsed page
-   */
-  getRm(ref: ItemRef): Promise<RmPage>;
-
-  /**
-   * the same as {@link putFile | `putFile`} but rendering an `RmPage` to `.rm`
-   * bytes
-   *
-   * Only version 3 and 5 pages can be rendered; version 6 pages are read-only.
-   */
-  putRm(fileName: string, page: RmPageV5): Promise<[RawEntry, Promise<void>]>;
-
-  /**
-   * update the current root hash
-   *
-   * This will fail if generation doesn't match the current server generation.
-   * This ensures that you are updating what you expect. IF you get a
-   * {@link GenerationError | `GenerationError`}, that indicates that the server
-   * was updated after you last got the generation. You should call
-   * {@link getRootHash | `getRootHash`} and then recompute the changes you want
-   * from the new root hash. If you ignore the update hash value and just call
-   * `putRootHash` again, you will overwrite the changes made by the other
-   * update.
-   *
-   * @param hash - the new root hash
-   * @param generation - the generation of the current root hash
-   * @param broadcast - [unknown] an option in the request
-   *
-   * @throws GenerationError if the generation doesn't match the current server generation
-   * @returns the new root hash and the new generation
-   */
-  putRootHash(
-    hash: string,
-    generation: number,
-    broadcast?: boolean,
-  ): Promise<[string, number]>;
-
-  /**
-   * put a raw onto the server
-   *
-   * This returns the new expeced entry of the file you uploaded, and a promise
-   * to finish the upload successful. By splitting these two operations you can
-   * start using the uploaded entry while file finishes uploading.
-   *
-   * NOTE: This won't update the state of the reMarkable until this entry is
-   * incorporated into the root hash.
-   *
-   * @param fileName - the file name to upload (e.g. `<id>.pdf`)
-   * @param bytes - the bytes to upload
-   * @returns the new entry and a promise to finish the upload
-   */
-  putFile(
-    fileName: string,
-    bytes: Uint8Array,
-  ): Promise<[RawEntry, Promise<void>]>;
-
-  /** the same as {@link putFile | `putFile`} but with caching for text */
-  putText(
-    fileName: string,
-    content: string,
-  ): Promise<[RawEntry, Promise<void>]>;
-
-  /** the same as {@link putText | `putText`} but with extra validation for Content */
-  putContent(
-    fileName: string,
-    content: Content,
-  ): Promise<[RawEntry, Promise<void>]>;
-
-  /** the same as {@link putText | `putText`} but with extra validation for Metadata */
-  putMetadata(
-    fileName: string,
-    metadata: Metadata,
-  ): Promise<[RawEntry, Promise<void>]>;
-
-  /**
-   * put a set of entries to make an entry list file
-   *
-   * To fully upload an item:
-   * 1. upload all the constituent files and metadata
-   * 2. call this with all of the entries
-   * 3. append this entry to the root entry and call this again to update this root list
-   * 4. put the new root hash
-   *
-   * NOTE: reMarkable currently rejects newly written schema 3 root indexes
-   * with a 400 "Software must be updated" error, even for accounts that still
-   * report schema 3, so the root list should always be written as schema 4. A
-   * warning is logged if a schema 3 root index is written.
-   *
-   * @param id - the id of the list to upload - this should be the item id if
-   *   uploading an item list, or "root" if uploading a new root list. Note the
-   *   asymmetry with {@link getEntries | `getEntries`}: `getEntries` takes the
-   *   full `"<id>.docSchema"` file name, whereas `putEntries` takes the bare id
-   *   and appends `.docSchema` (and special-cases `"root"`) itself.
-   * @param entries - the entries to upload
-   *
-   * @returns the new list entry and a promise to finish the upload
-   */
-  putEntries(
-    id: string,
-    entries: readonly RawEntry[],
-    schemaVersion: SchemaVersion,
-  ): Promise<[RawEntry, Promise<void>]>;
-
-  /**
-   * upload a file to the reMarkable cloud using the simple api
-   *
-   * This api is the same as used by the native reMarkable extension and works
-   * even if the backend schema version is version 4. Setting mime to "folder"
-   * allows folder creation.
-   *
-   * @param visibleName - the name of the file as it should appear on the reMarkable
-   * @param bytes - the bytes of the file to upload
-   * @param mime - the mime type of the file to upload
-   
-   * @returns a simple entry with the id and hash of the uploaded file
-   */
-  uploadFile(
-    visibleName: string,
-    bytes: Uint8Array,
-    mime: UploadMimeType,
-  ): Promise<ItemRef>;
-
-  /**
-   * dump the current cache to a string to preserve between session
-   *
-   * @returns a serialized version of the cache to pass to a new api instance
-   */
-  dumpCache(): string;
-
-  /** completely clear the cache */
-  clearCache(): void;
-}
-
-type AuthedFetch = (
-  method: RequestMethod,
-  url: string,
-  init?: { body?: string | Uint8Array; headers?: Record<string, string> },
-) => Promise<Response>;
-
-function parseRawEntryLine(line: string): RawEntry {
-  const [hash, type, id, subfiles, size] = line.split(":");
-  if (
-    hash === undefined ||
-    type === undefined ||
-    id === undefined ||
-    subfiles === undefined ||
-    size === undefined
-  ) {
-    throw new Error(`line '${line}' was not formatted correctly`);
-  } else if (type === "80000000" || type === "0") {
-    return {
-      hash,
-      type: type === "0" ? 0 : 80000000,
-      id,
-      subfiles: parseInt(subfiles, 10),
-      size: parseInt(size, 10),
-    };
-  } else {
-    throw new Error(`line '${line}' was not formatted correctly`);
-  }
-}
-
-export class RawRemarkable implements RawRemarkableApi {
+export class RawRemarkable {
   readonly #authedFetch: AuthedFetch;
   readonly #rawHost: string;
   readonly #uploadHost: string;
@@ -1057,6 +852,14 @@ export class RawRemarkable implements RawRemarkableApi {
   }
   /** make an authorized request to remarkable */
 
+  /**
+   * gets the root hash and the current generation
+   *
+   * When calling `putRootHash`, you should pass the generation you got from
+   * this call. That way you tell reMarkable you're updating the previous state.
+   *
+   * @returns the root hash and the current generation
+   */
   async getRootHash(): Promise<[string, number, SchemaVersion]> {
     const res = await this.#authedFetch("GET", `${this.#rawHost}/sync/v4/root`);
     const raw = await res.text();
@@ -1087,6 +890,16 @@ export class RawRemarkable implements RawRemarkableApi {
     return new Uint8Array(raw);
   }
 
+  /**
+   * get the raw binary data associated with a hash
+   *
+   * @param ref - a reference to the stored file. Its `id` is the logical file
+   *   name (`<id>.<ext>` for files, or `<id>.docSchema` / `"root.docSchema"`
+   *   for entry indexes), which reMarkable validates against the rm-filename
+   *   header. Sub-entries from {@link getEntries | `getEntries`} can be passed
+   *   directly.
+   * @returns the data
+   */
   async getHash({ id: fileName, hash }: ItemRef): Promise<Uint8Array> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
@@ -1103,6 +916,15 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
+  /**
+   * get raw text data associated with a hash
+   *
+   * We assume text data are small, and so cache the entire text. If you want to
+   * avoid this, use {@link getHash | `getHash`} combined with a TextDecoder.
+   *
+   * @param ref - a reference to the stored file (see {@link getHash})
+   * @returns the text
+   */
   async getText({ id: fileName, hash }: ItemRef): Promise<string> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
@@ -1117,6 +939,16 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
+  /**
+   * get the entries associated with a list hash
+   *
+   * A list hash is the root hash, or any hash with the type 80000000. NOTE
+   * these are hashed differently than files.
+   *
+   * @param ref - a reference whose `id` is `"root.docSchema"` for the root, or
+   *   `"<id>.docSchema"` for a sub-document's entry index
+   * @returns the entries
+   */
   async getEntries(ref: ItemRef): Promise<Entries> {
     const rawFile = await this.getText(ref);
     const [version, ...rest] = rawFile.slice(0, -1).split("\n");
@@ -1149,23 +981,53 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
+  /**
+   * get the parsed and validated `Content` of a content hash
+   *
+   * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
+   * validation
+   *
+   * @param ref - a reference to the stored file, typically `"<id>.content"`
+   * @returns the content
+   */
   async getContent(ref: ItemRef): Promise<Content> {
     const raw = await this.getText(ref);
     const loaded = JSON.parse(raw) as unknown;
     return content.parse(loaded);
   }
 
+  /**
+   * get the parsed and validated `Metadata` of a metadata hash
+   *
+   * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
+   * validation
+   *
+   * @param ref - a reference to the stored file, typically `"<id>.metadata"`
+   * @returns the metadata
+   */
   async getMetadata(ref: ItemRef): Promise<Metadata> {
     const raw = await this.getText(ref);
     const loaded = JSON.parse(raw) as unknown;
     return metadata.parse(loaded);
   }
 
+  /**
+   * get the parsed reMarkable lines (`.rm`) drawing of a page hash
+   *
+   * @param ref - a reference to the stored file, typically `"<id>/<pageid>.rm"`
+   * @returns the parsed page
+   */
   async getRm(ref: ItemRef): Promise<RmPage> {
     const bytes = await this.getHash(ref);
     return parseRm(bytes);
   }
 
+  /**
+   * the same as {@link putFile | `putFile`} but rendering an `RmPage` to `.rm`
+   * bytes
+   *
+   * Only version 3 and 5 pages can be rendered; version 6 pages are read-only.
+   */
   async putRm(
     fileName: string,
     page: RmPageV5,
@@ -1177,6 +1039,25 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
+  /**
+   * update the current root hash
+   *
+   * This will fail if generation doesn't match the current server generation.
+   * This ensures that you are updating what you expect. IF you get a
+   * {@link GenerationError | `GenerationError`}, that indicates that the server
+   * was updated after you last got the generation. You should call
+   * {@link getRootHash | `getRootHash`} and then recompute the changes you want
+   * from the new root hash. If you ignore the update hash value and just call
+   * `putRootHash` again, you will overwrite the changes made by the other
+   * update.
+   *
+   * @param hash - the new root hash
+   * @param generation - the generation of the current root hash
+   * @param broadcast - [unknown] an option in the request
+   *
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @returns the new root hash and the new generation
+   */
   async putRootHash(
     hash: string,
     generation: number,
@@ -1235,6 +1116,20 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
+  /**
+   * put a raw onto the server
+   *
+   * This returns the new expeced entry of the file you uploaded, and a promise
+   * to finish the upload successful. By splitting these two operations you can
+   * start using the uploaded entry while file finishes uploading.
+   *
+   * NOTE: This won't update the state of the reMarkable until this entry is
+   * incorporated into the root hash.
+   *
+   * @param fileName - the file name to upload (e.g. `<id>.pdf`)
+   * @param bytes - the bytes to upload
+   * @returns the new entry and a promise to finish the upload
+   */
   async putFile(
     fileName: string,
     bytes: Uint8Array,
@@ -1250,6 +1145,7 @@ export class RawRemarkable implements RawRemarkableApi {
     return [res, this.#putFile(fileName, hash, bytes)];
   }
 
+  /** the same as {@link putFile | `putFile`} but with caching for text */
   async putText(
     fileName: string,
     text: string,
@@ -1266,6 +1162,7 @@ export class RawRemarkable implements RawRemarkableApi {
     ];
   }
 
+  /** the same as {@link putText | `putText`} but with extra validation for Content */
   async putContent(
     fileName: string,
     content: Content,
@@ -1277,6 +1174,7 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
+  /** the same as {@link putText | `putText`} but with extra validation for Metadata */
   async putMetadata(
     fileName: string,
     metadata: Metadata,
@@ -1288,6 +1186,29 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
+  /**
+   * put a set of entries to make an entry list file
+   *
+   * To fully upload an item:
+   * 1. upload all the constituent files and metadata
+   * 2. call this with all of the entries
+   * 3. append this entry to the root entry and call this again to update this root list
+   * 4. put the new root hash
+   *
+   * NOTE: reMarkable currently rejects newly written schema 3 root indexes
+   * with a 400 "Software must be updated" error, even for accounts that still
+   * report schema 3, so the root list should always be written as schema 4. A
+   * warning is logged if a schema 3 root index is written.
+   *
+   * @param id - the id of the list to upload - this should be the item id if
+   *   uploading an item list, or "root" if uploading a new root list. Note the
+   *   asymmetry with {@link getEntries | `getEntries`}: `getEntries` takes the
+   *   full `"<id>.docSchema"` file name, whereas `putEntries` takes the bare id
+   *   and appends `.docSchema` (and special-cases `"root"`) itself.
+   * @param entries - the entries to upload
+   *
+   * @returns the new list entry and a promise to finish the upload
+   */
   async putEntries(
     id: string,
     entries: readonly RawEntry[],
@@ -1340,6 +1261,19 @@ export class RawRemarkable implements RawRemarkableApi {
     return [res, this.#putFile(`${id}.docSchema`, hash, entryBuff)];
   }
 
+  /**
+   * upload a file to the reMarkable cloud using the simple api
+   *
+   * This api is the same as used by the native reMarkable extension and works
+   * even if the backend schema version is version 4. Setting mime to "folder"
+   * allows folder creation.
+   *
+   * @param visibleName - the name of the file as it should appear on the reMarkable
+   * @param bytes - the bytes of the file to upload
+   * @param mime - the mime type of the file to upload
+
+   * @returns a simple entry with the id and hash of the uploaded file
+   */
   async uploadFile(
     visibleName: string,
     bytes: Uint8Array,
@@ -1366,11 +1300,19 @@ export class RawRemarkable implements RawRemarkableApi {
     return { id: docID, hash };
   }
 
+  /**
+   * dump the current cache to a string to preserve between session
+   *
+   * @returns a serialized version of the cache to pass to a new api instance
+   */
   dumpCache(): string {
     return JSON.stringify(Object.fromEntries(this.#cache));
   }
 
+  /** completely clear the cache */
   clearCache(): void {
     this.#cache.clear();
   }
 }
+
+export type { RawRemarkable as RawRemarkableApi };
