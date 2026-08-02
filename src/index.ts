@@ -126,6 +126,26 @@ const ROOT_LIST = "root";
 /** the file name of the root entry index */
 const ROOT_SCHEMA = `${ROOT_LIST}.docSchema`;
 
+/** base backoff in milliseconds for transient request retries */
+const TRANSIENT_BASE_MS = 200;
+/** base backoff in milliseconds for generation-conflict retries */
+const GENERATION_BASE_MS = 25;
+
+/** resolve after a number of milliseconds */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    // don't let a pending backoff keep a node process alive
+    (timer as { unref?: () => void }).unref?.();
+  });
+}
+
+/** exponential backoff with full jitter, capped at 30 seconds */
+function backoffMs(attempt: number, baseMs: number): number {
+  const capped = Math.min(baseMs * 2 ** attempt, 30_000);
+  return Math.random() * capped;
+}
+
 // The section has all the types that are stored in the remarkable cloud.
 
 const idReg =
@@ -823,6 +843,8 @@ class Remarkable implements RemarkableApi {
   /** the same cache that underlies the raw api, allowing us to modify it */
   readonly #cache: Map<string, string | null>;
   readonly raw: RawRemarkable;
+  readonly #maxGenerationRetries: number;
+  readonly #maxTransientRetries: number;
   #lastHashGen: readonly [string, number] | undefined;
   #schemaVersion: SchemaVersion | undefined;
 
@@ -831,9 +853,13 @@ class Remarkable implements RemarkableApi {
     rawHost: string,
     uploadHost: string,
     cache: Map<string, string | null>,
+    maxGenerationRetries: number,
+    maxTransientRetries: number,
   ) {
     this.#sessionToken = sessionToken;
     this.#cache = cache;
+    this.#maxGenerationRetries = maxGenerationRetries;
+    this.#maxTransientRetries = maxTransientRetries;
     this.raw = new RawRemarkable(
       (method, url, { body, headers } = {}) =>
         this.#authedFetch(url, { method, body, headers }),
@@ -848,8 +874,15 @@ class Remarkable implements RemarkableApi {
   ): Promise<readonly [string, number, SchemaVersion]> {
     if (refresh || this.#lastHashGen === undefined) {
       const [hash, generation, schemaVersion] = await this.raw.getRootHash();
-      this.#lastHashGen = [hash, generation];
-      this.#schemaVersion = schemaVersion;
+      // a slow older fetch can resolve after a newer write; only accept it if
+      // it doesn't regress the cached generation past a committed root
+      if (
+        this.#lastHashGen === undefined ||
+        generation >= this.#lastHashGen[1]
+      ) {
+        this.#lastHashGen = [hash, generation];
+        this.#schemaVersion = schemaVersion;
+      }
     }
     return [...this.#lastHashGen, this.#schemaVersion!];
   }
@@ -867,6 +900,53 @@ class Remarkable implements RemarkableApi {
     }
   }
 
+  /**
+   * run a root-mutating operation, retrying on generation conflicts
+   *
+   * On a {@link GenerationError | `GenerationError`} the cached generation was
+   * already invalidated by {@link #putRootHash}, so re-running `op` re-reads the
+   * latest root and re-applies the change. Callers must resolve any random ids
+   * before this so retries reuse the same (cached) blobs.
+   */
+  async #withRetry<T>(op: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await op();
+      } catch (ex) {
+        if (
+          ex instanceof GenerationError &&
+          attempt < this.#maxGenerationRetries
+        ) {
+          await sleep(backoffMs(attempt, GENERATION_BASE_MS));
+        } else {
+          throw ex;
+        }
+      }
+    }
+  }
+
+  /**
+   * splice an already-uploaded item entry into the root
+   *
+   * The entry and all its blobs must already be uploaded; only the
+   * generation-dependent root merge is retried, so a conflict re-reads the
+   * latest root and re-appends the (stable) entry without re-uploading blobs.
+   */
+  async #commit(entry: RawEntry): Promise<void> {
+    await this.#withRetry(async () => {
+      const [rootHash, generation] = await this.#getRootHash();
+      const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
+      entries.push(entry);
+      const [rootEntry, uploadRoot] = await this.raw.putEntries(
+        ROOT_LIST,
+        entries,
+        4,
+      );
+      await uploadRoot;
+      await this.#putRootHash(rootEntry.hash, generation);
+    });
+  }
+
   async #authedFetch(
     url: string,
     {
@@ -879,19 +959,46 @@ class Remarkable implements RemarkableApi {
       headers?: Record<string, string>;
     },
   ): Promise<Response> {
-    const resp = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.#sessionToken}`,
-        ...headers,
-      },
-      // fetch works correctly with uint8 arrays, but is not hinted correctly
-      body: body as unknown as ArrayBuffer,
-    });
-    if (!resp.ok) {
+    // the root PUT is a compare-and-set; retrying a lost-but-applied response
+    // would resurface as a false generation conflict and be double-applied by
+    // #withRetry, so never transient-retry it (GETs and content-addressed file
+    // PUTs are idempotent and safe to retry)
+    const transientRetries =
+      method === "PUT" && url.endsWith("/sync/v3/root")
+        ? 0
+        : this.#maxTransientRetries;
+    for (let attempt = 0; ; attempt++) {
+      let resp: Response;
+      try {
+        resp = await fetch(url, {
+          method,
+          headers: {
+            Authorization: `Bearer ${this.#sessionToken}`,
+            ...headers,
+          },
+          // fetch works correctly with uint8 arrays, but is not hinted correctly
+          body: body as unknown as ArrayBuffer,
+        });
+      } catch (ex) {
+        // a network-level failure, retry if we have attempts left
+        if (attempt < transientRetries) {
+          await sleep(backoffMs(attempt, TRANSIENT_BASE_MS));
+          continue;
+        }
+        throw ex;
+      }
+      if (resp.ok) {
+        return resp;
+      }
       const msg = await resp.text();
       if (msg === '{"message":"precondition failed"}\n') {
+        // a generation conflict; handled by #withRetry at the high level
         throw new GenerationError();
+      } else if (
+        (resp.status >= 500 || resp.status === 429) &&
+        attempt < transientRetries
+      ) {
+        await sleep(backoffMs(attempt, TRANSIENT_BASE_MS));
       } else {
         throw new ResponseError(
           resp.status,
@@ -899,8 +1006,6 @@ class Remarkable implements RemarkableApi {
           `failed reMarkable request: ${msg}`,
         );
       }
-    } else {
-      return resp;
     }
   }
 
@@ -1064,11 +1169,13 @@ class Remarkable implements RemarkableApi {
     const newId = keepId ?? uuid4();
 
     // rewrite the old document id prefix on every archived file to the new id,
-    // patching the .metadata as we pass it (parent/name/lastModified)
+    // patching the .metadata as we pass it (parent/name/lastModified). the
+    // blobs don't depend on the generation, so upload the rewritten files and
+    // the document index once, then let #commit retry only the root merge
     const enc = new TextEncoder();
     const dec = new TextDecoder();
-    const [rootHash, generation, schemaVersion] =
-      await this.#getRootHash(refresh);
+    const lastModified = Date.now().toFixed();
+    const [, , schemaVersion] = await this.#getRootHash(refresh);
     const fileUploads = await Promise.all(
       paths.map(async (path) => {
         if (!path.startsWith(oldId)) {
@@ -1082,34 +1189,21 @@ class Remarkable implements RemarkableApi {
           const meta = parseMetadata(dec.decode(bytes));
           if (parent !== undefined) meta.parent = parent;
           if (visibleName !== undefined) meta.visibleName = visibleName;
-          meta.lastModified = Date.now().toFixed();
+          meta.lastModified = lastModified;
           bytes = enc.encode(JSON.stringify(meta));
         }
         return this.raw.putFile(newPath, bytes);
       }),
     );
     const fileEntries = fileUploads.map(([entry]) => entry);
-
-    // build the document index, splice it into the root, then commit
-    const [[docEntry, uploadDoc], { entries: rootEntries }] = await Promise.all(
-      [
-        this.raw.putEntries(newId, fileEntries, schemaVersion),
-        this.raw.getEntries(ROOT_SCHEMA, rootHash),
-      ],
+    const [docEntry, uploadDoc] = await this.raw.putEntries(
+      newId,
+      fileEntries,
+      schemaVersion,
     );
-    rootEntries.push(docEntry);
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      ROOT_LIST,
-      rootEntries,
-      4,
-    );
+    await Promise.all([...fileUploads.map(([, upload]) => upload), uploadDoc]);
 
-    await Promise.all([
-      ...fileUploads.map(([, upload]) => upload),
-      uploadDoc,
-      uploadRoot,
-    ]);
-    await this.#putRootHash(rootEntry.hash, generation);
+    await this.#commit(docEntry);
     return { id: newId, hash: docEntry.hash };
   }
 
@@ -1194,55 +1288,39 @@ class Remarkable implements RemarkableApi {
       sizeInBytes: buffer.length.toFixed(),
     };
 
-    // upload raw files, and get root hash
+    // the schema version is needed to encode the document index; the blobs
+    // themselves don't depend on the generation, so upload them once and let
+    // #commit retry only the root merge
+    const [, , schemaVersion] = await this.#getRootHash(refresh);
     const [
       [contentEntry, uploadContent],
       [metadataEntry, uploadMetadata],
       [pagedataEntry, uploadPagedata],
       [fileEntry, uploadFile],
-      [rootHash, generation, schemaVersion],
     ] = await Promise.all([
       this.raw.putContent(`${id}.content`, content),
       this.raw.putMetadata(`${id}.metadata`, metadata),
       this.raw.putText(`${id}.pagedata`, "\n"),
       this.raw.putFile(`${id}.${fileType}`, buffer),
-      this.#getRootHash(refresh),
     ]);
-
-    // now fetch root entries and upload this file entry
-    const [[collectionEntry, uploadCollection], { entries: rootEntries }] =
-      await Promise.all([
-        this.raw.putEntries(
-          id,
-          [contentEntry, metadataEntry, pagedataEntry, fileEntry],
-          schemaVersion,
-        ),
-        this.raw.getEntries(ROOT_SCHEMA, rootHash),
-      ]);
-
-    // now upload a new root entry
-    rootEntries.push(collectionEntry);
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      ROOT_LIST,
-      rootEntries,
-      4,
+    const [collectionEntry, uploadCollection] = await this.raw.putEntries(
+      id,
+      [contentEntry, metadataEntry, pagedataEntry, fileEntry],
+      schemaVersion,
     );
 
-    // before updating the root hash, first upload everything
+    // TODO we could return a full entry here, but we should probably decide
+    // what that should be, e.g. we could return more fields than the standard
+    // entry. Same for putFolder
+    // TODO we should also decide if the api should take hashes or ids...
     await Promise.all([
       uploadContent,
       uploadMetadata,
       uploadPagedata,
       uploadFile,
       uploadCollection,
-      uploadRoot,
     ]);
-
-    // TODO we could return a full entry here, but we should probably decide
-    // what that should be, e.g. we could return more fields than the standard
-    // entry. Same for putFolder
-    // TODO we should also decide if the api should take hashes or ids...
-    await this.#putRootHash(rootEntry.hash, generation);
+    await this.#commit(collectionEntry);
     return { id, hash: collectionEntry.hash };
   }
 
@@ -1289,42 +1367,22 @@ class Remarkable implements RemarkableApi {
       visibleName,
     };
 
-    // upload folder contents
-    const [
-      [contentEntry, uploadContent],
-      [metadataEntry, uploadMetadata],
-      [rootHash, generation, schemaVersion],
-    ] = await Promise.all([
-      this.raw.putContent(`${id}.content`, content),
-      this.raw.putMetadata(`${id}.metadata`, metadata),
-      this.#getRootHash(refresh),
-    ]);
-
-    // now fetch root entries and upload this file entry
-    const [[collectionEntry, uploadCollection], { entries: rootEntries }] =
+    // the blobs don't depend on the generation, so upload them once and let
+    // #commit retry only the root merge
+    const [, , schemaVersion] = await this.#getRootHash(refresh);
+    const [[contentEntry, uploadContent], [metadataEntry, uploadMetadata]] =
       await Promise.all([
-        this.raw.putEntries(id, [contentEntry, metadataEntry], schemaVersion),
-        this.raw.getEntries(ROOT_SCHEMA, rootHash),
+        this.raw.putContent(`${id}.content`, content),
+        this.raw.putMetadata(`${id}.metadata`, metadata),
       ]);
-
-    // now upload a new root entry
-    rootEntries.push(collectionEntry);
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      ROOT_LIST,
-      rootEntries,
-      4,
+    const [collectionEntry, uploadCollection] = await this.raw.putEntries(
+      id,
+      [contentEntry, metadataEntry],
+      schemaVersion,
     );
+    await Promise.all([uploadContent, uploadMetadata, uploadCollection]);
 
-    // before updating the root hash, first upload everything
-    await Promise.all([
-      uploadContent,
-      uploadMetadata,
-      uploadCollection,
-      uploadRoot,
-    ]);
-
-    // put root hash and return
-    await this.#putRootHash(rootEntry.hash, generation);
+    await this.#commit(collectionEntry);
     return { id, hash: collectionEntry.hash };
   }
 
@@ -1389,35 +1447,37 @@ class Remarkable implements RemarkableApi {
     expectedType: "DocumentType" | "CollectionType" | "TemplateType",
     refresh: boolean,
   ): Promise<HashEntry> {
-    const [rootHash, generation, schemaVersion] =
-      await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
-    const hashInd = entries.findIndex((ent) => ent.hash === hash);
-    const hashEnt = entries[hashInd];
-    if (hashEnt === undefined) {
-      throw new HashNotFoundError(hash);
-    }
+    return await this.#withRetry(async () => {
+      const [rootHash, generation, schemaVersion] =
+        await this.#getRootHash(refresh);
+      const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
+      const hashInd = entries.findIndex((ent) => ent.hash === hash);
+      const hashEnt = entries[hashInd];
+      if (hashEnt === undefined) {
+        throw new HashNotFoundError(hash);
+      }
 
-    const [[newEnt, uploadEnt], meta] = await Promise.all([
-      this.#editContentRaw(hashEnt.id, hash, update, schemaVersion),
-      this.getMetadata(hashEnt.id, hash),
-    ]);
-    if (meta.type !== expectedType) {
-      throw new Error(
-        `expected type ${expectedType} but got ${meta.type} for hash ${hash}`,
+      const [[newEnt, uploadEnt], meta] = await Promise.all([
+        this.#editContentRaw(hashEnt.id, hash, update, schemaVersion),
+        this.getMetadata(hashEnt.id, hash),
+      ]);
+      if (meta.type !== expectedType) {
+        throw new Error(
+          `expected type ${expectedType} but got ${meta.type} for hash ${hash}`,
+        );
+      }
+
+      entries[hashInd] = newEnt;
+      const [rootEntry, uploadRoot] = await this.raw.putEntries(
+        ROOT_LIST,
+        entries,
+        4,
       );
-    }
 
-    entries[hashInd] = newEnt;
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      ROOT_LIST,
-      entries,
-      4,
-    );
-
-    await Promise.all([uploadEnt, uploadRoot]);
-    await this.#putRootHash(rootEntry.hash, generation);
-    return { hash: newEnt.hash };
+      await Promise.all([uploadEnt, uploadRoot]);
+      await this.#putRootHash(rootEntry.hash, generation);
+      return { hash: newEnt.hash };
+    });
   }
 
   /** update document content */
@@ -1482,31 +1542,33 @@ class Remarkable implements RemarkableApi {
     update: Partial<Metadata>,
     refresh: boolean = false,
   ): Promise<HashEntry> {
-    const [rootHash, generation, schemaVersion] =
-      await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
-    const hashInd = entries.findIndex((ent) => ent.hash === hash);
-    const hashEnt = entries[hashInd];
-    if (hashEnt === undefined) {
-      throw new HashNotFoundError(hash);
-    }
-    const [newEnt, uploadEnt] = await this.#editMetaRaw(
-      hashEnt.id,
-      hash,
-      update,
-      schemaVersion,
-    );
-    entries[hashInd] = newEnt;
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      ROOT_LIST,
-      entries,
-      4,
-    );
+    return await this.#withRetry(async () => {
+      const [rootHash, generation, schemaVersion] =
+        await this.#getRootHash(refresh);
+      const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
+      const hashInd = entries.findIndex((ent) => ent.hash === hash);
+      const hashEnt = entries[hashInd];
+      if (hashEnt === undefined) {
+        throw new HashNotFoundError(hash);
+      }
+      const [newEnt, uploadEnt] = await this.#editMetaRaw(
+        hashEnt.id,
+        hash,
+        update,
+        schemaVersion,
+      );
+      entries[hashInd] = newEnt;
+      const [rootEntry, uploadRoot] = await this.raw.putEntries(
+        ROOT_LIST,
+        entries,
+        4,
+      );
 
-    await Promise.all([uploadEnt, uploadRoot]);
+      await Promise.all([uploadEnt, uploadRoot]);
 
-    await this.#putRootHash(rootEntry.hash, generation);
-    return { hash: newEnt.hash };
+      await this.#putRootHash(rootEntry.hash, generation);
+      return { hash: newEnt.hash };
+    });
   }
 
   /** move an entry */
@@ -1571,40 +1633,42 @@ class Remarkable implements RemarkableApi {
       );
     }
 
-    const [rootHash, generation, schemaVersion] =
-      await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
+    return await this.#withRetry(async () => {
+      const [rootHash, generation, schemaVersion] =
+        await this.#getRootHash(refresh);
+      const { entries } = await this.raw.getEntries(ROOT_SCHEMA, rootHash);
 
-    const hashSet = new Set(hashes);
-    const toUpdate: RawEntry[] = [];
-    const newEntries: RawEntry[] = [];
-    for (const entry of entries) {
-      const part = hashSet.has(entry.hash) ? toUpdate : newEntries;
-      part.push(entry);
-    }
+      const hashSet = new Set(hashes);
+      const toUpdate: RawEntry[] = [];
+      const newEntries: RawEntry[] = [];
+      for (const entry of entries) {
+        const part = hashSet.has(entry.hash) ? toUpdate : newEntries;
+        part.push(entry);
+      }
 
-    const resolved = await Promise.all(
-      toUpdate.map(({ id, hash }) =>
-        this.#editMetaRaw(id, hash, { parent }, schemaVersion),
-      ),
-    );
-    const uploads: Promise<[void, void]>[] = [];
-    const result: Record<string, string> = {};
-    for (const [i, [newEnt, upload]] of resolved.entries()) {
-      newEntries.push(newEnt);
-      uploads.push(upload);
-      result[toUpdate[i]!.hash] = newEnt.hash;
-    }
+      const resolved = await Promise.all(
+        toUpdate.map(({ id, hash }) =>
+          this.#editMetaRaw(id, hash, { parent }, schemaVersion),
+        ),
+      );
+      const uploads: Promise<[void, void]>[] = [];
+      const result: Record<string, string> = {};
+      for (const [i, [newEnt, upload]] of resolved.entries()) {
+        newEntries.push(newEnt);
+        uploads.push(upload);
+        result[toUpdate[i]!.hash] = newEnt.hash;
+      }
 
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      ROOT_LIST,
-      newEntries,
-      4,
-    );
-    await Promise.all([Promise.all(uploads), uploadRoot]);
+      const [rootEntry, uploadRoot] = await this.raw.putEntries(
+        ROOT_LIST,
+        newEntries,
+        4,
+      );
+      await Promise.all([Promise.all(uploads), uploadRoot]);
 
-    await this.#putRootHash(rootEntry.hash, generation);
-    return { hashes: result };
+      await this.#putRootHash(rootEntry.hash, generation);
+      return { hashes: result };
+    });
   }
 
   /** delete many hashes */
@@ -1700,6 +1764,28 @@ export interface RemarkableSessionOptions {
    * @defaultValue Infinity
    */
   maxCacheSize?: number;
+
+  /**
+   * how many times to retry updating the root hash after a generation conflict
+   *
+   * High-level mutators re-fetch the latest root and re-apply their change on a
+   * {@link GenerationError | `GenerationError`} up to this many times. Because
+   * the document id and uploaded blobs are stable across attempts, retries
+   * reuse the cache and don't orphan blobs. Set to `0` to surface the error
+   * immediately, matching the previous behavior.
+   *
+   * @defaultValue 10
+   */
+  maxGenerationRetries?: number;
+
+  /**
+   * how many times to retry a request after a transient network or 5xx error
+   *
+   * Applies to every request; generation conflicts are not counted here.
+   *
+   * @defaultValue 3
+   */
+  maxTransientRetries?: number;
 }
 
 /** options for a remarkable instance */
@@ -1751,6 +1837,8 @@ export function session(
     uploadHost = UPLOAD_HOST,
     cache,
     maxCacheSize = Infinity,
+    maxGenerationRetries = 10,
+    maxTransientRetries = 3,
   }: RemarkableSessionOptions = {},
 ): RemarkableApi {
   const initCache = JSON.parse(cache ?? "{}") as unknown;
@@ -1761,7 +1849,14 @@ export function session(
       maxCacheSize === Infinity
         ? new Map(entries)
         : new LruCache(maxCacheSize, entries);
-    return new Remarkable(sessionToken, rawHost, uploadHost, cacheMap);
+    return new Remarkable(
+      sessionToken,
+      rawHost,
+      uploadHost,
+      cacheMap,
+      maxGenerationRetries,
+      maxTransientRetries,
+    );
   }
   throw new Error(
     "cache was not a valid cache (json string mapping); your cache must be corrupted somehow. Either initialize remarkable without a cache, or fix its format.",
@@ -1782,12 +1877,22 @@ export async function remarkable(
   deviceToken: string,
   options: RemarkableOptions = {},
 ): Promise<RemarkableApi> {
-  const { authHost, rawHost, uploadHost, cache, maxCacheSize } = options ?? {};
+  const {
+    authHost,
+    rawHost,
+    uploadHost,
+    cache,
+    maxCacheSize,
+    maxGenerationRetries,
+    maxTransientRetries,
+  } = options ?? {};
   const sessionToken = await auth(deviceToken, { authHost });
   return session(sessionToken, {
     rawHost,
     uploadHost,
     cache,
     maxCacheSize,
+    maxGenerationRetries,
+    maxTransientRetries,
   });
 }

@@ -701,8 +701,8 @@ ${epubHash}:0:doc.epub:0:1
       emptyResponse(), // .metadata
       emptyResponse(), // .pagedata
       emptyResponse(), // .pdf
-      textResponse("3\n"),
-      emptyResponse(), // .docSchema
+      emptyResponse(), // .docSchema (document index)
+      textResponse("3\n"), // root entries
       emptyResponse(), // root.docSchema
       jsonResponse({
         hash: repHash("1"),
@@ -749,8 +749,8 @@ ${epubHash}:0:doc.epub:0:1
       emptyResponse(), // .metadata
       emptyResponse(), // .pagedata
       emptyResponse(), // .epub
-      textResponse("3\n"),
-      emptyResponse(), // .docSchema
+      emptyResponse(), // .docSchema (document index)
+      textResponse("3\n"), // root entries
       emptyResponse(), // root.docSchema
       jsonResponse({
         hash: repHash("1"),
@@ -775,8 +775,8 @@ ${epubHash}:0:doc.epub:0:1
       }),
       emptyResponse(), // .content
       emptyResponse(), // .metadata
-      textResponse("3\n"),
-      emptyResponse(), // .docSchema
+      emptyResponse(), // .docSchema (document index)
+      textResponse("3\n"), // root entries
       emptyResponse(), // root.docSchema
       jsonResponse({
         hash: repHash("1"),
@@ -1247,6 +1247,156 @@ describe("putDocument() / getDocument()", () => {
     expect(
       Array.from(await zip.file(`${newId}/${pageId}.rm`)!.async("uint8array")),
     ).toEqual([5, 6, 7]);
+
+    spy.mockRestore();
+  });
+});
+
+describe("retries", () => {
+  test("putPdf retries a generation conflict without re-uploading blobs", async () => {
+    const pdf = new TextEncoder().encode("pdf content");
+
+    const blobs = new Map<string, Uint8Array>();
+    const rootStart = "0".repeat(64);
+    blobs.set(rootStart, new TextEncoder().encode("4\n0:.:0:0\n"));
+    let root = { hash: rootStart, generation: 1 };
+    let rootPuts = 0;
+    const filePuts: string[] = [];
+
+    const spy = spyOn(globalThis, "fetch");
+    spy.mockImplementation((async (
+      input: string | Request | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const url = input.toString();
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/token/json/2/user/new")) {
+        return textResponse("session");
+      } else if (url.endsWith("/sync/v4/root")) {
+        return jsonResponse({ ...root, schemaVersion: 4 });
+      } else if (url.endsWith("/sync/v3/root") && method === "PUT") {
+        rootPuts++;
+        if (rootPuts === 1) {
+          // first attempt loses the race to another writer
+          return textResponse('{"message":"precondition failed"}\n', {
+            status: 400,
+          });
+        }
+        const body = JSON.parse(init!.body as string) as { hash: string };
+        root = { hash: body.hash, generation: root.generation + 1 };
+        return jsonResponse(root);
+      } else if (url.includes("/sync/v3/files/")) {
+        const hash = url.slice(url.indexOf("/sync/v3/files/") + 15);
+        if (method === "PUT") {
+          filePuts.push(hash);
+          blobs.set(hash, init!.body as Uint8Array);
+          return emptyResponse();
+        }
+        const blob = blobs.get(hash);
+        return blob
+          ? bytesResponse(blob)
+          : emptyResponse({ status: 404, statusText: "not found" });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    }) as unknown as typeof fetch);
+
+    const api = await remarkable("");
+    const res = await api.putPdf("new name", pdf);
+
+    expect(res.id).toHaveLength(36);
+    // conflicted once, then succeeded on retry
+    expect(rootPuts).toBe(2);
+    // every blob uploaded at most once — no re-upload, no orphans
+    expect(new Set(filePuts).size).toBe(filePuts.length);
+
+    spy.mockRestore();
+  });
+
+  test("retries a transient 5xx response", async () => {
+    let rootGets = 0;
+    const spy = spyOn(globalThis, "fetch");
+    spy.mockImplementation((async (
+      input: string | Request | URL,
+    ): Promise<Response> => {
+      const url = input.toString();
+      if (url.endsWith("/token/json/2/user/new")) {
+        return textResponse("session");
+      } else if (url.endsWith("/sync/v4/root")) {
+        rootGets++;
+        if (rootGets === 1) {
+          return textResponse("boom", {
+            status: 503,
+            statusText: "unavailable",
+          });
+        }
+        return jsonResponse({
+          hash: "0".repeat(64),
+          generation: 0,
+          schemaVersion: 4,
+        });
+      } else if (url.includes("/sync/v3/files/")) {
+        return textResponse("4\n0:.:0:0\n");
+      }
+      throw new Error(`unexpected ${url}`);
+    }) as unknown as typeof fetch);
+
+    const api = await remarkable("");
+    const ids = await api.listIds();
+
+    expect(ids).toEqual([]);
+    // failed once, then retried
+    expect(rootGets).toBe(2);
+
+    spy.mockRestore();
+  });
+
+  test("does not transient-retry the root PUT", async () => {
+    const pdf = new TextEncoder().encode("pdf content");
+    const blobs = new Map<string, Uint8Array>();
+    const rootStart = "0".repeat(64);
+    blobs.set(rootStart, new TextEncoder().encode("4\n0:.:0:0\n"));
+    let rootPuts = 0;
+
+    const spy = spyOn(globalThis, "fetch");
+    spy.mockImplementation((async (
+      input: string | Request | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const url = input.toString();
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/token/json/2/user/new")) {
+        return textResponse("session");
+      } else if (url.endsWith("/sync/v4/root")) {
+        return jsonResponse({
+          hash: rootStart,
+          generation: 1,
+          schemaVersion: 4,
+        });
+      } else if (url.endsWith("/sync/v3/root") && method === "PUT") {
+        // the root PUT keeps failing transiently; it must NOT be retried, since
+        // a retried lost-but-applied write would be double-applied
+        rootPuts++;
+        return textResponse("boom", { status: 503, statusText: "unavailable" });
+      } else if (url.includes("/sync/v3/files/")) {
+        const hash = url.slice(url.indexOf("/sync/v3/files/") + 15);
+        if (method === "PUT") {
+          blobs.set(hash, init!.body as Uint8Array);
+          return emptyResponse();
+        }
+        const blob = blobs.get(hash);
+        return blob
+          ? bytesResponse(blob)
+          : emptyResponse({ status: 404, statusText: "not found" });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    }) as unknown as typeof fetch);
+
+    const api = await remarkable("");
+    await expect(api.putPdf("new name", pdf)).rejects.toThrow(
+      "failed reMarkable request",
+    );
+    // the compare-and-set root PUT is attempted exactly once, never retried
+    expect(rootPuts).toBe(1);
 
     spy.mockRestore();
   });
