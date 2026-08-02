@@ -1,9 +1,54 @@
 import CRC32C from "crc-32/crc32c";
 import { z } from "zod";
 import { ValidationError } from "./error.js";
+import {
+  HEADER_LENGTH,
+  parseV5,
+  type RmPageV5,
+  serializeRm,
+  VERSION_PREFIX,
+} from "./rm5.js";
+import { parseRmScene, type RmScene } from "./rm6.js";
 import { concatArrays } from "./utils.js";
 
 const hashReg = /^[0-9a-f]{64}$/;
+
+/**
+ * a parsed reMarkable `.rm` page
+ *
+ * A discriminated union on `version`: versions 3/5 parse to the flat, renderable
+ * {@link RmPageV5 | `RmPageV5`}; version 6 parses to the richer
+ * {@link RmScene | `RmScene`} CRDT scene (`version: 6`).
+ */
+export type RmPage = RmPageV5 | RmScene;
+
+/**
+ * parse the bytes of a reMarkable `.rm` page file
+ *
+ * Dispatches on the header version: versions 3/5 parse to a flat
+ * {@link RmPageV5 | `RmPageV5`}; version 6 parses to an
+ * {@link RmScene | `RmScene`}. Throws for an unknown version or malformed data.
+ *
+ * @param data - the raw `.rm` file bytes
+ * @returns the parsed page
+ */
+export function parseRm(data: Uint8Array): RmPage {
+  if (data.length < HEADER_LENGTH) {
+    throw new Error("data is too short to be a reMarkable .lines file");
+  }
+  const header = new TextDecoder().decode(data.subarray(0, HEADER_LENGTH));
+  if (!header.startsWith(VERSION_PREFIX)) {
+    throw new Error(`unrecognized .lines header: ${JSON.stringify(header)}`);
+  }
+  const versionChar = header.charAt(VERSION_PREFIX.length);
+  if (versionChar === "6") {
+    return parseRmScene(data);
+  } else if (versionChar === "3" || versionChar === "5") {
+    return parseV5(data, versionChar === "3" ? 3 : 5);
+  } else {
+    throw new Error(`unsupported .lines version '${versionChar}'`);
+  }
+}
 
 /** request types */
 export type RequestMethod =
@@ -809,6 +854,23 @@ export interface RawRemarkableApi {
   getMetadata(fileName: string, hash: string): Promise<Metadata>;
 
   /**
+   * get the parsed reMarkable lines (`.rm`) drawing of a page hash
+
+   * @param fileName - typically `"<id>/<pageid>.rm"`
+   * @param hash - the hash to get the page for
+   * @returns the parsed page
+   */
+  getRm(fileName: string, hash: string): Promise<RmPage>;
+
+  /**
+   * the same as {@link putFile | `putFile`} but rendering an `RmPage` to `.rm`
+   * bytes
+   *
+   * Only version 3 and 5 pages can be rendered; version 6 pages are read-only.
+   */
+  putRm(fileName: string, page: RmPageV5): Promise<[RawEntry, Promise<void>]>;
+
+  /**
    * update the current root hash
    *
    * This will fail if generation doesn't match the current server generation.
@@ -1076,6 +1138,22 @@ export class RawRemarkable implements RawRemarkableApi {
     const raw = await this.getText(fileName, hash);
     const loaded = JSON.parse(raw) as unknown;
     return metadata.parse(loaded);
+  }
+
+  async getRm(fileName: string, hash: string): Promise<RmPage> {
+    const bytes = await this.getHash(fileName, hash);
+    return parseRm(bytes);
+  }
+
+  async putRm(
+    fileName: string,
+    page: RmPageV5,
+  ): Promise<[RawEntry, Promise<void>]> {
+    if (!fileName.endsWith(".rm")) {
+      throw new Error(`fileName ${fileName} did not end with '.rm'`);
+    } else {
+      return await this.putFile(fileName, serializeRm(page));
+    }
   }
 
   async putRootHash(

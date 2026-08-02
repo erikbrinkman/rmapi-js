@@ -69,6 +69,7 @@ import {
   RawRemarkable,
   type RawRemarkableApi,
   type RequestMethod,
+  type RmPage,
   type SchemaVersion,
   type SimpleEntry,
   type Tag,
@@ -104,6 +105,7 @@ export type {
   PageTag,
   RawEntry,
   RawRemarkableApi,
+  RmPage,
   SchemaVersion,
   SimpleEntry,
   Tag,
@@ -112,6 +114,44 @@ export type {
   UploadMimeType,
   ZoomMode,
 } from "./raw.js";
+export type {
+  RmBrush,
+  RmLayer,
+  RmLine,
+  RmPageV5,
+  RmPoint,
+  RmVersion,
+} from "./rm5.js";
+export { decodeBrush, rmColors } from "./rm5.js";
+export type {
+  AuthorIdsBlock,
+  CrdtId,
+  GlyphRange,
+  LwwValue,
+  MigrationInfoBlock,
+  PageInfoBlock,
+  Rectangle,
+  RmBlock,
+  RmScene,
+  RmSceneItem,
+  RmSceneLayer,
+  RmV6Line,
+  RmV6Point,
+  RmV6Text,
+  RmV6TextValue,
+  RootTextBlock,
+  SceneGlyphItemBlock,
+  SceneGroupItemBlock,
+  SceneInfoBlock,
+  SceneItem,
+  SceneLineItemBlock,
+  SceneTextItemBlock,
+  SceneTombstoneItemBlock,
+  SceneTreeBlock,
+  TreeNodeBlock,
+  UnknownBlock,
+} from "./rm6.js";
+export { crdtKey, END_MARKER, parseRmScene, ROOT_ID } from "./rm6.js";
 
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
@@ -168,6 +208,19 @@ class Mutex {
     } finally {
       release();
     }
+  }
+}
+
+/** the ordered page ids of a document's content, from cPages or the legacy list */
+function pageOrder(content: Content): string[] {
+  if ("cPages" in content && content.cPages) {
+    return content.cPages.pages
+      .filter((page) => page.deleted === undefined)
+      .map((page) => page.id);
+  } else if ("pages" in content && content.pages) {
+    return content.pages;
+  } else {
+    return [];
   }
 }
 
@@ -539,6 +592,37 @@ export interface RemarkableApi {
    * @returns the epub bytes
    */
   getEpub(id: string, hash: string): Promise<Uint8Array>;
+
+  /**
+   * get a single page's parsed reMarkable lines (`.rm`) drawing
+   *
+   * @param id - the id of the document (as returned by `listIds`)
+   * @param hash - the hash of the document (e.g. from `listItems`)
+   * @param pageId - the id of the page, from the document's `.content` page
+   *     list (see {@link getRmPages | `getRmPages`} for every page)
+   * @returns the parsed page, or `undefined` if the page exists but has no
+   *     `.rm` drawing (a page you haven't drawn on has no `.rm` file)
+   * @throws if `pageId` is not a page of the document
+   */
+  getRmPage(
+    id: string,
+    hash: string,
+    pageId: string,
+  ): Promise<RmPage | undefined>;
+
+  /**
+   * get every drawn page of a document, parsed, keyed by page id
+   *
+   * Returns a map from page id to its parsed {@link RmPage | `RmPage`},
+   * iterating in the page order given by the document's `.content`. Pages with
+   * no drawing (and soft-deleted pages) are omitted. Version 3, 5, and 6 pages
+   * are all supported.
+   *
+   * @param id - the id of the document (as returned by `listIds`)
+   * @param hash - the hash of the document (e.g. from `listItems`)
+   * @returns the drawn pages, keyed by page id, in document order
+   */
+  getRmPages(id: string, hash: string): Promise<Map<string, RmPage>>;
 
   /**
    * get the entire contents of a remarkable document
@@ -1160,6 +1244,37 @@ class Remarkable implements RemarkableApi {
     } else {
       return await this.raw.getHash(epub.id, epub.hash);
     }
+  }
+
+  async getRmPage(
+    id: string,
+    hash: string,
+    pageId: string,
+  ): Promise<RmPage | undefined> {
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
+    const content = await this.getContent(id, hash);
+    if (!pageOrder(content).includes(pageId)) {
+      throw new Error(`document ${id} has no page ${pageId}`);
+    }
+    const entry = entries.find((ent) => ent.id === `${id}/${pageId}.rm`);
+    if (entry === undefined) {
+      return undefined;
+    } else {
+      return await this.raw.getRm(entry.id, entry.hash);
+    }
+  }
+
+  async getRmPages(id: string, hash: string): Promise<Map<string, RmPage>> {
+    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
+    const content = await this.getContent(id, hash);
+    const byName = new Map(entries.map((entry) => [entry.id, entry]));
+    const drawn = pageOrder(content)
+      .map((pageId) => [pageId, byName.get(`${id}/${pageId}.rm`)] as const)
+      .filter((pair): pair is [string, RawEntry] => pair[1] !== undefined);
+    const parsed = await Promise.all(
+      drawn.map(([, entry]) => this.raw.getRm(entry.id, entry.hash)),
+    );
+    return new Map(drawn.map(([pageId], index) => [pageId, parsed[index]!]));
   }
 
   async getDocument(id: string, hash: string): Promise<Uint8Array> {
