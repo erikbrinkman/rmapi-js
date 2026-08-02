@@ -222,6 +222,14 @@ export interface CPagePage {
   verticalScroll?: CPageNumberValue;
   /** [unknown] */
   deleted?: CPageNumberValue;
+  /**
+   * a per-page last-modified epoch-milliseconds timestamp
+   *
+   * The misspelling is reMarkable's own: the firmware writes this key as
+   * `modifed`. Unlike the sibling fields it is a bare string, not a
+   * timestamped value.
+   */
+  modifed?: string;
 }
 
 const cPagePage: z.ZodType<CPagePage> = z
@@ -251,6 +259,7 @@ const cPagePage: z.ZodType<CPagePage> = z
       .object({ timestamp: z.string(), value: z.number().int() })
       .passthrough()
       .optional(),
+    modifed: z.string().optional(),
   })
   .passthrough();
 
