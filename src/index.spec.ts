@@ -801,7 +801,7 @@ ${epubHash}:0:doc.epub:0:1
     expect(bodies.some((body) => body.startsWith("3\n"))).toBe(true);
   });
 
-  test("#stared()", async () => {
+  test("#star()", async () => {
     const moveHash = repHash("1");
     const oldMeta: Metadata = {
       lastModified: "",
@@ -833,7 +833,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.stared(moveHash, true);
+    const res = await api.star(moveHash, true);
 
     expect(res.hash).toHaveLength(64);
   });
