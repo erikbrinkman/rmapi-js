@@ -1400,4 +1400,66 @@ describe("retries", () => {
 
     spy.mockRestore();
   });
+
+  test("serializes concurrent mutators so they don't self-conflict", async () => {
+    const blobs = new Map<string, Uint8Array>();
+    const rootStart = "0".repeat(64);
+    blobs.set(rootStart, new TextEncoder().encode("4\n0:.:0:0\n"));
+    let root = { hash: rootStart, generation: 1 };
+    let conflicts = 0;
+
+    const spy = spyOn(globalThis, "fetch");
+    spy.mockImplementation((async (
+      input: string | Request | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const url = input.toString();
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/token/json/2/user/new")) {
+        return textResponse("session");
+      } else if (url.endsWith("/sync/v4/root")) {
+        return jsonResponse({ ...root, schemaVersion: 4 });
+      } else if (url.endsWith("/sync/v3/root") && method === "PUT") {
+        const body = JSON.parse(init!.body as string) as {
+          hash: string;
+          generation: number;
+        };
+        if (body.generation !== root.generation) {
+          // a compare-and-set miss means the client raced itself
+          conflicts++;
+          return textResponse('{"message":"precondition failed"}\n', {
+            status: 400,
+          });
+        }
+        root = { hash: body.hash, generation: root.generation + 1 };
+        return jsonResponse(root);
+      } else if (url.includes("/sync/v3/files/")) {
+        const hash = url.slice(url.indexOf("/sync/v3/files/") + 15);
+        if (method === "PUT") {
+          blobs.set(hash, init!.body as Uint8Array);
+          return emptyResponse();
+        }
+        const blob = blobs.get(hash);
+        return blob
+          ? bytesResponse(blob)
+          : emptyResponse({ status: 404, statusText: "not found" });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    }) as unknown as typeof fetch);
+
+    const api = await remarkable("");
+    const pdf = new TextEncoder().encode("pdf content");
+    const [a, b] = await Promise.all([
+      api.putPdf("doc a", pdf),
+      api.putPdf("doc b", pdf),
+    ]);
+
+    // both landed as distinct docs, and the lock kept them from racing into a
+    // generation conflict (without it the second would lose the CAS and retry)
+    expect(a.id).not.toBe(b.id);
+    expect(conflicts).toBe(0);
+    expect(root.generation).toBe(3);
+
+    spy.mockRestore();
+  });
 });

@@ -146,6 +146,31 @@ function backoffMs(attempt: number, baseMs: number): number {
   return Math.random() * capped;
 }
 
+/**
+ * a mutex acquired by async iteration
+ *
+ * `for await (const _lock of mutex) { ... }` runs the body with the lock held
+ * and releases it when the body exits — by return, throw, or break — the way a
+ * `using` block would. Waiters are served in acquisition order.
+ */
+class Mutex {
+  #tail: Promise<void> = Promise.resolve();
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<void> {
+    const previous = this.#tail;
+    let release!: () => void;
+    this.#tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      yield;
+    } finally {
+      release();
+    }
+  }
+}
+
 // The section has all the types that are stored in the remarkable cloud.
 
 const idReg =
@@ -847,6 +872,8 @@ class Remarkable implements RemarkableApi {
   readonly #maxTransientRetries: number;
   #lastHashGen: readonly [string, number] | undefined;
   #schemaVersion: SchemaVersion | undefined;
+  /** serializes root updates on this instance so they don't self-conflict */
+  readonly #rootMutex = new Mutex();
 
   constructor(
     sessionToken: string,
@@ -909,20 +936,27 @@ class Remarkable implements RemarkableApi {
    * before this so retries reuse the same (cached) blobs.
    */
   async #withRetry<T>(op: () => Promise<T>): Promise<T> {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await op();
-      } catch (ex) {
-        if (
-          ex instanceof GenerationError &&
-          attempt < this.#maxGenerationRetries
-        ) {
-          await sleep(backoffMs(attempt, GENERATION_BASE_MS));
-        } else {
-          throw ex;
+    // hold the root lock across the whole read-merge-write so concurrent
+    // mutators serialize instead of sharing a generation and forcing each
+    // other into avoidable conflicts
+    for await (const _lock of this.#rootMutex) {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await op();
+        } catch (ex) {
+          if (
+            ex instanceof GenerationError &&
+            attempt < this.#maxGenerationRetries
+          ) {
+            await sleep(backoffMs(attempt, GENERATION_BASE_MS));
+          } else {
+            throw ex;
+          }
         }
       }
     }
+    // the mutex yields exactly once, so the loop always returns or throws
+    throw new Error("unreachable");
   }
 
   /**
