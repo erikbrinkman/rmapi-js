@@ -661,15 +661,6 @@ export interface RemarkableApi {
     options?: PutDocumentOptions,
   ): Promise<SimpleEntry>;
 
-  /** @deprecated renamed; use {@link getDocumentArchive | `getDocumentArchive`} */
-  getDocument(id: string, hash: string): Promise<Uint8Array>;
-
-  /** @deprecated renamed; use {@link putDocumentArchive | `putDocumentArchive`} */
-  putDocument(
-    buffer: Uint8Array,
-    options?: PutDocumentOptions,
-  ): Promise<SimpleEntry>;
-
   /**
    * use the low-level api to add a pdf document
    *
@@ -881,13 +872,6 @@ export interface RemarkableApi {
    * @param starred - whether the entry should be starred or not
    */
   star(hash: string, starred: boolean, refresh?: boolean): Promise<HashEntry>;
-
-  /**
-   * set if an entry is starred
-   *
-   * @deprecated misspelling; use {@link star | `star`} instead
-   */
-  stared(hash: string, stared: boolean, refresh?: boolean): Promise<HashEntry>;
 
   /**
    * move many entries
@@ -1365,19 +1349,6 @@ class Remarkable implements RemarkableApi {
     return { id: newId, hash: docEntry.hash };
   }
 
-  /** @deprecated renamed; use {@link getDocumentArchive | `getDocumentArchive`} */
-  async getDocument(id: string, hash: string): Promise<Uint8Array> {
-    return await this.getDocumentArchive(id, hash);
-  }
-
-  /** @deprecated renamed; use {@link putDocumentArchive | `putDocumentArchive`} */
-  async putDocument(
-    buffer: Uint8Array,
-    options?: PutDocumentOptions,
-  ): Promise<SimpleEntry> {
-    return await this.putDocumentArchive(buffer, options);
-  }
-
   async #putFile(
     visibleName: string,
     fileType: "epub" | "pdf",
@@ -1779,15 +1750,6 @@ class Remarkable implements RemarkableApi {
     refresh: boolean = false,
   ): Promise<HashEntry> {
     return await this.#editMeta(hash, { pinned: starred }, refresh);
-  }
-
-  /** @deprecated misspelling; use {@link star | `star`} */
-  async stared(
-    hash: string,
-    stared: boolean,
-    refresh: boolean = false,
-  ): Promise<HashEntry> {
-    return await this.star(hash, stared, refresh);
   }
 
   /** move many hashes */
