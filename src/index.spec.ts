@@ -249,7 +249,7 @@ hash:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
-    const meta = await api.getMetadata("test-id", repHash("0"));
+    const meta = await api.getMetadata({ id: "test-id", hash: repHash("0") });
     expect(meta).toEqual(metadata);
   });
 
@@ -307,7 +307,7 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent("test-id", repHash("0"));
+      const cont = await api.getContent({ id: "test-id", hash: repHash("0") });
       expect(cont).toEqual(content);
     });
 
@@ -323,7 +323,7 @@ ${realHash}:0:col.content:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent("col", repHash("0"));
+      const cont = await api.getContent({ id: "col", hash: repHash("0") });
       expect(cont).toEqual(content);
     });
 
@@ -352,7 +352,7 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent("doc", repHash("0"));
+      const cont = await api.getContent({ id: "doc", hash: repHash("0") });
       expect(cont).toEqual(content);
     });
 
@@ -380,10 +380,10 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = (await api.getContent(
-        "test-id",
-        repHash("0"),
-      )) as DocumentContent;
+      const cont = (await api.getContent({
+        id: "test-id",
+        hash: repHash("0"),
+      })) as DocumentContent;
       expect(cont).toEqual(content);
     });
 
@@ -411,10 +411,10 @@ hash:0:doc.pdf:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = (await api.getContent(
-        "test-id",
-        repHash("0"),
-      )) as DocumentContent;
+      const cont = (await api.getContent({
+        id: "test-id",
+        hash: repHash("0"),
+      })) as DocumentContent;
       expect(cont.fileType).toBe("pdf");
       expect(cont.transform ?? {}).toEqual({});
     });
@@ -449,7 +449,7 @@ hash:0:tpl.template:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent("test-id", repHash("0"));
+      const cont = await api.getContent({ id: "test-id", hash: repHash("0") });
       expect(cont).toEqual(content);
     });
 
@@ -475,7 +475,7 @@ hash:0:tpl.template:0:1
       mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
-      const cont = await api.getContent("test-id", repHash("0"));
+      const cont = await api.getContent({ id: "test-id", hash: repHash("0") });
       expect(cont).toEqual(content);
     });
 
@@ -493,7 +493,9 @@ hash:0:doc.epub:0:1
       );
 
       const api = await remarkable("");
-      expect(api.getContent("test-id", repHash("0"))).rejects.toThrow();
+      expect(
+        api.getContent({ id: "test-id", hash: repHash("0") }),
+      ).rejects.toThrow();
     });
   });
 
@@ -515,7 +517,7 @@ hash:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
-    const meta = await api.getMetadata("test-id", repHash("0"));
+    const meta = await api.getMetadata({ id: "test-id", hash: repHash("0") });
     expect(meta).toEqual(metadata);
   });
   test("#getPdf()", async () => {
@@ -531,7 +533,7 @@ ${realHash}:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), bytesResponse(pdf));
 
     const api = await remarkable("");
-    const bytes = await api.getPdf("test-id", repHash("0"));
+    const bytes = await api.getPdf({ id: "test-id", hash: repHash("0") });
     expect(bytes).toEqual(pdf);
   });
 
@@ -548,7 +550,7 @@ hash:0:doc.pdf:0:1
     mockFetch(emptyResponse(), textResponse(file), bytesResponse(epub));
 
     const api = await remarkable("");
-    const bytes = await api.getEpub("test-id", repHash("0"));
+    const bytes = await api.getEpub({ id: "test-id", hash: repHash("0") });
     expect(bytes).toEqual(epub);
   });
 
@@ -594,7 +596,10 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const bytes = await api.getDocumentArchive("test-id", repHash("0"));
+    const bytes = await api.getDocumentArchive({
+      id: "test-id",
+      hash: repHash("0"),
+    });
     expect(bytes.length).toBeGreaterThan(0);
   });
 
@@ -833,7 +838,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.star(moveHash, true);
+    const res = await api.star({ id: "fake_id", hash: moveHash }, true);
 
     expect(res.hash).toHaveLength(64);
   });
@@ -870,7 +875,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.move(moveHash, "trash");
+    const res = await api.move({ id: "fake_id", hash: moveHash }, "trash");
 
     expect(res.hash).toHaveLength(64);
   });
@@ -887,9 +892,9 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    expect(api.move(repHash("23"), "trash")).rejects.toThrow(
-      "not found in the root hash",
-    );
+    expect(
+      api.move({ id: "missing", hash: repHash("23") }, "trash"),
+    ).rejects.toThrow("not found in the root hash");
   });
 
   test("#delete()", async () => {
@@ -924,7 +929,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.delete(deleteHash);
+    const res = await api.delete({ id: "fake_id", hash: deleteHash });
 
     expect(res.hash).toHaveLength(64);
   });
@@ -961,7 +966,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.rename(moveHash, "renamed");
+    const res = await api.rename({ id: "fake_id", hash: moveHash }, "renamed");
 
     expect(res.hash).toHaveLength(64);
   });
@@ -998,9 +1003,11 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.bulkMove([moveHash], "");
+    const res = await api.bulkMove([{ id: "fake_id", hash: moveHash }], "");
 
-    expect(moveHash in res.hashes).toBeTrue();
+    expect(res).toHaveLength(1);
+    expect(res[0]!.id).toBe("fake_id");
+    expect(res[0]!.hash).toHaveLength(64);
   });
 
   test("#bulkDelete()", async () => {
@@ -1035,9 +1042,11 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const res = await api.bulkDelete([moveHash]);
+    const res = await api.bulkDelete([{ id: "fake_id", hash: moveHash }]);
 
-    expect(moveHash in res.hashes).toBeTrue();
+    expect(res).toHaveLength(1);
+    expect(res[0]!.id).toBe("fake_id");
+    expect(res[0]!.hash).toHaveLength(64);
   });
 
   test("#pruneCache()", async () => {
@@ -1217,7 +1226,7 @@ describe("putDocumentArchive() / getDocumentArchive()", () => {
     expect(root.hash).not.toBe(rootStart);
 
     // read it back and confirm every file survived with the new id prefix
-    const out = await api.getDocumentArchive(newId, hash);
+    const out = await api.getDocumentArchive({ id: newId, hash });
     const zip = await JSZip.loadAsync(out);
     const files = Object.keys(zip.files).filter(
       (path) => !zip.files[path]!.dir,

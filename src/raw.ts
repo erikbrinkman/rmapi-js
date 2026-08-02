@@ -68,11 +68,19 @@ export type UploadMimeType =
 /** the schema version */
 export type SchemaVersion = 3 | 4;
 
-/** an simple entry without any extra information */
-export interface SimpleEntry {
-  /** the document id */
+/**
+ * a reference to stored cloud data: an id paired with the hash of its state
+ *
+ * This is the canonical way to point at something in the cloud. The `id` names
+ * *what*: a document's uuid at the high level, or a stored file name (like
+ * `<id>.content`) at the low level. The `hash` names *which version*, and
+ * changes every time that data mutates. Reads take one of these, and mutations
+ * return a fresh one with the new hash.
+ */
+export interface ItemRef {
+  /** the id of the referenced data: a document uuid, or a stored file name */
   id: string;
-  /** the document hash */
+  /** the hash of the referenced state */
   hash: string;
 }
 
@@ -84,13 +92,9 @@ export interface SimpleEntry {
  * files, the high level entry will have the same hash and id as the low-level
  * entry for that collection.
  */
-export interface RawEntry {
+export interface RawEntry extends ItemRef {
   /** 80000000 for schema 3 collection type or 0 for schema 4 or schema 3 files or */
   type: 80000000 | 0;
-  /** the hash of the collection this points to */
-  hash: string;
-  /** the unique id of the collection */
-  id: string;
   /** the number of subfiles */
   subfiles: number;
   /** the total size of everything in the collection */
@@ -711,12 +715,12 @@ const rootHash: z.ZodType<RootHash> = z
   })
   .passthrough();
 
-interface NativeSimpleEntry {
+interface NativeItemRef {
   docID: string;
   hash: string;
 }
 
-const nativeSimpleEntry: z.ZodType<NativeSimpleEntry> = z
+const nativeItemRef: z.ZodType<NativeItemRef> = z
   .object({
     docID: z.string(),
     hash: z.string(),
@@ -805,71 +809,67 @@ export interface RawRemarkableApi {
   /**
    * get the raw binary data associated with a hash
    *
-   * @param fileName - the logical file name (`<id>.<ext>` for files, or
-   *   `<id>.docSchema` / `"root.docSchema"` for entry indexes). reMarkable
-   *   validates this against the rm-filename header.
-   * @param hash - the hash to get the data for
+   * @param ref - a reference to the stored file. Its `id` is the logical file
+   *   name (`<id>.<ext>` for files, or `<id>.docSchema` / `"root.docSchema"`
+   *   for entry indexes), which reMarkable validates against the rm-filename
+   *   header. Sub-entries from {@link getEntries | `getEntries`} can be passed
+   *   directly.
    * @returns the data
    */
-  getHash(fileName: string, hash: string): Promise<Uint8Array>;
+  getHash(ref: ItemRef): Promise<Uint8Array>;
 
   /**
    * get raw text data associated with a hash
    *
    * We assume text data are small, and so cache the entire text. If you want to
    * avoid this, use {@link getHash | `getHash`} combined with a TextDecoder.
-
-   * @param fileName - the logical file name (see {@link getHash})
-   * @param hash - the hash to get text for
+   *
+   * @param ref - a reference to the stored file (see {@link getHash})
    * @returns the text
    */
-  getText(fileName: string, hash: string): Promise<string>;
+  getText(ref: ItemRef): Promise<string>;
 
   /**
    * get the entries associated with a list hash
    *
    * A list hash is the root hash, or any hash with the type 80000000. NOTE
    * these are hashed differently than files.
-
-   * @param fileName - `"root.docSchema"` for the root, or `"<id>.docSchema"`
-   *   for a sub-document's entry index
-   * @param hash - the hash to get entries for
+   *
+   * @param ref - a reference whose `id` is `"root.docSchema"` for the root, or
+   *   `"<id>.docSchema"` for a sub-document's entry index
    * @returns the entries
    */
-  getEntries(fileName: string, hash: string): Promise<Entries>;
+  getEntries(ref: ItemRef): Promise<Entries>;
 
   /**
    * get the parsed and validated `Content` of a content hash
    *
    * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
    * validation
-
-   * @param fileName - typically `"<id>.content"`
-   * @param hash - the hash to get Content for
+   *
+   * @param ref - a reference to the stored file, typically `"<id>.content"`
    * @returns the content
    */
-  getContent(fileName: string, hash: string): Promise<Content>;
+  getContent(ref: ItemRef): Promise<Content>;
 
   /**
    * get the parsed and validated `Metadata` of a metadata hash
    *
    * Use {@link getText | `getText`} combined with `JSON.parse` to bypass
    * validation
-
-   * @param fileName - typically `"<id>.metadata"`
-   * @param hash - the hash to get Metadata for
+   *
+   * @param ref - a reference to the stored file, typically `"<id>.metadata"`
    * @returns the metadata
    */
-  getMetadata(fileName: string, hash: string): Promise<Metadata>;
+  getMetadata(ref: ItemRef): Promise<Metadata>;
 
   /**
    * get the parsed reMarkable lines (`.rm`) drawing of a page hash
-
-   * @param fileName - typically `"<id>/<pageid>.rm"`
-   * @param hash - the hash to get the page for
+   *
+   * @param ref - a reference to the stored file, typically `"<id>/<pageid>.rm"`
    * @returns the parsed page
    */
-  getRm(fileName: string, hash: string): Promise<RmPage>;
+  getRm(ref: ItemRef): Promise<RmPage>;
 
   /**
    * the same as {@link putFile | `putFile`} but rendering an `RmPage` to `.rm`
@@ -987,7 +987,7 @@ export interface RawRemarkableApi {
     visibleName: string,
     bytes: Uint8Array,
     mime: UploadMimeType,
-  ): Promise<SimpleEntry>;
+  ): Promise<ItemRef>;
 
   /**
    * dump the current cache to a string to preserve between session
@@ -1087,7 +1087,7 @@ export class RawRemarkable implements RawRemarkableApi {
     return new Uint8Array(raw);
   }
 
-  async getHash(fileName: string, hash: string): Promise<Uint8Array> {
+  async getHash({ id: fileName, hash }: ItemRef): Promise<Uint8Array> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
       const enc = new TextEncoder();
@@ -1103,7 +1103,7 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getText(fileName: string, hash: string): Promise<string> {
+  async getText({ id: fileName, hash }: ItemRef): Promise<string> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
       return cached;
@@ -1117,8 +1117,8 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getEntries(fileName: string, hash: string): Promise<Entries> {
-    const rawFile = await this.getText(fileName, hash);
+  async getEntries(ref: ItemRef): Promise<Entries> {
+    const rawFile = await this.getText(ref);
     const [version, ...rest] = rawFile.slice(0, -1).split("\n");
     if (version === "3") {
       return { entries: rest.map(parseRawEntryLine) };
@@ -1149,20 +1149,20 @@ export class RawRemarkable implements RawRemarkableApi {
     }
   }
 
-  async getContent(fileName: string, hash: string): Promise<Content> {
-    const raw = await this.getText(fileName, hash);
+  async getContent(ref: ItemRef): Promise<Content> {
+    const raw = await this.getText(ref);
     const loaded = JSON.parse(raw) as unknown;
     return content.parse(loaded);
   }
 
-  async getMetadata(fileName: string, hash: string): Promise<Metadata> {
-    const raw = await this.getText(fileName, hash);
+  async getMetadata(ref: ItemRef): Promise<Metadata> {
+    const raw = await this.getText(ref);
     const loaded = JSON.parse(raw) as unknown;
     return metadata.parse(loaded);
   }
 
-  async getRm(fileName: string, hash: string): Promise<RmPage> {
-    const bytes = await this.getHash(fileName, hash);
+  async getRm(ref: ItemRef): Promise<RmPage> {
+    const bytes = await this.getHash(ref);
     return parseRm(bytes);
   }
 
@@ -1344,7 +1344,7 @@ export class RawRemarkable implements RawRemarkableApi {
     visibleName: string,
     bytes: Uint8Array,
     mime: UploadMimeType,
-  ): Promise<SimpleEntry> {
+  ): Promise<ItemRef> {
     const enc = new TextEncoder();
     const meta = enc
       .encode(JSON.stringify({ file_name: visibleName }))
@@ -1362,7 +1362,7 @@ export class RawRemarkable implements RawRemarkableApi {
       },
     );
     const loaded = (await resp.json()) as unknown;
-    const { docID, hash } = nativeSimpleEntry.parse(loaded);
+    const { docID, hash } = nativeItemRef.parse(loaded);
     return { id: docID, hash };
   }
 

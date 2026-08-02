@@ -62,8 +62,9 @@ Using these apis is a little riskier since they can potentially result in data l
 // upload with custom line height not avilable through reMarkable
 await api.putEpub("name", buffer, { lineHeight: 180 })
 
-// fetch an uploaded epub, using the id and hash (from listItems)
-const buffer = await api.getEpub(id, hash)
+// fetch an uploaded epub, passing an item reference (from listItems)
+const [entry] = await api.listItems()
+const buffer = await api.getEpub(entry)
 ```
 
 ### Gotchas
