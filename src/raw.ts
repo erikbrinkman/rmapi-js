@@ -905,21 +905,30 @@ export interface RawRemarkableApi {
    * NOTE: This won't update the state of the reMarkable until this entry is
    * incorporated into the root hash.
    *
-   * @param id - the id of the file to upload
+   * @param fileName - the file name to upload (e.g. `<id>.pdf`)
    * @param bytes - the bytes to upload
    * @returns the new entry and a promise to finish the upload
    */
-  putFile(id: string, bytes: Uint8Array): Promise<[RawEntry, Promise<void>]>;
+  putFile(
+    fileName: string,
+    bytes: Uint8Array,
+  ): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putFile | `putFile`} but with caching for text */
-  putText(id: string, content: string): Promise<[RawEntry, Promise<void>]>;
+  putText(
+    fileName: string,
+    content: string,
+  ): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putText | `putText`} but with extra validation for Content */
-  putContent(id: string, content: Content): Promise<[RawEntry, Promise<void>]>;
+  putContent(
+    fileName: string,
+    content: Content,
+  ): Promise<[RawEntry, Promise<void>]>;
 
   /** the same as {@link putText | `putText`} but with extra validation for Metadata */
   putMetadata(
-    id: string,
+    fileName: string,
     metadata: Metadata,
   ): Promise<[RawEntry, Promise<void>]>;
 
@@ -938,7 +947,10 @@ export interface RawRemarkableApi {
    * warning is logged if a schema 3 root index is written.
    *
    * @param id - the id of the list to upload - this should be the item id if
-   *   uploading an item list, or "root" if uploading a new root list.
+   *   uploading an item list, or "root" if uploading a new root list. Note the
+   *   asymmetry with {@link getEntries | `getEntries`}: `getEntries` takes the
+   *   full `"<id>.docSchema"` file name, whereas `putEntries` takes the bare id
+   *   and appends `.docSchema` (and special-cases `"root"`) itself.
    * @param entries - the entries to upload
    *
    * @returns the new list entry and a promise to finish the upload
@@ -1215,24 +1227,27 @@ export class RawRemarkable implements RawRemarkableApi {
   }
 
   async putFile(
-    id: string,
+    fileName: string,
     bytes: Uint8Array,
   ): Promise<[RawEntry, Promise<void>]> {
     const hash = await digest(bytes);
     const res: RawEntry = {
-      id,
+      id: fileName,
       hash,
       type: 0,
       subfiles: 0,
       size: bytes.length,
     };
-    return [res, this.#putFile(id, hash, bytes)];
+    return [res, this.#putFile(fileName, hash, bytes)];
   }
 
-  async putText(id: string, text: string): Promise<[RawEntry, Promise<void>]> {
+  async putText(
+    fileName: string,
+    text: string,
+  ): Promise<[RawEntry, Promise<void>]> {
     const enc = new TextEncoder();
     const bytes = enc.encode(text);
-    const [ent, upload] = await this.putFile(id, bytes);
+    const [ent, upload] = await this.putFile(fileName, bytes);
     return [
       ent,
       upload.then(() => {
@@ -1243,24 +1258,24 @@ export class RawRemarkable implements RawRemarkableApi {
   }
 
   async putContent(
-    id: string,
+    fileName: string,
     content: Content,
   ): Promise<[RawEntry, Promise<void>]> {
-    if (!id.endsWith(".content")) {
-      throw new Error(`id ${id} did not end with '.content'`);
+    if (!fileName.endsWith(".content")) {
+      throw new Error(`fileName ${fileName} did not end with '.content'`);
     } else {
-      return await this.putText(id, JSON.stringify(content));
+      return await this.putText(fileName, JSON.stringify(content));
     }
   }
 
   async putMetadata(
-    id: string,
+    fileName: string,
     metadata: Metadata,
   ): Promise<[RawEntry, Promise<void>]> {
-    if (!id.endsWith(".metadata")) {
-      throw new Error(`id ${id} did not end with '.metadata'`);
+    if (!fileName.endsWith(".metadata")) {
+      throw new Error(`fileName ${fileName} did not end with '.metadata'`);
     } else {
-      return await this.putText(id, JSON.stringify(metadata));
+      return await this.putText(fileName, JSON.stringify(metadata));
     }
   }
 

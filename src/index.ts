@@ -625,23 +625,23 @@ export interface RemarkableApi {
   getRmPages(id: string, hash: string): Promise<Map<string, RmPage>>;
 
   /**
-   * get the entire contents of a remarkable document
+   * get a document's entire contents as a zip archive
    *
-   * This gets every file of associated with a document, and puts them into a
-   * zip archive.
+   * This gets every file associated with a document and puts them into a zip
+   * archive.
    *
    * @remarks
    * This is an experimental feature. The resulting archive round-trips back
-   * through {@link putDocument | `putDocument`}.
+   * through {@link putDocumentArchive | `putDocumentArchive`}.
    *
    * @param id - the id of the document (as returned by `listIds`)
    * @param hash - the hash of the document to get contents for (e.g. the
    *    hash received from `listItems`)
    */
-  getDocument(id: string, hash: string): Promise<Uint8Array>;
+  getDocumentArchive(id: string, hash: string): Promise<Uint8Array>;
 
   /**
-   * upload a full document archive produced by {@link getDocument | `getDocument`}
+   * upload a document archive produced by {@link getDocumentArchive | `getDocumentArchive`}
    *
    * This explodes the zip archive back into its constituent files, uploads each
    * as a blob, and commits a new document into the root.
@@ -653,9 +653,18 @@ export interface RemarkableApi {
    * low-level puts, this may throw a {@link GenerationError | `GenerationError`}
    * if the generation is stale, requiring a retry.
    *
-   * @param buffer - the archive bytes, as returned by `getDocument`
+   * @param buffer - the archive bytes, as returned by `getDocumentArchive`
    * @param options - overrides for parent, visible name, and id
    */
+  putDocumentArchive(
+    buffer: Uint8Array,
+    options?: PutDocumentOptions,
+  ): Promise<SimpleEntry>;
+
+  /** @deprecated renamed; use {@link getDocumentArchive | `getDocumentArchive`} */
+  getDocument(id: string, hash: string): Promise<Uint8Array>;
+
+  /** @deprecated renamed; use {@link putDocumentArchive | `putDocumentArchive`} */
   putDocument(
     buffer: Uint8Array,
     options?: PutDocumentOptions,
@@ -1208,7 +1217,7 @@ class Remarkable implements RemarkableApi {
 
   async getContent(id: string, hash: string): Promise<Content> {
     const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
-    const [cont] = entries.filter((e) => e.id.endsWith(".content"));
+    const cont = entries.find((e) => e.id.endsWith(".content"));
     if (cont === undefined) {
       throw new Error(`couldn't find contents for hash ${hash}`);
     } else {
@@ -1218,7 +1227,7 @@ class Remarkable implements RemarkableApi {
 
   async getMetadata(id: string, hash: string): Promise<Metadata> {
     const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
-    const [meta] = entries.filter((e) => e.id.endsWith(".metadata"));
+    const meta = entries.find((e) => e.id.endsWith(".metadata"));
     if (meta === undefined) {
       throw new Error(`couldn't find metadata for hash ${hash}`);
     } else {
@@ -1228,7 +1237,7 @@ class Remarkable implements RemarkableApi {
 
   async getPdf(id: string, hash: string): Promise<Uint8Array> {
     const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
-    const [pdf] = entries.filter((e) => e.id.endsWith(".pdf"));
+    const pdf = entries.find((e) => e.id.endsWith(".pdf"));
     if (pdf === undefined) {
       throw new Error(`couldn't find pdf for hash ${hash}`);
     } else {
@@ -1238,7 +1247,7 @@ class Remarkable implements RemarkableApi {
 
   async getEpub(id: string, hash: string): Promise<Uint8Array> {
     const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
-    const [epub] = entries.filter((e) => e.id.endsWith(".epub"));
+    const epub = entries.find((e) => e.id.endsWith(".epub"));
     if (epub === undefined) {
       throw new Error(`couldn't find epub for hash ${hash}`);
     } else {
@@ -1277,7 +1286,7 @@ class Remarkable implements RemarkableApi {
     return new Map(drawn.map(([pageId], index) => [pageId, parsed[index]!]));
   }
 
-  async getDocument(id: string, hash: string): Promise<Uint8Array> {
+  async getDocumentArchive(id: string, hash: string): Promise<Uint8Array> {
     const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
     const zip = new JSZip();
     for (const entry of entries) {
@@ -1287,7 +1296,7 @@ class Remarkable implements RemarkableApi {
     return zip.generateAsync({ type: "uint8array" });
   }
 
-  async putDocument(
+  async putDocumentArchive(
     buffer: Uint8Array,
     {
       refresh = false,
@@ -1354,6 +1363,19 @@ class Remarkable implements RemarkableApi {
 
     await this.#commit(docEntry);
     return { id: newId, hash: docEntry.hash };
+  }
+
+  /** @deprecated renamed; use {@link getDocumentArchive | `getDocumentArchive`} */
+  async getDocument(id: string, hash: string): Promise<Uint8Array> {
+    return await this.getDocumentArchive(id, hash);
+  }
+
+  /** @deprecated renamed; use {@link putDocumentArchive | `putDocumentArchive`} */
+  async putDocument(
+    buffer: Uint8Array,
+    options?: PutDocumentOptions,
+  ): Promise<SimpleEntry> {
+    return await this.putDocumentArchive(buffer, options);
   }
 
   async #putFile(
