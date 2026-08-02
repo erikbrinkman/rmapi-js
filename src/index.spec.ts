@@ -552,7 +552,7 @@ hash:0:doc.pdf:0:1
     expect(bytes).toEqual(epub);
   });
 
-  test("#getDocument()", async () => {
+  test("#getDocumentArchive()", async () => {
     const contentHash = repHash("1");
     const metadataHash = repHash("2");
     const epubHash = repHash("3");
@@ -594,7 +594,7 @@ ${epubHash}:0:doc.epub:0:1
     );
 
     const api = await remarkable("");
-    const bytes = await api.getDocument("test-id", repHash("0"));
+    const bytes = await api.getDocumentArchive("test-id", repHash("0"));
     expect(bytes.length).toBeGreaterThan(0);
   });
 
@@ -1146,7 +1146,7 @@ hash2:80000000:other:0:2
   });
 });
 
-describe("putDocument() / getDocument()", () => {
+describe("putDocumentArchive() / getDocumentArchive()", () => {
   test("round-trips an archive, rewriting id and metadata", async () => {
     const oldId = "11111111-1111-4111-8111-111111111111";
     const pageId = "22222222-2222-4222-8222-222222222222";
@@ -1206,7 +1206,7 @@ describe("putDocument() / getDocument()", () => {
     }) as unknown as typeof fetch);
 
     const api = await remarkable("");
-    const { id: newId, hash } = await api.putDocument(archive, {
+    const { id: newId, hash } = await api.putDocumentArchive(archive, {
       parent,
       visibleName: "renamed",
     });
@@ -1217,7 +1217,7 @@ describe("putDocument() / getDocument()", () => {
     expect(root.hash).not.toBe(rootStart);
 
     // read it back and confirm every file survived with the new id prefix
-    const out = await api.getDocument(newId, hash);
+    const out = await api.getDocumentArchive(newId, hash);
     const zip = await JSZip.loadAsync(out);
     const files = Object.keys(zip.files).filter(
       (path) => !zip.files[path]!.dir,
