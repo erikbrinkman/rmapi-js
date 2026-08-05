@@ -1562,14 +1562,14 @@ class Remarkable {
     return await this.move(ref, TRASH_ID, refresh);
   }
 
-  /** 
+  /**
    * permanently delete an entry
    *
    * @example
    * ```ts
    * await api.purge(file);
    * ```
-   * @param ref - a reference to the entry to purge
+   * @param hash - a hash to the entry to purge
    * @returns boolean if the purge was successful
    */
   async purge(hash: string, refresh: boolean = false): Promise<boolean> {
@@ -1699,16 +1699,16 @@ class Remarkable {
     return await this.bulkMove(refs, TRASH_ID, refresh);
   }
 
-  /** 
-   * permanent delete many hashes 
+  /**
+   * permanent delete many hashes
    *
    * @example
    * ```ts
-   * await api.bulkDelete([file]);
+   * await api.bulkPurge([file]);
    * ```
    *
-   * @param refs - references to the entries to delete
-   * @returns references to the deleted entries, each with its new hash
+   * @param hashes - hashes of the entries to delete
+   * @returns dictionary of hashes to booleans indicating whether the purge was successful
    */
   async bulkPurge(
     hashes: readonly string[],
@@ -1724,7 +1724,10 @@ class Remarkable {
     }
 
     const [rootHash, generation] = await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries({ id: ROOT_SCHEMA, hash: rootHash });
+    const { entries } = await this.raw.getEntries({
+      id: ROOT_SCHEMA,
+      hash: rootHash,
+    });
 
     const hashSet = new Set(hashes);
     const newEntries: RawEntry[] = [];
