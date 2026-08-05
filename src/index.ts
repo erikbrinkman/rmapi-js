@@ -1724,7 +1724,7 @@ class Remarkable {
     }
 
     const [rootHash, generation] = await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
+    const { entries } = await this.raw.getEntries({ id: ROOT_SCHEMA, hash: rootHash });
 
     const hashSet = new Set(hashes);
     const newEntries: RawEntry[] = [];
