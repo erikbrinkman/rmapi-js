@@ -22,5 +22,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "eslint.config.mjs"]
+  "include": ["src"]
 }

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { LruCache } from "./lru";
+import { LruCache } from "./lru.js";
 
 test("LruCache()", () => {
   const cache = new LruCache(10);

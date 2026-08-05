@@ -17,9 +17,9 @@
  * // persist token
  * const api = await remarkable(token);
  * // list all items (documents and collections)
- * const [first, ...rest] = api.listItems();
+ * const [first, ...rest] = await api.listItems();
  * // rename first item
- * const entry = api.rename(first.hash, "new name");
+ * const entry = await api.rename(first, "new name");
  * ```
  *
  * @example
@@ -54,29 +54,36 @@
 import JSZip from "jszip";
 import { v4 as uuid4 } from "uuid";
 import { z } from "zod";
-import { HashNotFoundError, ValidationError } from "./error";
-import { LruCache } from "./lru";
+import { HashNotFoundError, ValidationError } from "./error.js";
+import { LruCache } from "./lru.js";
 import {
   type BackgroundFilter,
   type CollectionContent,
   type Content,
   type DocumentContent,
   type Entries,
+  type ItemRef,
   type Metadata,
   type Orientation,
+  parseMetadata,
   type RawEntry,
   RawRemarkable,
   type RawRemarkableApi,
   type RequestMethod,
+  type RmPage,
   type SchemaVersion,
-  type SimpleEntry,
   type Tag,
   type TemplateContent,
   type TextAlignment,
   type ZoomMode,
-} from "./raw";
+} from "./raw.js";
 
-export { HashNotFoundError, ValidationError } from "./error";
+export {
+  type DeviceModel,
+  type DeviceScreen,
+  deviceScreens,
+} from "./devices.js";
+export { HashNotFoundError, ValidationError } from "./error.js";
 export type {
   BackgroundFilter,
   CollectionContent,
@@ -90,6 +97,7 @@ export type {
   DocumentMetadata,
   Entries,
   FileType,
+  ItemRef,
   KeyboardMetadata,
   LegacyCollectionContent,
   LegacyDocumentContent,
@@ -98,33 +106,131 @@ export type {
   PageTag,
   RawEntry,
   RawRemarkableApi,
+  RmPage,
   SchemaVersion,
-  SimpleEntry,
   Tag,
   TemplateContent,
   TextAlignment,
   UploadMimeType,
   ZoomMode,
-} from "./raw";
+} from "./raw.js";
+export type {
+  RmBrush,
+  RmLayer,
+  RmLine,
+  RmPageV5,
+  RmPoint,
+  RmVersion,
+} from "./rm5.js";
+export { decodeBrush, rmColors } from "./rm5.js";
+export type {
+  AuthorIdsBlock,
+  CrdtId,
+  GlyphRange,
+  LwwValue,
+  MigrationInfoBlock,
+  PageInfoBlock,
+  Rectangle,
+  RmBlock,
+  RmScene,
+  RmSceneItem,
+  RmSceneLayer,
+  RmV6Line,
+  RmV6Point,
+  RmV6Text,
+  RmV6TextValue,
+  RootTextBlock,
+  SceneGlyphItemBlock,
+  SceneGroupItemBlock,
+  SceneInfoBlock,
+  SceneItem,
+  SceneLineItemBlock,
+  SceneTextItemBlock,
+  SceneTombstoneItemBlock,
+  SceneTreeBlock,
+  TreeNodeBlock,
+  UnknownBlock,
+} from "./rm6.js";
+export { crdtKey, END_MARKER, parseRmScene, ROOT_ID } from "./rm6.js";
 
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
 const UPLOAD_HOST = "https://internal.cloud.remarkable.com";
 
-// ------------ //
-// Request Info //
-// ------------ //
+/** the parent id of the root directory */
+const ROOT_ID = "";
+/** the parent id of the trash */
+const TRASH_ID = "trash";
+/** the id of the root entry list */
+const ROOT_LIST = "root";
+/** the file name of the root entry index */
+const ROOT_SCHEMA = `${ROOT_LIST}.docSchema`;
+
+/** base backoff in milliseconds for transient request retries */
+const TRANSIENT_BASE_MS = 200;
+/** base backoff in milliseconds for generation-conflict retries */
+const GENERATION_BASE_MS = 25;
+
+/** resolve after a number of milliseconds */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    // don't let a pending backoff keep a node process alive
+    (timer as { unref?: () => void }).unref?.();
+  });
+}
+
+/** exponential backoff with full jitter, capped at 30 seconds */
+function backoffMs(attempt: number, baseMs: number): number {
+  const capped = Math.min(baseMs * 2 ** attempt, 30_000);
+  return Math.random() * capped;
+}
+
+/**
+ * a mutex acquired by async iteration
+ *
+ * `for await (const _lock of mutex) { ... }` runs the body with the lock held
+ * and releases it when the body exits — by return, throw, or break — the way a
+ * `using` block would. Waiters are served in acquisition order.
+ */
+class Mutex {
+  #tail: Promise<void> = Promise.resolve();
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<void> {
+    const previous = this.#tail;
+    let release!: () => void;
+    this.#tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      yield;
+    } finally {
+      release();
+    }
+  }
+}
+
+/** the ordered page ids of a document's content, from cPages or the legacy list */
+function pageOrder(content: Content): string[] {
+  if ("cPages" in content && content.cPages) {
+    return content.cPages.pages
+      .filter((page) => page.deleted === undefined)
+      .map((page) => page.id);
+  } else if ("pages" in content && content.pages) {
+    return content.pages;
+  } else {
+    return [];
+  }
+}
+
 // The section has all the types that are stored in the remarkable cloud.
 
 const idReg =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}||trash)$/;
 
 /** common properties shared by collections and documents */
-export interface EntryCommon {
-  /** the document id, a uuid4 */
-  id: string;
-  /** the current hash of the state of this entry */
-  hash: string;
+export interface EntryCommon extends ItemRef {
   /** the visible display name of this entry */
   visibleName: string;
   /** the last modified timestamp */
@@ -173,22 +279,27 @@ export interface TemplateType extends EntryCommon {
 /** a remarkable entry for cloud items */
 export type Entry = CollectionEntry | DocumentType | TemplateType;
 
-/** the new hash of a modified entry */
-export interface HashEntry {
-  /** the actual hash */
-  hash: string;
-}
-
-/** the mapping from old hashes to new hashes after a bulk modify */
-export interface HashesEntry {
-  /** the mapping from old to new hashes */
-  hashes: Record<string, string>;
-}
-
 /** options for creating a folder */
 export interface FolderOptions {
   /** the id of the folder's parent directory, "" or omitted for root */
   parent?: string;
+}
+
+/** options for uploading a full document archive */
+export interface PutDocumentOptions {
+  /** if true, refresh the root hash before uploading */
+  refresh?: boolean;
+  /** the parent to place the document under, overriding the archived value */
+  parent?: string;
+  /** the visible name to use, overriding the archived value */
+  visibleName?: string;
+  /**
+   * reuse this document id instead of generating a fresh one
+   *
+   * By default a new uuid is generated so re-uploading an archive to the same
+   * account doesn't collide with the original. Pass an id to restore in place.
+   */
+  id?: string;
 }
 
 /** An error that gets thrown when the backend while trying to update
@@ -219,10 +330,6 @@ export class ResponseError extends Error {
     this.statusText = statusText;
   }
 }
-
-// -------------- //
-// Remarkable API //
-// -------------- //
 
 /** options for registering with the api */
 export interface RegisterOptions {
@@ -341,6 +448,18 @@ export interface PutOptions {
   zoomMode?: ZoomMode;
   /** the contrast filter setting */
   viewBackgroundFilter?: BackgroundFilter;
+  /** the custom zoom scale, applied when zoomMode is "customFit" */
+  customZoomScale?: number;
+  /** the horizontal center offset for customFit zoom */
+  customZoomCenterX?: number;
+  /** the vertical center offset for customFit zoom */
+  customZoomCenterY?: number;
+  /** the rendered page width in pixels, the unit customFit centers use */
+  customZoomPageWidth?: number;
+  /** the rendered page height in pixels, the unit customFit centers use */
+  customZoomPageHeight?: number;
+  /** the orientation the customFit zoom was set in */
+  customZoomOrientation?: Orientation;
   /**
    * whether to refresh current file structure before putting
    *
@@ -368,408 +487,31 @@ export interface PutOptions {
  * you should be able to use the low level api to work around any restrictive
  * validation.
  */
-export interface RemarkableApi {
-  /** scoped access to the raw low-level api */
-  raw: RawRemarkableApi;
-
-  /**
-   * list all items
-   *
-   * Items include both collections and documents. Documents that are in folders
-   * will have their parent set to something other than "" or "trash", but
-   * everything will be returned by this function.
-   *
-   * @example
-   * ```ts
-   * await api.listItems();
-   * ```
-   *
-   * @remarks
-   * This is now backed by the low level api, and you may notice some
-   * performance degradation if not taking advantage of the cache.
-   *
-   * @param refresh - if true, refresh the root hash before listing
-   * @returns a list of all items with some metadata
-   */
-  listItems(refresh?: boolean): Promise<Entry[]>;
-
-  /**
-   * similar to {@link listItems | `listItems`} but backed by the low level api
-   *
-   * @param refresh - if true, refresh the root hash before listing
-   */
-  listIds(refresh?: boolean): Promise<SimpleEntry[]>;
-
-  /**
-   * get the content metadata from an item hash
-   *
-   * This takes the high level item hash, e.g. the hashes you get from
-   * {@link listItems | `listItems`} or {@link listIds | `listIds`}.
-   *
-   * @remarks
-   * If this fails validation and you still want to get the content, you can use
-   * the low-level api to get the raw text of the `.content` file in the
-   * `RawEntry` for this hash.
-   *
-   * @param id - the id of the item (as returned by `listIds`)
-   * @param hash - the hash of the item to get content for
-   * @returns the content
-   */
-  getContent(id: string, hash: string): Promise<Content>;
-
-  /**
-   * get the metadata from an item hash
-   *
-   * This takes the high level item hash, e.g. the hashes you get from
-   * {@link listItems | `listItems`} or {@link listIds | `listIds`}.
-   *
-   * @remarks
-   * If this fails validation and you still want to get the content, you can use
-   * the low-level api to get the raw text of the `.metadata` file in the
-   * `RawEntry` for this hash.
-   *
-   * @param id - the id of the item (as returned by `listIds`)
-   * @param hash - the hash of the item to get metadata for
-   * @returns the metadata
-   */
-  getMetadata(id: string, hash: string): Promise<Metadata>;
-
-  /**
-   * get the pdf associated with a document hash
-   *
-   * This returns the raw input pdf, not the rendered pdf with any markup.
-   *
-   * @param id - the id of the document (as returned by `listIds`)
-   * @param hash - the hash of the document to get the pdf for (e.g. the hash
-   *     received from `listItems`)
-   * @returns the pdf bytes
-   */
-  getPdf(id: string, hash: string): Promise<Uint8Array>;
-
-  /**
-   * get the epub associated with a document hash
-   *
-   * This returns the raw input epub if a document was created from an epub.
-   *
-   * @param id - the id of the document (as returned by `listIds`)
-   * @param hash - the hash of the document to get the epub for (e.g. the hash
-   *     received from `listItems`)
-   * @returns the epub bytes
-   */
-  getEpub(id: string, hash: string): Promise<Uint8Array>;
-
-  /**
-   * get the entire contents of a remarkable document
-   *
-   * This gets every file of associated with a document, and puts them into a
-   * zip archive.
-   *
-   * @remarks
-   * This is an experimental feature, that works for downloading the raw version
-   * of the document, but this format isn't understood enoguh to reput this on a
-   * different remarkable, so that functionality is currently disabled.
-   *
-   * @param id - the id of the document (as returned by `listIds`)
-   * @param hash - the hash of the document to get contents for (e.g. the
-   *    hash received from `listItems`)
-   */
-  getDocument(id: string, hash: string): Promise<Uint8Array>;
-
-  /**
-   * use the low-level api to add a pdf document
-   *
-   * Since this uses the low-level api, it provides more options than
-   * {@link uploadPdf | `uploadPdf`}, but is a little more finicky. Notably, it
-   * may throw a {@link GenerationError | `GenerationError`} if the generation
-   * doesn't match the current server generation, requiring you to retry until
-   * it works.
-   *
-   * @param visibleName - the name to display on the reMarkable
-   * @param buffer - the raw pdf
-   * @param opts - put options
-   * @throws GenerationError if the generation doesn't match the current server generation
-   * @returns the entry for the newly inserted document
-   */
-  putPdf(
-    visibleName: string,
-    buffer: Uint8Array,
-    opts?: PutOptions,
-  ): Promise<SimpleEntry>;
-
-  /**
-   * use the low-level api to add an epub document
-   *
-   * Since this uses the low-level api, it provides more options than
-   * {@link uploadEpub | `uploadEpub`}, but is a little more finicky. Notably, it
-   * may throw a {@link GenerationError | `GenerationError`} if the generation
-   * doesn't match the current server generation, requiring you to retry until
-   * it works.
-   *
-   * @param visibleName - the name to display on the reMarkable
-   * @param buffer - the raw epub
-   * @param opts - put options
-   * @throws GenerationError if the generation doesn't match the current server generation
-   * @returns the entry for the newly inserted document
-   */
-  putEpub(
-    visibleName: string,
-    buffer: Uint8Array,
-    opts?: PutOptions,
-  ): Promise<SimpleEntry>;
-
-  /** create a folder */
-  putFolder(
-    visibleName: string,
-    opts?: FolderOptions,
-    refresh?: boolean,
-  ): Promise<SimpleEntry>;
-
-  /**
-   * upload an epub
-   *
-   * @example
-   * ```ts
-   * await api.uploadEpub("My EPub", ...);
-   * ```
-   *
-   * @remarks
-   * this uses a simpler api that works even with schema version 4.
-   *
-   * @param visibleName - the name to show for the uploaded epub
-   * @param buffer - the epub contents
-   */
-  uploadEpub(visibleName: string, buffer: Uint8Array): Promise<SimpleEntry>;
-
-  /**
-   * upload a pdf
-   *
-   * @example
-   * ```ts
-   * await api.uploadPdf("My PDF", ...);
-   * ```
-   *
-   * @remarks
-   * this uses a simpler api that works even with schema version 4.
-   *
-   * @param visibleName - the name to show for the uploaded epub
-   * @param buffer - the epub contents
-   */
-  uploadPdf(visibleName: string, buffer: Uint8Array): Promise<SimpleEntry>;
-
-  /** create a folder using the simple api */
-  uploadFolder(visibleName: string): Promise<SimpleEntry>;
-
-  /**
-   * update content metadata for a document
-   *
-   * @example
-   * ```ts
-   * await api.updateDocument(doc.hash, { textAlignment: "left" });
-   * ```
-   *
-   * @param hash - the hash of the file to update
-   * @param content - the fields of content to update
-   */
-  updateDocument(
-    hash: string,
-    content: Partial<DocumentContent>,
-    refresh?: boolean,
-  ): Promise<HashEntry>;
-
-  /**
-   * update content metadata for a collection
-   *
-   * @example
-   * ```ts
-   * await api.updateCollection(doc.hash, { textAlignment: "left" });
-   * ```
-   *
-   * @param hash - the hash of the file to update
-   * @param content - the fields of content to update
-   */
-  updateCollection(
-    hash: string,
-    content: Partial<CollectionContent>,
-    refresh?: boolean,
-  ): Promise<HashEntry>;
-
-  /**
-   * update content metadata for a template
-   *
-   * @example
-   * ```ts
-   * await api.updateTemplate(doc.hash, { textAlignment: "left" });
-   * ```
-   *
-   * @param hash - the hash of the file to update
-   * @param content - the fields of content to update
-   */
-  updateTemplate(
-    hash: string,
-    content: Partial<TemplateContent>,
-    refresh?: boolean,
-  ): Promise<HashEntry>;
-
-  /**
-   * move an entry
-   *
-   * @example
-   * ```ts
-   * await api.move(doc.hash, dir.id);
-   * ```
-   *
-   * @param hash - the hash of the file to move
-   * @param parent - the id of the directory to move the entry to, "" (root) and "trash" are special parents
-   */
-  move(hash: string, parent: string, refresh?: boolean): Promise<HashEntry>;
-
-  /**
-   * delete an entry
-   *
-   * @example
-   * ```ts
-   * await api.delete(file.hash);
-   * ```
-   * @param hash - the hash of the entry to delete
-   */
-  delete(hash: string, refresh?: boolean): Promise<HashEntry>;
-
-  /**
-   * permanently delete an entry from all devices connected to the account
-   *
-   * @example
-   * ```ts
-   * await api.purge(file.hash);
-   * ```
-   * @param hash - the hash of the entry to delete
-   */
-  purge(hash: string, refresh?: boolean): Promise<boolean>;
-
-  /**
-   * rename an entry
-   *
-   * @example
-   * ```ts
-   * await api.rename(file.hash, "new name");
-   * ```
-   * @param hash - the hash of the entry to rename
-   * @param visibleName - the new name to assign
-   */
-  rename(
-    hash: string,
-    visibleName: string,
-    refresh?: boolean,
-  ): Promise<HashEntry>;
-
-  /**
-   * set if an entry is stared
-   *
-   * @example
-   * ```ts
-   * await api.stared(file.hash, true);
-   * ```
-   * @param hash - the hash of the entry to rename
-   * @param stared - whether the entry should be stared or not
-   */
-  stared(hash: string, stared: boolean, refresh?: boolean): Promise<HashEntry>;
-
-  /**
-   * move many entries
-   *
-   * @example
-   * ```ts
-   * await api.bulkMove([file.hash], dir.id);
-   * ```
-   *
-   * @param hashes - an array of entry hashes to move
-   * @param parent - the directory id to move the entries to, "" (root) and "trash" are special ids
-   */
-  bulkMove(
-    hashes: readonly string[],
-    parent: string,
-    refresh?: boolean,
-  ): Promise<HashesEntry>;
-
-  /**
-   * delete many entries
-   *
-   * @example
-   * ```ts
-   * await api.bulkDelete([file.hash]);
-   * ```
-   *
-   * @param hashes - the hashes of the entries to delete
-   */
-  bulkDelete(
-    hashes: readonly string[],
-    refresh?: boolean,
-  ): Promise<HashesEntry>;
-
-  /**
-   * delete many entries permanently from all devices connected to the account
-   *
-   * @example
-   * ```ts
-   * await api.bulkPurge([file.hash]);
-   * ```
-   *
-   * @param hashes - the hashes of the entries to delete
-   */
-  bulkPurge(
-    hashes: readonly string[],
-    refresh?: boolean,
-  ): Promise<Record<string, boolean>>;
-
-  /**
-   * get the current cache value as a string
-   *
-   * You can use this to warm start a new instance of
-   * {@link remarkable | `remarkable`} with any previously cached results.
-   */
-  dumpCache(): string;
-
-  /**
-   * prune the cache so that it contains only reachable hashes
-   *
-   * The cache is append only, so it can grow without bound, even as hashes
-   * become unreachable. In the future, this may have better cache management to
-   * track this in real time, but for now, you can call this method, to keep it
-   * from growing continuously.
-   *
-   * @remarks
-   * This won't necessarily reduce the cache size. In order to see if
-   * hashes are reachable we first have to search through all existing entry
-   * lists.
-   *
-   * @param refresh - whether to refresh the root hash before pruning
-   */
-  pruneCache(refresh?: boolean): Promise<void>;
-
-  /**
-   * completely delete the cache
-   *
-   * If the cache is causing memory issues, you can clear it, but this will hurt
-   * performance.
-   */
-  clearCache(): void;
-}
-
-/** the implementation of that api */
-class Remarkable implements RemarkableApi {
+class Remarkable {
   readonly #sessionToken: string;
   /** the same cache that underlies the raw api, allowing us to modify it */
   readonly #cache: Map<string, string | null>;
+  /** scoped access to the raw low-level api */
   readonly raw: RawRemarkable;
-  #lastHashGen: readonly [string, number, SchemaVersion] | undefined;
+  readonly #maxGenerationRetries: number;
+  readonly #maxTransientRetries: number;
+  #lastHashGen: readonly [string, number] | undefined;
+  #schemaVersion: SchemaVersion | undefined;
+  /** serializes root updates on this instance so they don't self-conflict */
+  readonly #rootMutex = new Mutex();
 
   constructor(
     sessionToken: string,
     rawHost: string,
     uploadHost: string,
     cache: Map<string, string | null>,
+    maxGenerationRetries: number,
+    maxTransientRetries: number,
   ) {
     this.#sessionToken = sessionToken;
     this.#cache = cache;
+    this.#maxGenerationRetries = maxGenerationRetries;
+    this.#maxTransientRetries = maxTransientRetries;
     this.raw = new RawRemarkable(
       (method, url, { body, headers } = {}) =>
         this.#authedFetch(url, { method, body, headers }),
@@ -783,16 +525,24 @@ class Remarkable implements RemarkableApi {
     refresh: boolean = false,
   ): Promise<readonly [string, number, SchemaVersion]> {
     if (refresh || this.#lastHashGen === undefined) {
-      this.#lastHashGen = await this.raw.getRootHash();
+      const [hash, generation, schemaVersion] = await this.raw.getRootHash();
+      // a slow older fetch can resolve after a newer write; only accept it if
+      // it doesn't regress the cached generation past a committed root
+      if (
+        this.#lastHashGen === undefined ||
+        generation >= this.#lastHashGen[1]
+      ) {
+        this.#lastHashGen = [hash, generation];
+        this.#schemaVersion = schemaVersion;
+      }
     }
-    return this.#lastHashGen;
+    return [...this.#lastHashGen, this.#schemaVersion!];
   }
 
   async #putRootHash(hash: string, generation: number): Promise<void> {
     try {
       const [rootHash, gen] = await this.raw.putRootHash(hash, generation);
-      const [, , schemaVersion] = this.#lastHashGen!; // guaranteed to be set
-      this.#lastHashGen = [rootHash, gen, schemaVersion];
+      this.#lastHashGen = [rootHash, gen];
     } catch (ex) {
       // if we hit a generation error, invalidate our cached generation
       if (ex instanceof GenerationError) {
@@ -800,6 +550,63 @@ class Remarkable implements RemarkableApi {
       }
       throw ex;
     }
+  }
+
+  /**
+   * run a root-mutating operation, retrying on generation conflicts
+   *
+   * On a {@link GenerationError | `GenerationError`} the cached generation was
+   * already invalidated by {@link #putRootHash}, so re-running `op` re-reads the
+   * latest root and re-applies the change. Callers must resolve any random ids
+   * before this so retries reuse the same (cached) blobs.
+   */
+  async #withRetry<T>(op: () => Promise<T>): Promise<T> {
+    // hold the root lock across the whole read-merge-write so concurrent
+    // mutators serialize instead of sharing a generation and forcing each
+    // other into avoidable conflicts
+    for await (const _lock of this.#rootMutex) {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await op();
+        } catch (ex) {
+          if (
+            ex instanceof GenerationError &&
+            attempt < this.#maxGenerationRetries
+          ) {
+            await sleep(backoffMs(attempt, GENERATION_BASE_MS));
+          } else {
+            throw ex;
+          }
+        }
+      }
+    }
+    // the mutex yields exactly once, so the loop always returns or throws
+    throw new Error("unreachable");
+  }
+
+  /**
+   * splice an already-uploaded item entry into the root
+   *
+   * The entry and all its blobs must already be uploaded; only the
+   * generation-dependent root merge is retried, so a conflict re-reads the
+   * latest root and re-appends the (stable) entry without re-uploading blobs.
+   */
+  async #commit(entry: RawEntry): Promise<void> {
+    await this.#withRetry(async () => {
+      const [rootHash, generation] = await this.#getRootHash();
+      const { entries } = await this.raw.getEntries({
+        id: ROOT_SCHEMA,
+        hash: rootHash,
+      });
+      entries.push(entry);
+      const [rootEntry, uploadRoot] = await this.raw.putEntries(
+        ROOT_LIST,
+        entries,
+        4,
+      );
+      await uploadRoot;
+      await this.#putRootHash(rootEntry.hash, generation);
+    });
   }
 
   async #authedFetch(
@@ -814,19 +621,46 @@ class Remarkable implements RemarkableApi {
       headers?: Record<string, string>;
     },
   ): Promise<Response> {
-    const resp = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.#sessionToken}`,
-        ...headers,
-      },
-      // fetch works correctly with uint8 arrays, but is not hinted correctly
-      body: body as unknown as ArrayBuffer,
-    });
-    if (!resp.ok) {
+    // the root PUT is a compare-and-set; retrying a lost-but-applied response
+    // would resurface as a false generation conflict and be double-applied by
+    // #withRetry, so never transient-retry it (GETs and content-addressed file
+    // PUTs are idempotent and safe to retry)
+    const transientRetries =
+      method === "PUT" && url.endsWith("/sync/v3/root")
+        ? 0
+        : this.#maxTransientRetries;
+    for (let attempt = 0; ; attempt++) {
+      let resp: Response;
+      try {
+        resp = await fetch(url, {
+          method,
+          headers: {
+            Authorization: `Bearer ${this.#sessionToken}`,
+            ...headers,
+          },
+          // fetch works correctly with uint8 arrays, but is not hinted correctly
+          body: body as unknown as ArrayBuffer,
+        });
+      } catch (ex) {
+        // a network-level failure, retry if we have attempts left
+        if (attempt < transientRetries) {
+          await sleep(backoffMs(attempt, TRANSIENT_BASE_MS));
+          continue;
+        }
+        throw ex;
+      }
+      if (resp.ok) {
+        return resp;
+      }
       const msg = await resp.text();
       if (msg === '{"message":"precondition failed"}\n') {
+        // a generation conflict; handled by #withRetry at the high level
         throw new GenerationError();
+      } else if (
+        (resp.status >= 500 || resp.status === 429) &&
+        attempt < transientRetries
+      ) {
+        await sleep(backoffMs(attempt, TRANSIENT_BASE_MS));
       } else {
         throw new ResponseError(
           resp.status,
@@ -834,13 +668,14 @@ class Remarkable implements RemarkableApi {
           `failed reMarkable request: ${msg}`,
         );
       }
-    } else {
-      return resp;
     }
   }
 
-  async #convertEntry({ hash, id }: SimpleEntry): Promise<Entry> {
-    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
+  async #convertEntry({ hash, id }: ItemRef): Promise<Entry> {
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
     const metaEnt = entries.find((ent) => ent.id.endsWith(".metadata"));
     const contentEnt = entries.find((ent) => ent.id.endsWith(".content"));
     if (metaEnt === undefined) {
@@ -854,16 +689,17 @@ class Remarkable implements RemarkableApi {
         pinned,
         parent,
         lastOpened,
+        createdTime,
         new: isNew,
         source,
       },
       content,
     ] = await Promise.all([
-      this.raw.getMetadata(metaEnt.id, metaEnt.hash),
+      this.raw.getMetadata(metaEnt),
       // collections don't always have content, since content only lists tags
       contentEnt === undefined
         ? Promise.resolve({ fileType: undefined, tags: undefined })
-        : this.raw.getContent(contentEnt.id, contentEnt.hash),
+        : this.raw.getContent(contentEnt),
     ]);
     if ("templateVersion" in content) {
       return {
@@ -875,6 +711,7 @@ class Remarkable implements RemarkableApi {
         pinned,
         source,
         parent,
+        createdTime,
         type: "TemplateType",
       };
     } else if (content.fileType === undefined) {
@@ -904,66 +741,295 @@ class Remarkable implements RemarkableApi {
     }
   }
 
-  /** list all items */
+  /**
+   * list all items
+   *
+   * Items include both collections and documents. Documents that are in folders
+   * will have their parent set to something other than "" or "trash", but
+   * everything will be returned by this function.
+   *
+   * @example
+   * ```ts
+   * await api.listItems();
+   * ```
+   *
+   * @remarks
+   * This is now backed by the low level api, and you may notice some
+   * performance degradation if not taking advantage of the cache.
+   *
+   * @param refresh - if true, refresh the root hash before listing
+   * @returns a list of all items with some metadata
+   */
   async listItems(refresh: boolean = false): Promise<Entry[]> {
     const ids = await this.listIds(refresh);
     return await Promise.all(ids.map((id) => this.#convertEntry(id)));
   }
 
-  async listIds(refresh: boolean = false): Promise<SimpleEntry[]> {
+  /**
+   * similar to {@link listItems | `listItems`} but backed by the low level api
+   *
+   * @param refresh - if true, refresh the root hash before listing
+   */
+  async listIds(refresh: boolean = false): Promise<ItemRef[]> {
     const [hash] = await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", hash);
+    const { entries } = await this.raw.getEntries({ id: ROOT_SCHEMA, hash });
     return entries.map(({ id, hash }) => ({ id, hash }));
   }
 
-  async getContent(id: string, hash: string): Promise<Content> {
-    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
-    const [cont] = entries.filter((e) => e.id.endsWith(".content"));
+  /**
+   * get the content metadata for an item
+   *
+   * @remarks
+   * If this fails validation and you still want to get the content, you can use
+   * the low-level api to get the raw text of the `.content` file in the
+   * `RawEntry` for this hash.
+   *
+   * @param ref - a reference to the item (e.g. from `listItems` or `listIds`)
+   * @returns the content
+   */
+  async getContent({ id, hash }: ItemRef): Promise<Content> {
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const cont = entries.find((e) => e.id.endsWith(".content"));
     if (cont === undefined) {
       throw new Error(`couldn't find contents for hash ${hash}`);
     } else {
-      return await this.raw.getContent(cont.id, cont.hash);
+      return await this.raw.getContent(cont);
     }
   }
 
-  async getMetadata(id: string, hash: string): Promise<Metadata> {
-    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
-    const [meta] = entries.filter((e) => e.id.endsWith(".metadata"));
+  /**
+   * get the metadata for an item
+   *
+   * @remarks
+   * If this fails validation and you still want to get the content, you can use
+   * the low-level api to get the raw text of the `.metadata` file in the
+   * `RawEntry` for this hash.
+   *
+   * @param ref - a reference to the item (e.g. from `listItems` or `listIds`)
+   * @returns the metadata
+   */
+  async getMetadata({ id, hash }: ItemRef): Promise<Metadata> {
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const meta = entries.find((e) => e.id.endsWith(".metadata"));
     if (meta === undefined) {
       throw new Error(`couldn't find metadata for hash ${hash}`);
     } else {
-      return await this.raw.getMetadata(meta.id, meta.hash);
+      return await this.raw.getMetadata(meta);
     }
   }
 
-  async getPdf(id: string, hash: string): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
-    const [pdf] = entries.filter((e) => e.id.endsWith(".pdf"));
+  /**
+   * get the pdf associated with a document
+   *
+   * This returns the raw input pdf, not the rendered pdf with any markup.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @returns the pdf bytes
+   */
+  async getPdf({ id, hash }: ItemRef): Promise<Uint8Array> {
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const pdf = entries.find((e) => e.id.endsWith(".pdf"));
     if (pdf === undefined) {
       throw new Error(`couldn't find pdf for hash ${hash}`);
     } else {
-      return await this.raw.getHash(pdf.id, pdf.hash);
+      return await this.raw.getHash(pdf);
     }
   }
 
-  async getEpub(id: string, hash: string): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
-    const [epub] = entries.filter((e) => e.id.endsWith(".epub"));
+  /**
+   * get the epub associated with a document
+   *
+   * This returns the raw input epub if a document was created from an epub.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @returns the epub bytes
+   */
+  async getEpub({ id, hash }: ItemRef): Promise<Uint8Array> {
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const epub = entries.find((e) => e.id.endsWith(".epub"));
     if (epub === undefined) {
       throw new Error(`couldn't find epub for hash ${hash}`);
     } else {
-      return await this.raw.getHash(epub.id, epub.hash);
+      return await this.raw.getHash(epub);
     }
   }
 
-  async getDocument(id: string, hash: string): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
+  /**
+   * get a single page's parsed reMarkable lines (`.rm`) drawing
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @param pageId - the id of the page, from the document's `.content` page
+   *     list (see {@link getRmPages | `getRmPages`} for every page)
+   * @returns the parsed page, or `undefined` if the page exists but has no
+   *     `.rm` drawing (a page you haven't drawn on has no `.rm` file)
+   * @throws if `pageId` is not a page of the document
+   */
+  async getRmPage(ref: ItemRef, pageId: string): Promise<RmPage | undefined> {
+    const { id, hash } = ref;
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const content = await this.getContent(ref);
+    if (!pageOrder(content).includes(pageId)) {
+      throw new Error(`document ${id} has no page ${pageId}`);
+    }
+    const entry = entries.find((ent) => ent.id === `${id}/${pageId}.rm`);
+    if (entry === undefined) {
+      return undefined;
+    } else {
+      return await this.raw.getRm(entry);
+    }
+  }
+
+  /**
+   * get every drawn page of a document, parsed, keyed by page id
+   *
+   * Returns a map from page id to its parsed {@link RmPage | `RmPage`},
+   * iterating in the page order given by the document's `.content`. Pages with
+   * no drawing (and soft-deleted pages) are omitted. Version 3, 5, and 6 pages
+   * are all supported.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @returns the drawn pages, keyed by page id, in document order
+   */
+  async getRmPages(ref: ItemRef): Promise<Map<string, RmPage>> {
+    const { id, hash } = ref;
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const content = await this.getContent(ref);
+    const byName = new Map(entries.map((entry) => [entry.id, entry]));
+    const drawn = pageOrder(content)
+      .map((pageId) => [pageId, byName.get(`${id}/${pageId}.rm`)] as const)
+      .filter((pair): pair is [string, RawEntry] => pair[1] !== undefined);
+    const parsed = await Promise.all(
+      drawn.map(([, entry]) => this.raw.getRm(entry)),
+    );
+    return new Map(drawn.map(([pageId], index) => [pageId, parsed[index]!]));
+  }
+
+  /**
+   * get a document's entire contents as a zip archive
+   *
+   * This gets every file associated with a document and puts them into a zip
+   * archive.
+   *
+   * @remarks
+   * This is an experimental feature. The resulting archive round-trips back
+   * through {@link putDocumentArchive | `putDocumentArchive`}.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   */
+  async getDocumentArchive({ id, hash }: ItemRef): Promise<Uint8Array> {
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
     const zip = new JSZip();
     for (const entry of entries) {
       // TODO if this is .metadata we might want to assert type === "DocumentType"
-      zip.file(entry.id, this.raw.getHash(entry.id, entry.hash));
+      zip.file(entry.id, this.raw.getHash(entry));
     }
     return zip.generateAsync({ type: "uint8array" });
+  }
+
+  /**
+   * upload a document archive produced by {@link getDocumentArchive | `getDocumentArchive`}
+   *
+   * This explodes the zip archive back into its constituent files, uploads each
+   * as a blob, and commits a new document into the root.
+   *
+   * @remarks
+   * This is an experimental feature. By default a fresh document id is generated
+   * so re-uploading to the same account doesn't collide with the original; pass
+   * {@link PutDocumentOptions.id | `id`} to keep the original id. Like the other
+   * low-level puts, this may throw a {@link GenerationError | `GenerationError`}
+   * if the generation is stale, requiring a retry.
+   *
+   * @param buffer - the archive bytes, as returned by `getDocumentArchive`
+   * @param options - overrides for parent, visible name, and id
+   */
+  async putDocumentArchive(
+    buffer: Uint8Array,
+    {
+      refresh = false,
+      parent,
+      visibleName,
+      id: keepId,
+    }: PutDocumentOptions = {},
+  ): Promise<ItemRef> {
+    if (parent !== undefined && parent && !idReg.test(parent)) {
+      throw new ValidationError(
+        parent,
+        idReg,
+        "parent must be a valid document id",
+      );
+    }
+    const zip = await JSZip.loadAsync(buffer);
+    const paths = Object.keys(zip.files).filter(
+      (path) => !zip.files[path]!.dir,
+    );
+    const metaPath = paths.find((path) => path.endsWith(".metadata"));
+    if (metaPath === undefined) {
+      throw new Error("archive did not contain a .metadata file");
+    }
+    const oldId = metaPath.slice(0, -9);
+    if (oldId.includes("/")) {
+      throw new Error(`unexpected nested .metadata path '${metaPath}'`);
+    }
+    const newId = keepId ?? uuid4();
+
+    // rewrite the old document id prefix on every archived file to the new id,
+    // patching the .metadata as we pass it (parent/name/lastModified). the
+    // blobs don't depend on the generation, so upload the rewritten files and
+    // the document index once, then let #commit retry only the root merge
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const lastModified = Date.now().toFixed();
+    const [, , schemaVersion] = await this.#getRootHash(refresh);
+    const fileUploads = await Promise.all(
+      paths.map(async (path) => {
+        if (!path.startsWith(oldId)) {
+          throw new Error(
+            `archived file '${path}' did not start with '${oldId}'`,
+          );
+        }
+        const newPath = `${newId}${path.slice(oldId.length)}`;
+        let bytes = await zip.files[path]!.async("uint8array");
+        if (path === metaPath) {
+          const meta = parseMetadata(dec.decode(bytes));
+          if (parent !== undefined) meta.parent = parent;
+          if (visibleName !== undefined) meta.visibleName = visibleName;
+          meta.lastModified = lastModified;
+          bytes = enc.encode(JSON.stringify(meta));
+        }
+        return this.raw.putFile(newPath, bytes);
+      }),
+    );
+    const fileEntries = fileUploads.map(([entry]) => entry);
+    const [docEntry, uploadDoc] = await this.raw.putEntries(
+      newId,
+      fileEntries,
+      schemaVersion,
+    );
+    await Promise.all([...fileUploads.map(([, upload]) => upload), uploadDoc]);
+
+    await this.#commit(docEntry);
+    return { id: newId, hash: docEntry.hash };
   }
 
   async #putFile(
@@ -972,7 +1038,7 @@ class Remarkable implements RemarkableApi {
     buffer: Uint8Array,
     {
       refresh,
-      parent = "",
+      parent = ROOT_ID,
       pinned = false,
       zoomMode = "bestFit",
       viewBackgroundFilter,
@@ -989,8 +1055,14 @@ class Remarkable implements RemarkableApi {
       margins = 125,
       orientation = "portrait",
       tags,
+      customZoomScale,
+      customZoomCenterX,
+      customZoomCenterY,
+      customZoomPageWidth,
+      customZoomPageHeight,
+      customZoomOrientation,
     }: PutOptions,
-  ): Promise<SimpleEntry> {
+  ): Promise<ItemRef> {
     if (parent && !idReg.test(parent)) {
       throw new ValidationError(
         parent,
@@ -1024,6 +1096,12 @@ class Remarkable implements RemarkableApi {
       textAlignment,
       textScale,
       zoomMode,
+      customZoomScale,
+      customZoomCenterX,
+      customZoomCenterY,
+      customZoomPageWidth,
+      customZoomPageHeight,
+      customZoomOrientation,
       viewBackgroundFilter,
       // NOTE for some reason we need to "fake" the number of pages at 1, and
       // create "valid" output for that
@@ -1035,81 +1113,119 @@ class Remarkable implements RemarkableApi {
       sizeInBytes: buffer.length.toFixed(),
     };
 
-    // upload raw files, and get root hash
+    // the schema version is needed to encode the document index; the blobs
+    // themselves don't depend on the generation, so upload them once and let
+    // #commit retry only the root merge
+    const [, , schemaVersion] = await this.#getRootHash(refresh);
     const [
       [contentEntry, uploadContent],
       [metadataEntry, uploadMetadata],
       [pagedataEntry, uploadPagedata],
       [fileEntry, uploadFile],
-      [rootHash, generation, schemaVersion],
     ] = await Promise.all([
       this.raw.putContent(`${id}.content`, content),
       this.raw.putMetadata(`${id}.metadata`, metadata),
-      // eslint-disable-next-line spellcheck/spell-checker
       this.raw.putText(`${id}.pagedata`, "\n"),
       this.raw.putFile(`${id}.${fileType}`, buffer),
-      this.#getRootHash(refresh),
     ]);
-
-    // now fetch root entries and upload this file entry
-    const [[collectionEntry, uploadCollection], { entries: rootEntries }] =
-      await Promise.all([
-        this.raw.putEntries(
-          id,
-          [contentEntry, metadataEntry, pagedataEntry, fileEntry],
-          schemaVersion,
-        ),
-        this.raw.getEntries("root.docSchema", rootHash),
-      ]);
-
-    // now upload a new root entry
-    rootEntries.push(collectionEntry);
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
-      rootEntries,
-      4,
+    const [collectionEntry, uploadCollection] = await this.raw.putEntries(
+      id,
+      [contentEntry, metadataEntry, pagedataEntry, fileEntry],
+      schemaVersion,
     );
 
-    // before updating the root hash, first upload everything
+    // TODO we could return a full entry here, but we should probably decide
+    // what that should be, e.g. we could return more fields than the standard
+    // entry. Same for putFolder
+    // TODO we should also decide if the api should take hashes or ids...
     await Promise.all([
       uploadContent,
       uploadMetadata,
       uploadPagedata,
       uploadFile,
       uploadCollection,
-      uploadRoot,
     ]);
-
-    // TODO we could return a full entry here, but we should probably decide
-    // what that should be, e.g. we could return more fields than the standard
-    // entry. Same for putFolder
-    // TODO we should also decide if the api should take hashes or ids...
-    await this.#putRootHash(rootEntry.hash, generation);
+    await this.#commit(collectionEntry);
     return { id, hash: collectionEntry.hash };
   }
 
+  /**
+   * use the low-level api to add a pdf document
+   *
+   * Since this uses the low-level api, it provides more options than
+   * {@link uploadPdf | `uploadPdf`}, but is a little more finicky. Notably, it
+   * may throw a {@link GenerationError | `GenerationError`} if the generation
+   * doesn't match the current server generation, requiring you to retry until
+   * it works.
+   *
+   * @remarks
+   * When `zoomMode` is `"customFit"` the `customZoom*` fields describe the view,
+   * all in the source page's device pixels: `customZoomPageWidth` and
+   * `customZoomPageHeight` are the page dimensions scaled by the device dpi
+   * (`pagePt * dpi / 72`, see {@link deviceScreens | `deviceScreens`}), and the
+   * centers are in those pixels.
+   *
+   * The view always has the device's aspect ratio — you control its height and
+   * position, not its shape. `customZoomScale = screenHeight / viewHeight` in
+   * device pixels (`screenHeight` fixed per model, see {@link deviceScreens |
+   * `deviceScreens`}), normalized to 1:1 native pixels: at `1` the view is
+   * screen-tall, showing `screenHeight / customZoomPageHeight` of the page.
+   *
+   * `customZoomCenterX` offsets the center of the view horizontally from the
+   * page center, and `customZoomCenterY` is the absolute distance of the center
+   * down from the top of the page; the view's width follows from its height and
+   * the device aspect ratio.
+   *
+   * The fields are a single document-wide setting, but `customZoomCenterY` is
+   * applied against each page's own rendered height. On a page rendered taller
+   * than `customZoomPageHeight` that distance is a smaller fraction of the page,
+   * so the view sits higher and cuts off the bottom; on a shorter page it sits
+   * lower and cuts off the top. `customZoomScale` (a ratio) and
+   * `customZoomCenterX` (an offset from center) do not shift with page size.
+   *
+   * @param visibleName - the name to display on the reMarkable
+   * @param buffer - the raw pdf
+   * @param opts - put options
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @returns the entry for the newly inserted document
+   */
   async putPdf(
     visibleName: string,
     buffer: Uint8Array,
     opts: PutOptions = {},
-  ): Promise<SimpleEntry> {
+  ): Promise<ItemRef> {
     return await this.#putFile(visibleName, "pdf", buffer, opts);
   }
 
+  /**
+   * use the low-level api to add an epub document
+   *
+   * Since this uses the low-level api, it provides more options than
+   * {@link uploadEpub | `uploadEpub`}, but is a little more finicky. Notably, it
+   * may throw a {@link GenerationError | `GenerationError`} if the generation
+   * doesn't match the current server generation, requiring you to retry until
+   * it works.
+   *
+   * @param visibleName - the name to display on the reMarkable
+   * @param buffer - the raw epub
+   * @param opts - put options
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @returns the entry for the newly inserted document
+   */
   async putEpub(
     visibleName: string,
     buffer: Uint8Array,
     opts: PutOptions = {},
-  ): Promise<SimpleEntry> {
+  ): Promise<ItemRef> {
     return await this.#putFile(visibleName, "epub", buffer, opts);
   }
 
   /** create a folder */
   async putFolder(
     visibleName: string,
-    { parent = "" }: FolderOptions = {},
+    { parent = ROOT_ID }: FolderOptions = {},
     refresh: boolean = false,
-  ): Promise<SimpleEntry> {
+  ): Promise<ItemRef> {
     if (parent && !idReg.test(parent)) {
       throw new ValidationError(
         parent,
@@ -1131,50 +1247,40 @@ class Remarkable implements RemarkableApi {
       visibleName,
     };
 
-    // upload folder contents
-    const [
-      [contentEntry, uploadContent],
-      [metadataEntry, uploadMetadata],
-      [rootHash, generation, schemaVersion],
-    ] = await Promise.all([
-      this.raw.putContent(`${id}.content`, content),
-      this.raw.putMetadata(`${id}.metadata`, metadata),
-      this.#getRootHash(refresh),
-    ]);
-
-    // now fetch root entries and upload this file entry
-    const [[collectionEntry, uploadCollection], { entries: rootEntries }] =
+    // the blobs don't depend on the generation, so upload them once and let
+    // #commit retry only the root merge
+    const [, , schemaVersion] = await this.#getRootHash(refresh);
+    const [[contentEntry, uploadContent], [metadataEntry, uploadMetadata]] =
       await Promise.all([
-        this.raw.putEntries(id, [contentEntry, metadataEntry], schemaVersion),
-        this.raw.getEntries("root.docSchema", rootHash),
+        this.raw.putContent(`${id}.content`, content),
+        this.raw.putMetadata(`${id}.metadata`, metadata),
       ]);
-
-    // now upload a new root entry
-    rootEntries.push(collectionEntry);
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
-      rootEntries,
-      4,
+    const [collectionEntry, uploadCollection] = await this.raw.putEntries(
+      id,
+      [contentEntry, metadataEntry],
+      schemaVersion,
     );
+    await Promise.all([uploadContent, uploadMetadata, uploadCollection]);
 
-    // before updating the root hash, first upload everything
-    await Promise.all([
-      uploadContent,
-      uploadMetadata,
-      uploadCollection,
-      uploadRoot,
-    ]);
-
-    // put root hash and return
-    await this.#putRootHash(rootEntry.hash, generation);
+    await this.#commit(collectionEntry);
     return { id, hash: collectionEntry.hash };
   }
 
-  /** upload an epub */
-  async uploadEpub(
-    visibleName: string,
-    buffer: Uint8Array,
-  ): Promise<SimpleEntry> {
+  /**
+   * upload an epub
+   *
+   * @example
+   * ```ts
+   * await api.uploadEpub("My EPub", ...);
+   * ```
+   *
+   * @remarks
+   * this uses a simpler api that works even with schema version 4.
+   *
+   * @param visibleName - the name to show for the uploaded epub
+   * @param buffer - the epub contents
+   */
+  async uploadEpub(visibleName: string, buffer: Uint8Array): Promise<ItemRef> {
     return await this.raw.uploadFile(
       visibleName,
       buffer,
@@ -1182,16 +1288,26 @@ class Remarkable implements RemarkableApi {
     );
   }
 
-  /** upload a pdf */
-  async uploadPdf(
-    visibleName: string,
-    buffer: Uint8Array,
-  ): Promise<SimpleEntry> {
+  /**
+   * upload a pdf
+   *
+   * @example
+   * ```ts
+   * await api.uploadPdf("My PDF", ...);
+   * ```
+   *
+   * @remarks
+   * this uses a simpler api that works even with schema version 4.
+   *
+   * @param visibleName - the name to show for the uploaded epub
+   * @param buffer - the epub contents
+   */
+  async uploadPdf(visibleName: string, buffer: Uint8Array): Promise<ItemRef> {
     return await this.raw.uploadFile(visibleName, buffer, "application/pdf");
   }
 
-  /** upload a folder */
-  async uploadFolder(visibleName: string): Promise<SimpleEntry> {
+  /** create a folder using the simple api */
+  async uploadFolder(visibleName: string): Promise<ItemRef> {
     return await this.raw.uploadFile(visibleName, new Uint8Array(0), "folder");
   }
 
@@ -1202,13 +1318,16 @@ class Remarkable implements RemarkableApi {
     update: Partial<Content>,
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<[void, void]>]> {
-    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
     const contInd = entries.findIndex((ent) => ent.id.endsWith(".content"));
     const contEntry = entries[contInd];
     if (contEntry === undefined) {
       throw new Error("internal error: couldn't find content in entry hash");
     }
-    const cont = await this.raw.getContent(contEntry.id, contEntry.hash);
+    const cont = await this.raw.getContent(contEntry);
     Object.assign(cont, update);
     const [newContEntry, uploadCont] = await this.raw.putContent(
       contEntry.id,
@@ -1230,63 +1349,106 @@ class Remarkable implements RemarkableApi {
     update: Partial<Content>,
     expectedType: "DocumentType" | "CollectionType" | "TemplateType",
     refresh: boolean,
-  ): Promise<HashEntry> {
-    const [rootHash, generation, schemaVersion] =
-      await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
-    const hashInd = entries.findIndex((ent) => ent.hash === hash);
-    const hashEnt = entries[hashInd];
-    if (hashEnt === undefined) {
-      throw new HashNotFoundError(hash);
-    }
+  ): Promise<ItemRef> {
+    return await this.#withRetry(async () => {
+      const [rootHash, generation, schemaVersion] =
+        await this.#getRootHash(refresh);
+      const { entries } = await this.raw.getEntries({
+        id: ROOT_SCHEMA,
+        hash: rootHash,
+      });
+      const hashInd = entries.findIndex((ent) => ent.hash === hash);
+      const hashEnt = entries[hashInd];
+      if (hashEnt === undefined) {
+        throw new HashNotFoundError(hash);
+      }
 
-    const [[newEnt, uploadEnt], meta] = await Promise.all([
-      this.#editContentRaw(hashEnt.id, hash, update, schemaVersion),
-      this.getMetadata(hashEnt.id, hash),
-    ]);
-    if (meta.type !== expectedType) {
-      throw new Error(
-        `expected type ${expectedType} but got ${meta.type} for hash ${hash}`,
+      const [[newEnt, uploadEnt], meta] = await Promise.all([
+        this.#editContentRaw(hashEnt.id, hash, update, schemaVersion),
+        this.getMetadata(hashEnt),
+      ]);
+      if (meta.type !== expectedType) {
+        throw new Error(
+          `expected type ${expectedType} but got ${meta.type} for hash ${hash}`,
+        );
+      }
+
+      entries[hashInd] = newEnt;
+      const [rootEntry, uploadRoot] = await this.raw.putEntries(
+        ROOT_LIST,
+        entries,
+        4,
       );
-    }
 
-    entries[hashInd] = newEnt;
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
-      entries,
-      4,
-    );
-
-    await Promise.all([uploadEnt, uploadRoot]);
-    await this.#putRootHash(rootEntry.hash, generation);
-    return { hash: newEnt.hash };
+      await Promise.all([uploadEnt, uploadRoot]);
+      await this.#putRootHash(rootEntry.hash, generation);
+      return { id: hashEnt.id, hash: newEnt.hash };
+    });
   }
 
-  /** update document content */
+  /**
+   * update content metadata for a document
+   *
+   * @example
+   * ```ts
+   * const next = await api.updateDocument(doc, { textAlignment: "left" });
+   * ```
+   *
+   * @param ref - a reference to the file to update
+   * @param content - the fields of content to update
+   * @returns a reference to the updated entry, with its new hash
+   */
   async updateDocument(
-    hash: string,
+    ref: ItemRef,
     content: Partial<DocumentContent>,
     refresh: boolean = false,
-  ): Promise<HashEntry> {
-    return await this.#editContent(hash, content, "DocumentType", refresh);
+  ): Promise<ItemRef> {
+    return await this.#editContent(ref.hash, content, "DocumentType", refresh);
   }
 
-  /** update collection content */
+  /**
+   * update content metadata for a collection
+   *
+   * @example
+   * ```ts
+   * const next = await api.updateCollection(dir, { textAlignment: "left" });
+   * ```
+   *
+   * @param ref - a reference to the collection to update
+   * @param content - the fields of content to update
+   * @returns a reference to the updated entry, with its new hash
+   */
   async updateCollection(
-    hash: string,
+    ref: ItemRef,
     content: Partial<CollectionContent>,
     refresh: boolean = false,
-  ): Promise<HashEntry> {
-    return await this.#editContent(hash, content, "CollectionType", refresh);
+  ): Promise<ItemRef> {
+    return await this.#editContent(
+      ref.hash,
+      content,
+      "CollectionType",
+      refresh,
+    );
   }
 
-  /** update template content */
+  /**
+   * update content metadata for a template
+   *
+   * @example
+   * ```ts
+   * const next = await api.updateTemplate(tmpl, { textAlignment: "left" });
+   * ```
+   *
+   * @param ref - a reference to the template to update
+   * @param content - the fields of content to update
+   * @returns a reference to the updated entry, with its new hash
+   */
   async updateTemplate(
-    hash: string,
+    ref: ItemRef,
     content: Partial<TemplateContent>,
     refresh: boolean = false,
-  ): Promise<HashEntry> {
-    return await this.#editContent(hash, content, "TemplateType", refresh);
+  ): Promise<ItemRef> {
+    return await this.#editContent(ref.hash, content, "TemplateType", refresh);
   }
 
   async #editMetaRaw(
@@ -1295,14 +1457,19 @@ class Remarkable implements RemarkableApi {
     update: Partial<Metadata>,
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<[void, void]>]> {
-    const { entries } = await this.raw.getEntries(`${id}.docSchema`, hash);
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
     const metaInd = entries.findIndex((ent) => ent.id.endsWith(".metadata"));
     const metaEntry = entries[metaInd];
     if (metaEntry === undefined) {
       throw new Error("internal error: couldn't find metadata in entry hash");
     }
-    const meta = await this.raw.getMetadata(metaEntry.id, metaEntry.hash);
+    const meta = await this.raw.getMetadata(metaEntry);
     Object.assign(meta, update);
+    meta.version = (meta.version ?? 0) + 1;
+    meta.metadatamodified = true;
     const [newMetaEntry, uploadMeta] = await this.raw.putMetadata(
       metaEntry.id,
       meta,
@@ -1321,40 +1488,56 @@ class Remarkable implements RemarkableApi {
     hash: string,
     update: Partial<Metadata>,
     refresh: boolean = false,
-  ): Promise<HashEntry> {
-    const [rootHash, generation, schemaVersion] =
-      await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
-    const hashInd = entries.findIndex((ent) => ent.hash === hash);
-    const hashEnt = entries[hashInd];
-    if (hashEnt === undefined) {
-      throw new HashNotFoundError(hash);
-    }
-    const [newEnt, uploadEnt] = await this.#editMetaRaw(
-      hashEnt.id,
-      hash,
-      update,
-      schemaVersion,
-    );
-    entries[hashInd] = newEnt;
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
-      entries,
-      4,
-    );
+  ): Promise<ItemRef> {
+    return await this.#withRetry(async () => {
+      const [rootHash, generation, schemaVersion] =
+        await this.#getRootHash(refresh);
+      const { entries } = await this.raw.getEntries({
+        id: ROOT_SCHEMA,
+        hash: rootHash,
+      });
+      const hashInd = entries.findIndex((ent) => ent.hash === hash);
+      const hashEnt = entries[hashInd];
+      if (hashEnt === undefined) {
+        throw new HashNotFoundError(hash);
+      }
+      const [newEnt, uploadEnt] = await this.#editMetaRaw(
+        hashEnt.id,
+        hash,
+        update,
+        schemaVersion,
+      );
+      entries[hashInd] = newEnt;
+      const [rootEntry, uploadRoot] = await this.raw.putEntries(
+        ROOT_LIST,
+        entries,
+        4,
+      );
 
-    await Promise.all([uploadEnt, uploadRoot]);
+      await Promise.all([uploadEnt, uploadRoot]);
 
-    await this.#putRootHash(rootEntry.hash, generation);
-    return { hash: newEnt.hash };
+      await this.#putRootHash(rootEntry.hash, generation);
+      return { id: hashEnt.id, hash: newEnt.hash };
+    });
   }
 
-  /** move an entry */
+  /**
+   * move an entry
+   *
+   * @example
+   * ```ts
+   * const next = await api.move(doc, dir.id);
+   * ```
+   *
+   * @param ref - a reference to the entry to move
+   * @param parent - the id of the directory to move the entry to, "" (root) and "trash" are special parents
+   * @returns a reference to the moved entry, with its new hash
+   */
   async move(
-    hash: string,
+    ref: ItemRef,
     parent: string,
     refresh: boolean = false,
-  ): Promise<HashEntry> {
+  ): Promise<ItemRef> {
     if (!idReg.test(parent)) {
       throw new ValidationError(
         parent,
@@ -1362,44 +1545,93 @@ class Remarkable implements RemarkableApi {
         "parent must be a valid document id",
       );
     }
-    return await this.#editMeta(hash, { parent }, refresh);
+    return await this.#editMeta(ref.hash, { parent }, refresh);
   }
 
-  /** delete an entry */
-  async delete(hash: string, refresh: boolean = false): Promise<HashEntry> {
-    return await this.move(hash, "trash", refresh);
+  /**
+   * delete an entry
+   *
+   * @example
+   * ```ts
+   * await api.delete(file);
+   * ```
+   * @param ref - a reference to the entry to delete
+   * @returns a reference to the deleted entry, with its new hash
+   */
+  async delete(ref: ItemRef, refresh: boolean = false): Promise<ItemRef> {
+    return await this.move(ref, TRASH_ID, refresh);
   }
 
-  /** permanently delete an entry */
+  /** 
+   * permanently delete an entry
+   *
+   * @example
+   * ```ts
+   * await api.purge(file);
+   * ```
+   * @param ref - a reference to the entry to purge
+   * @returns boolean if the purge was successful
+   */
   async purge(hash: string, refresh: boolean = false): Promise<boolean> {
     const purged = await this.bulkPurge([hash], refresh);
     return purged[hash] ?? false;
   }
 
-  /** rename an entry */
+  /**
+   * rename an entry
+   *
+   * @example
+   * ```ts
+   * const next = await api.rename(file, "new name");
+   * ```
+   * @param ref - a reference to the entry to rename
+   * @param visibleName - the new name to assign
+   * @returns a reference to the renamed entry, with its new hash
+   */
   async rename(
-    hash: string,
+    ref: ItemRef,
     visibleName: string,
     refresh: boolean = false,
-  ): Promise<HashEntry> {
-    return await this.#editMeta(hash, { visibleName }, refresh);
+  ): Promise<ItemRef> {
+    return await this.#editMeta(ref.hash, { visibleName }, refresh);
   }
 
-  /** stared */
-  async stared(
-    hash: string,
-    stared: boolean,
+  /**
+   * star or unstar an entry
+   *
+   * @example
+   * ```ts
+   * const next = await api.star(file, true);
+   * ```
+   * @param ref - a reference to the entry to star
+   * @param starred - whether the entry should be starred or not
+   * @returns a reference to the updated entry, with its new hash
+   */
+  async star(
+    ref: ItemRef,
+    starred: boolean,
     refresh: boolean = false,
-  ): Promise<HashEntry> {
-    return await this.#editMeta(hash, { pinned: stared }, refresh);
+  ): Promise<ItemRef> {
+    return await this.#editMeta(ref.hash, { pinned: starred }, refresh);
   }
 
-  /** move many hashes */
+  /**
+   * move many entries
+   *
+   * @example
+   * ```ts
+   * const next = await api.bulkMove([file], dir.id);
+   * ```
+   *
+   * @param refs - references to the entries to move
+   * @param parent - the directory id to move the entries to, "" (root) and "trash" are special ids
+   * @returns references to the moved entries, each with its new hash
+   */
   async bulkMove(
-    hashes: readonly string[],
+    refs: readonly ItemRef[],
     parent: string,
     refresh: boolean = false,
-  ): Promise<HashesEntry> {
+  ): Promise<ItemRef[]> {
     if (!idReg.test(parent)) {
       throw new ValidationError(
         parent,
@@ -1408,51 +1640,76 @@ class Remarkable implements RemarkableApi {
       );
     }
 
-    const [rootHash, generation, schemaVersion] =
-      await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries("root.docSchema", rootHash);
+    return await this.#withRetry(async () => {
+      const [rootHash, generation, schemaVersion] =
+        await this.#getRootHash(refresh);
+      const { entries } = await this.raw.getEntries({
+        id: ROOT_SCHEMA,
+        hash: rootHash,
+      });
 
-    const hashSet = new Set(hashes);
-    const toUpdate: RawEntry[] = [];
-    const newEntries: RawEntry[] = [];
-    for (const entry of entries) {
-      const part = hashSet.has(entry.hash) ? toUpdate : newEntries;
-      part.push(entry);
-    }
+      const hashSet = new Set(refs.map((ref) => ref.hash));
+      const toUpdate: RawEntry[] = [];
+      const newEntries: RawEntry[] = [];
+      for (const entry of entries) {
+        const part = hashSet.has(entry.hash) ? toUpdate : newEntries;
+        part.push(entry);
+      }
 
-    const resolved = await Promise.all(
-      toUpdate.map(({ id, hash }) =>
-        this.#editMetaRaw(id, hash, { parent }, schemaVersion),
-      ),
-    );
-    const uploads: Promise<[void, void]>[] = [];
-    const result: Record<string, string> = {};
-    for (const [i, [newEnt, upload]] of resolved.entries()) {
-      newEntries.push(newEnt);
-      uploads.push(upload);
-      result[toUpdate[i]!.hash] = newEnt.hash;
-    }
+      const resolved = await Promise.all(
+        toUpdate.map(({ id, hash }) =>
+          this.#editMetaRaw(id, hash, { parent }, schemaVersion),
+        ),
+      );
+      const uploads: Promise<[void, void]>[] = [];
+      const result: ItemRef[] = [];
+      for (const [i, [newEnt, upload]] of resolved.entries()) {
+        newEntries.push(newEnt);
+        uploads.push(upload);
+        result.push({ id: toUpdate[i]!.id, hash: newEnt.hash });
+      }
 
-    const [rootEntry, uploadRoot] = await this.raw.putEntries(
-      "root",
-      newEntries,
-      4,
-    );
-    await Promise.all([Promise.all(uploads), uploadRoot]);
+      const [rootEntry, uploadRoot] = await this.raw.putEntries(
+        ROOT_LIST,
+        newEntries,
+        4,
+      );
+      await Promise.all([Promise.all(uploads), uploadRoot]);
 
-    await this.#putRootHash(rootEntry.hash, generation);
-    return { hashes: result };
+      await this.#putRootHash(rootEntry.hash, generation);
+      return result;
+    });
   }
 
-  /** delete many hashes */
+  /**
+   * delete many entries
+   *
+   * @example
+   * ```ts
+   * await api.bulkDelete([file]);
+   * ```
+   *
+   * @param refs - references to the entries to delete
+   * @returns references to the deleted entries, each with its new hash
+   */
   async bulkDelete(
-    hashes: readonly string[],
+    refs: readonly ItemRef[],
     refresh: boolean = false,
-  ): Promise<HashesEntry> {
-    return await this.bulkMove(hashes, "trash", refresh);
+  ): Promise<ItemRef[]> {
+    return await this.bulkMove(refs, TRASH_ID, refresh);
   }
 
-  /** permanent delete many hashes */
+  /** 
+   * permanent delete many hashes 
+   *
+   * @example
+   * ```ts
+   * await api.bulkDelete([file]);
+   * ```
+   *
+   * @param refs - references to the entries to delete
+   * @returns references to the deleted entries, each with its new hash
+   */
   async bulkPurge(
     hashes: readonly string[],
     refresh: boolean = false,
@@ -1496,29 +1753,52 @@ class Remarkable implements RemarkableApi {
     return result;
   }
 
-  /** dump the raw cache */
+  /**
+   * get the current cache value as a string
+   *
+   * You can use this to warm start a new instance of
+   * {@link remarkable | `remarkable`} with any previously cached results.
+   */
   dumpCache(): string {
     return this.raw.dumpCache();
   }
 
+  /**
+   * prune the cache so that it contains only reachable hashes
+   *
+   * The cache is append only, so it can grow without bound, even as hashes
+   * become unreachable. In the future, this may have better cache management to
+   * track this in real time, but for now, you can call this method, to keep it
+   * from growing continuously.
+   *
+   * @remarks
+   * This won't necessarily reduce the cache size. In order to see if
+   * hashes are reachable we first have to search through all existing entry
+   * lists.
+   *
+   * @param refresh - whether to refresh the root hash before pruning
+   */
   async pruneCache(refresh?: boolean): Promise<void> {
     const [rootHash] = await this.#getRootHash(refresh);
-    // the keys to delete, we'll drop every key we can currently reach
+    // start by assuming every cached hash is unreachable, then keep the ones we reach
     const toDelete = new Set(this.#cache.keys());
+    toDelete.delete(rootHash);
 
     // bfs through entries (to semi-optimize promise waiting, although this
     // should only go one step) to track all hashes encountered
     // NOTE that we could increase the cache in this process, or it's possible
     // for other calls to increase the cache with misc values.
-    const base = await this.raw.getEntries("root.docSchema", rootHash);
+    const base = await this.raw.getEntries({ id: ROOT_SCHEMA, hash: rootHash });
     let entries = [base.entries];
     let nextEntries: Promise<Entries>[] = [];
     while (entries.length) {
       for (const entryList of entries) {
-        for (const { hash, type, id } of entryList) {
-          toDelete.add(hash);
-          if (type === 80000000) {
-            nextEntries.push(this.raw.getEntries(`${id}.docSchema`, hash));
+        for (const { hash, subfiles, id } of entryList) {
+          toDelete.delete(hash);
+          if (subfiles > 0) {
+            nextEntries.push(
+              this.raw.getEntries({ id: `${id}.docSchema`, hash }),
+            );
           }
         }
       }
@@ -1531,11 +1811,18 @@ class Remarkable implements RemarkableApi {
     }
   }
 
-  // finally remove any values we had in the cache initially, but couldn't reach
+  /**
+   * completely delete the cache
+   *
+   * If the cache is causing memory issues, you can clear it, but this will hurt
+   * performance.
+   */
   clearCache(): void {
     this.raw.clearCache();
   }
 }
+
+export type { Remarkable as RemarkableApi };
 
 /** configuration for exchanging a device token */
 export interface AuthOptions {
@@ -1549,13 +1836,6 @@ export interface AuthOptions {
 
 /** options for constructing an api instance from a session token */
 export interface RemarkableSessionOptions {
-  /**
-   * the url for making synchronization requests
-   *
-   * @defaultValue "https://web.eu.tectonic.remarkable.com"
-   */
-  syncHost?: string;
-
   /**
    * the base url for making upload requests
    *
@@ -1588,6 +1868,28 @@ export interface RemarkableSessionOptions {
    * @defaultValue Infinity
    */
   maxCacheSize?: number;
+
+  /**
+   * how many times to retry updating the root hash after a generation conflict
+   *
+   * High-level mutators re-fetch the latest root and re-apply their change on a
+   * {@link GenerationError | `GenerationError`} up to this many times. Because
+   * the document id and uploaded blobs are stable across attempts, retries
+   * reuse the cache and don't orphan blobs. Set to `0` to surface the error
+   * immediately, matching the previous behavior.
+   *
+   * @defaultValue 10
+   */
+  maxGenerationRetries?: number;
+
+  /**
+   * how many times to retry a request after a transient network or 5xx error
+   *
+   * Applies to every request; generation conflicts are not counted here.
+   *
+   * @defaultValue 3
+   */
+  maxTransientRetries?: number;
 }
 
 /** options for a remarkable instance */
@@ -1639,8 +1941,10 @@ export function session(
     uploadHost = UPLOAD_HOST,
     cache,
     maxCacheSize = Infinity,
+    maxGenerationRetries = 10,
+    maxTransientRetries = 3,
   }: RemarkableSessionOptions = {},
-): RemarkableApi {
+): Remarkable {
   const initCache = JSON.parse(cache ?? "{}") as unknown;
   const parsedCache = cached.safeParse(initCache);
   if (parsedCache.success) {
@@ -1649,7 +1953,14 @@ export function session(
       maxCacheSize === Infinity
         ? new Map(entries)
         : new LruCache(maxCacheSize, entries);
-    return new Remarkable(sessionToken, rawHost, uploadHost, cacheMap);
+    return new Remarkable(
+      sessionToken,
+      rawHost,
+      uploadHost,
+      cacheMap,
+      maxGenerationRetries,
+      maxTransientRetries,
+    );
   }
   throw new Error(
     "cache was not a valid cache (json string mapping); your cache must be corrupted somehow. Either initialize remarkable without a cache, or fix its format.",
@@ -1669,15 +1980,23 @@ export function session(
 export async function remarkable(
   deviceToken: string,
   options: RemarkableOptions = {},
-): Promise<RemarkableApi> {
-  const { authHost, rawHost, uploadHost, cache, maxCacheSize, syncHost } =
-    options ?? {};
+): Promise<Remarkable> {
+  const {
+    authHost,
+    rawHost,
+    uploadHost,
+    cache,
+    maxCacheSize,
+    maxGenerationRetries,
+    maxTransientRetries,
+  } = options ?? {};
   const sessionToken = await auth(deviceToken, { authHost });
   return session(sessionToken, {
     rawHost,
     uploadHost,
     cache,
     maxCacheSize,
-    syncHost,
+    maxGenerationRetries,
+    maxTransientRetries,
   });
 }
