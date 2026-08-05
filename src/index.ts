@@ -1563,6 +1563,21 @@ class Remarkable {
   }
 
   /**
+   * permanently delete an entry
+   *
+   * @example
+   * ```ts
+   * await api.purge(file);
+   * ```
+   * @param hash - a hash to the entry to purge
+   * @returns boolean if the purge was successful
+   */
+  async purge(hash: string, refresh: boolean = false): Promise<boolean> {
+    const purged = await this.bulkPurge([hash], refresh);
+    return purged[hash] ?? false;
+  }
+
+  /**
    * rename an entry
    *
    * @example
@@ -1682,6 +1697,63 @@ class Remarkable {
     refresh: boolean = false,
   ): Promise<ItemRef[]> {
     return await this.bulkMove(refs, TRASH_ID, refresh);
+  }
+
+  /**
+   * permanent delete many hashes
+   *
+   * @example
+   * ```ts
+   * await api.bulkPurge([file]);
+   * ```
+   *
+   * @param hashes - hashes of the entries to delete
+   * @returns dictionary of hashes to booleans indicating whether the purge was successful
+   */
+  async bulkPurge(
+    hashes: readonly string[],
+    refresh: boolean = false,
+  ): Promise<Record<string, boolean>> {
+    const result: Record<string, boolean> = {};
+    for (const hash of hashes) {
+      result[hash] = false;
+    }
+
+    if (hashes.length === 0) {
+      return result;
+    }
+
+    const [rootHash, generation] = await this.#getRootHash(refresh);
+    const { entries } = await this.raw.getEntries({
+      id: ROOT_SCHEMA,
+      hash: rootHash,
+    });
+
+    const hashSet = new Set(hashes);
+    const newEntries: RawEntry[] = [];
+    let noneRemoved = true;
+
+    for (const entry of entries) {
+      if (hashSet.has(entry.hash)) {
+        result[entry.hash] = true;
+        noneRemoved = false;
+      } else {
+        newEntries.push(entry);
+      }
+    }
+
+    if (noneRemoved) {
+      return result;
+    }
+
+    const [rootEntry, uploadRoot] = await this.raw.putEntries(
+      "root",
+      newEntries,
+      4,
+    );
+    await uploadRoot;
+    await this.#putRootHash(rootEntry.hash, generation);
+    return result;
   }
 
   /**
