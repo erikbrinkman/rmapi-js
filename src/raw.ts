@@ -550,6 +550,8 @@ const legacyDocumentContent: z.ZodType<LegacyDocumentContent> =
  * metadata about it.
  */
 export interface TemplateContent {
+  /** the template's own id, when present */
+  id?: string;
   /** the template name */
   name: string;
   /** the template's author */
@@ -559,7 +561,7 @@ export interface TemplateContent {
   /** category names this template belongs to (eg: "Planning", "Productivity") */
   categories: string[];
   /** labels associated with this template (eg: "Project management") */
-  labels: string[];
+  labels?: string[];
   /** the orientation of this template */
   orientation: "portrait" | "landscape";
   /** semantic version for this template */
@@ -572,28 +574,36 @@ export interface TemplateContent {
    * - `rm2`: reMarkable 2
    * - `rmPP`: reMarkable Paper Pro
    */
-  supportedScreens: ("rm2" | "rmPP")[];
-  /** constant values used by the commands in `items` */
-  constants?: { [name: string]: number }[];
+  supportedScreens?: ("rm2" | "rmPP")[];
+  /**
+   * named constants used by the `items` DSL
+   *
+   * A value is either a literal number or an expression string that references
+   * other constants and `templateWidth`, e.g. `"templateWidth - (offsetX * 2)"`.
+   */
+  constants?: { [name: string]: number | string }[];
   /** the template definition, an SVG-like DSL in JSON */
   items: object[];
 }
 
 const templateContent: z.ZodType<TemplateContent> = z
   .object({
+    id: z.string().optional(),
     name: z.string(),
     author: z.string(),
     iconData: z.string(),
     categories: z.array(z.string()),
-    labels: z.array(z.string()),
+    labels: z.array(z.string()).optional(),
     orientation: z.enum(["portrait", "landscape"]),
     templateVersion: z.string(),
-    supportedScreens: z.array(z.enum(["rm2", "rmPP"])),
-    constants: z.array(z.record(z.string(), z.number().int())).optional(),
+    supportedScreens: z.array(z.enum(["rm2", "rmPP"])).optional(),
+    constants: z
+      .array(z.record(z.string(), z.union([z.number(), z.string()])))
+      .optional(),
     items: z.array(z.unknown() as unknown as z.ZodType<object>),
     formatVersion: z.number().int().nonnegative().optional(),
   })
-  .strict();
+  .passthrough();
 
 /** content metadata for any item */
 export type Content =
