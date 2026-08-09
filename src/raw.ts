@@ -634,7 +634,7 @@ export interface Metadata {
   /** [speculative] true if the item has been actually deleted */
   deleted?: boolean;
   /** the last modify time, the string of the epoch timestamp */
-  lastModified: string;
+  lastModified?: string;
   /** the last opened epoch timestamp, isn't defined for CollectionType */
   lastOpened?: string;
   /** the last page opened, isn't defined for CollectionType, starts at 0*/
@@ -677,7 +677,7 @@ export interface Metadata {
 
 const metadata: z.ZodType<Metadata> = z
   .object({
-    lastModified: z.string(),
+    lastModified: z.string().optional(),
     parent: z.string(),
     pinned: z.boolean(),
     type: z.enum(["DocumentType", "CollectionType", "TemplateType"]),
