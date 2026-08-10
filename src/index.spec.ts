@@ -253,6 +253,48 @@ hash:0:doc.pdf:0:1
     expect(meta).toEqual(metadata);
   });
 
+  test("#getMetadata() accepts missing lastModified", async () => {
+    const realHash = repHash("1");
+    const file = `3
+hash:0:doc.content:0:1
+${realHash}:0:doc.metadata:0:1
+`;
+    const metadata: Metadata = {
+      visibleName: "name",
+      parent: "",
+      type: "CollectionType",
+      pinned: false,
+    };
+    mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
+
+    const api = await remarkable("");
+    const meta = await api.getMetadata({ id: "test-id", hash: repHash("0") });
+    expect(meta).toEqual(metadata);
+  });
+
+  test("#getMetadata() accepts null legacy boolean fields", async () => {
+    const realHash = repHash("1");
+    const file = `3
+${realHash}:0:doc.metadata:0:1
+`;
+    const metadata: Metadata = {
+      lastModified: "0",
+      visibleName: "name",
+      parent: "",
+      type: "DocumentType",
+      pinned: false,
+      deleted: null,
+      metadatamodified: null,
+      modified: null,
+      synced: null,
+    };
+    mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
+
+    const api = await remarkable("");
+    const meta = await api.getMetadata({ id: "test-id", hash: repHash("0") });
+    expect(meta).toEqual(metadata);
+  });
+
   test("#listIds()", async () => {
     const file = `3
 hash:80000000:document:0:1

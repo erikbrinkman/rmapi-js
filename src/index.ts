@@ -234,7 +234,7 @@ export interface EntryCommon extends ItemRef {
   /** the visible display name of this entry */
   visibleName: string;
   /** the last modified timestamp */
-  lastModified: string;
+  lastModified?: string;
   /** true if the entry is starred in most ui elements */
   pinned: boolean;
   /**
