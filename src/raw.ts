@@ -632,7 +632,7 @@ export interface Metadata {
   /** creation time, a string of the epoch timestamp */
   createdTime?: string;
   /** [speculative] true if the item has been actually deleted */
-  deleted?: boolean;
+  deleted?: boolean | null;
   /** the last modify time, the string of the epoch timestamp */
   lastModified?: string;
   /** the last opened epoch timestamp, isn't defined for CollectionType */
@@ -640,9 +640,9 @@ export interface Metadata {
   /** the last page opened, isn't defined for CollectionType, starts at 0*/
   lastOpenedPage?: number;
   /** [speculative] true if the metadata has been modified */
-  metadatamodified?: boolean;
+  metadatamodified?: boolean | null;
   /** [speculative] true if the item has been modified */
-  modified?: boolean;
+  modified?: boolean | null;
   /**
    * the id of the parent collection
    *
@@ -653,7 +653,7 @@ export interface Metadata {
   /** true of the item is starred */
   pinned: boolean;
   /** [unknown] */
-  synced?: boolean;
+  synced?: boolean | null;
   /**
    * the type of item this corresponds to
    *
@@ -685,10 +685,10 @@ const metadata: z.ZodType<Metadata> = z
     lastOpened: z.string().optional(),
     lastOpenedPage: z.number().int().optional(),
     createdTime: z.string().optional(),
-    deleted: z.boolean().optional(),
-    metadatamodified: z.boolean().optional(),
-    modified: z.boolean().optional(),
-    synced: z.boolean().optional(),
+    deleted: z.boolean().nullish(),
+    metadatamodified: z.boolean().nullish(),
+    modified: z.boolean().nullish(),
+    synced: z.boolean().nullish(),
     version: z.number().int().nonnegative().optional(),
     new: z.boolean().optional(),
     source: z.string().optional(),
