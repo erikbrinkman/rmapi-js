@@ -1,4 +1,4 @@
-import CRC32C from "crc-32/crc32c";
+import CRC32C from "crc-32/crc32c.js";
 import { z } from "zod";
 import { ValidationError } from "./error.js";
 import {
