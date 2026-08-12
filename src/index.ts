@@ -166,12 +166,7 @@ export type {
   TreeNodeBlock,
   UnknownBlock,
 } from "./rm6.js";
-export {
-  crdtKey,
-  END_MARKER,
-  parseRmScene,
-  ROOT_ID,
-} from "./rm6.js";
+export { crdtKey } from "./rm6.js";
 
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
