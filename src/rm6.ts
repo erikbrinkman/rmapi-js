@@ -195,14 +195,20 @@ export interface TreeNodeBlock extends BlockCommon {
   label: LwwValue<string>;
   /** whether the layer is visible */
   visible: LwwValue<boolean>;
-  /** the anchor node's crdt id, if anchored */
-  anchorId?: LwwValue<CrdtId>;
-  /** the anchor type, if anchored */
-  anchorType?: LwwValue<number>;
-  /** the anchor threshold, if anchored */
-  anchorThreshold?: LwwValue<number>;
-  /** the anchor's horizontal origin, if anchored */
-  anchorOriginX?: LwwValue<number>;
+  /** where the node is anchored, when it is */
+  anchor?: TreeNodeAnchor;
+}
+
+/** the four values a tree node carries when it's anchored, always together */
+export interface TreeNodeAnchor {
+  /** the anchor node's crdt id */
+  id: LwwValue<CrdtId>;
+  /** the anchor type */
+  type: LwwValue<number>;
+  /** the anchor threshold */
+  threshold: LwwValue<number>;
+  /** the anchor's horizontal origin */
+  originX: LwwValue<number>;
 }
 
 /** the `0x05` scene line item block — a stroke */
@@ -871,10 +877,12 @@ function readBlockBody(
         visible,
       };
       if (reader.bytesRemaining() > 0 && reader.hasTag(7, TAG_LENGTH4)) {
-        node.anchorId = reader.readLww(7, () => reader.readId(2));
-        node.anchorType = reader.readLww(8, () => reader.readByte(2));
-        node.anchorThreshold = reader.readLww(9, () => reader.readFloat(2));
-        node.anchorOriginX = reader.readLww(10, () => reader.readFloat(2));
+        node.anchor = {
+          id: reader.readLww(7, () => reader.readId(2)),
+          type: reader.readLww(8, () => reader.readByte(2)),
+          threshold: reader.readLww(9, () => reader.readFloat(2)),
+          originX: reader.readLww(10, () => reader.readFloat(2)),
+        };
       }
       return node;
     }
@@ -1451,17 +1459,12 @@ function writeBlockBody(writer: Writer, block: RmBlock): void {
       writer.writeId(1, block.nodeId);
       writer.writeLww(2, block.label, (value) => writer.writeString(2, value));
       writer.writeLww(3, block.visible, (value) => writer.writeBool(2, value));
-      if (block.anchorId !== undefined) {
-        writer.writeLww(7, block.anchorId, (value) => writer.writeId(2, value));
-        writer.writeLww(8, block.anchorType!, (value) =>
-          writer.writeByte(2, value),
-        );
-        writer.writeLww(9, block.anchorThreshold!, (value) =>
-          writer.writeFloat(2, value),
-        );
-        writer.writeLww(10, block.anchorOriginX!, (value) =>
-          writer.writeFloat(2, value),
-        );
+      if (block.anchor !== undefined) {
+        const { id, type, threshold, originX } = block.anchor;
+        writer.writeLww(7, id, (value) => writer.writeId(2, value));
+        writer.writeLww(8, type, (value) => writer.writeByte(2, value));
+        writer.writeLww(9, threshold, (value) => writer.writeFloat(2, value));
+        writer.writeLww(10, originX, (value) => writer.writeFloat(2, value));
       }
       break;
     case "sceneGlyphItem":
