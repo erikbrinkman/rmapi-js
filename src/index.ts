@@ -1143,6 +1143,73 @@ class Remarkable {
   }
 
   /**
+   * get a document's per-page template names
+   *
+   * The `.pagedata` file lists one template name per page, in page order (an
+   * empty string for a page with no template).
+   *
+   * @param ref - a reference to the document
+   * @returns the per-page template names, or `[]` if there is no `.pagedata`
+   */
+  async getPagedata(ref: ItemRef): Promise<string[]> {
+    const { id, hash } = ref;
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const entry = entries.find((e) => e.id === `${id}.pagedata`);
+    if (entry === undefined) {
+      return [];
+    } else {
+      const lines = (await this.raw.getText(entry)).split("\n");
+      if (lines.at(-1) === "") lines.pop();
+      return lines;
+    }
+  }
+
+  /**
+   * set a document's per-page template names
+   *
+   * @param ref - a reference to the document
+   * @param templates - one template name per page, in page order, an empty
+   *     string for a page with no template
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @returns a reference to the updated document, with its new hash
+   */
+  async putPagedata(
+    ref: ItemRef,
+    templates: readonly string[],
+    refresh: boolean = false,
+  ): Promise<ItemRef> {
+    return await this.#editEntry(
+      ref,
+      refresh,
+      async ({ id, hash }, schemaVersion) => {
+        const { entries } = await this.raw.getEntries({
+          id: `${id}.docSchema`,
+          hash,
+        });
+        const [pagedataEntry, uploadPagedata] = await this.raw.putPagedata(
+          `${id}.pagedata`,
+          templates,
+        );
+        const ind = entries.findIndex((ent) => ent.id === pagedataEntry.id);
+        if (ind === -1) {
+          entries.push(pagedataEntry);
+        } else {
+          entries[ind] = pagedataEntry;
+        }
+        const [result, uploadEntries] = await this.raw.putEntries(
+          id,
+          entries,
+          schemaVersion,
+        );
+        return [result, Promise.all([uploadPagedata, uploadEntries])];
+      },
+    );
+  }
+
+  /**
    * get a document's entire contents as a zip archive
    *
    * This gets every file associated with a document and puts them into a zip
