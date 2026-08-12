@@ -636,6 +636,65 @@ const content: z.ZodType<Content> = z.union([
   legacyDocumentContent,
 ]);
 
+/** a rectangle with its origin at the top left of the source document page */
+export interface HighlightRect {
+  /** the distance from the left edge of the page */
+  x: number;
+  /** the distance from the top edge of the page */
+  y: number;
+  /** the width */
+  width: number;
+  /** the height */
+  height: number;
+}
+
+/**
+ * a single text-highlight fragment on a pdf or epub page
+ *
+ * reMarkable splits one highlighted passage into a fragment per line it spans.
+ */
+export interface Highlight {
+  /** the highlighted text */
+  text: string;
+  /** [speculative] an index into the highlight palette, not the pen palette */
+  color: number;
+  /** the character offset of the highlight within the page's text */
+  start: number;
+  /** the number of characters highlighted */
+  length: number;
+  /** the rectangles the highlight spans, one per line */
+  rects: HighlightRect[];
+}
+
+const highlightsReg = /\.highlights\/[^/]+\.json$/;
+
+const highlightsFile: z.ZodType<{ highlights: Highlight[][] }> = z
+  .object({
+    highlights: z.array(
+      z.array(
+        z
+          .object({
+            text: z.string(),
+            color: z.number().int(),
+            start: z.number().int(),
+            length: z.number().int(),
+            rects: z.array(
+              z
+                .object({
+                  x: z.number(),
+                  y: z.number(),
+                  width: z.number(),
+                  height: z.number(),
+                })
+                .passthrough(),
+            ),
+          })
+          .passthrough(),
+      ),
+    ),
+  })
+  .passthrough();
+
 /**
  * item level metadata
  *
@@ -821,7 +880,7 @@ function parseRawEntryLine(line: string): RawEntry {
  * - `<docid>.pagedata` - a text file where each line is the template of that page
  * - `<docid>/<pageid>.rm` - [speculative] raw remarkable vectors, text, etc
  * - `<docid>/<pageid>-metadata.json` - [speculative] metadata about the individual page
- * - `<docid>.highlights/<pageid>.json` - [speculative] highlights on the page
+ * - `<docid>.highlights/<pageid>.json` - text highlights on the page (see {@link Highlight | `Highlight`})
  *
  * Some items will have both a `.pdf` and `.epub` file, likely due to preparing
  * for export. Collections only have `.content` and `.metadata` files, with
@@ -1041,6 +1100,19 @@ export class RawRemarkable {
   }
 
   /**
+   * get the parsed text highlights of a page
+   *
+   * @param ref - a reference to a `<docid>.highlights/<pageid>.json` file
+   * @returns the page's highlights; [speculative] each inner array groups the
+   *     fragments of one highlighted passage
+   */
+  async getHighlights(ref: ItemRef): Promise<Highlight[][]> {
+    const raw = await this.getText(ref);
+    const loaded = JSON.parse(raw) as unknown;
+    return highlightsFile.parse(loaded).highlights;
+  }
+
+  /**
    * the same as {@link putFile | `putFile`} but rendering an `RmPage` to `.rm`
    * bytes
    *
@@ -1201,6 +1273,32 @@ export class RawRemarkable {
       throw new Error(`fileName ${fileName} did not end with '.metadata'`);
     } else {
       return await this.putText(fileName, JSON.stringify(metadata));
+    }
+  }
+
+  /**
+   * the same as {@link putText | `putText`} but with extra validation for
+   * highlights
+   *
+   * Rewraps the array in the file's `highlights` envelope, which
+   * {@link getHighlights | `getHighlights`} strips.
+   *
+   * @param fileName - the file to write, of the form
+   *     `<docid>.highlights/<pageid>.json`
+   * @param highlights - the page's highlights
+   */
+  async putHighlights(
+    fileName: string,
+    highlights: readonly Highlight[][],
+  ): Promise<[RawEntry, Promise<void>]> {
+    if (!highlightsReg.test(fileName)) {
+      throw new ValidationError(
+        fileName,
+        highlightsReg,
+        "fileName was not of the form '<docid>.highlights/<pageid>.json'",
+      );
+    } else {
+      return await this.putText(fileName, JSON.stringify({ highlights }));
     }
   }
 
