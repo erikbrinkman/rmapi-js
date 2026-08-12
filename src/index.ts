@@ -781,16 +781,19 @@ class Remarkable {
    * @returns a list of all items with some metadata
    */
   async listItems(refresh: boolean = false): Promise<Entry[]> {
-    const ids = await this.listIds(refresh);
+    const ids = await this.listRefs(refresh);
     return await Promise.all(ids.map((id) => this.#convertEntry(id)));
   }
 
   /**
-   * similar to {@link listItems | `listItems`} but backed by the low level api
+   * list a reference to every item, backed by the low level api
+   *
+   * Unlike {@link listItems | `listItems`} this doesn't read each item's
+   * metadata, so it's cheaper but only gives you ids and hashes.
    *
    * @param refresh - if true, refresh the root hash before listing
    */
-  async listIds(refresh: boolean = false): Promise<ItemRef[]> {
+  async listRefs(refresh: boolean = false): Promise<ItemRef[]> {
     const [hash] = await this.#getRootHash(refresh);
     const { entries } = await this.raw.getEntries({ id: ROOT_SCHEMA, hash });
     return entries.map(({ id, hash }) => ({ id, hash }));
@@ -804,7 +807,7 @@ class Remarkable {
    * the low-level api to get the raw text of the `.content` file in the
    * `RawEntry` for this hash.
    *
-   * @param ref - a reference to the item (e.g. from `listItems` or `listIds`)
+   * @param ref - a reference to the item (e.g. from `listItems` or `listRefs`)
    * @returns the content
    */
   async getContent({ id, hash }: ItemRef): Promise<Content> {
@@ -828,7 +831,7 @@ class Remarkable {
    * the low-level api to get the raw text of the `.metadata` file in the
    * `RawEntry` for this hash.
    *
-   * @param ref - a reference to the item (e.g. from `listItems` or `listIds`)
+   * @param ref - a reference to the item (e.g. from `listItems` or `listRefs`)
    * @returns the metadata
    */
   async getMetadata({ id, hash }: ItemRef): Promise<Metadata> {
