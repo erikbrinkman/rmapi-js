@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - `raw.putText`, encode the text and call `putFile`
+- `parseRmScene`, `ROOT_ID`, and `END_MARKER`
 
 ## [12.0.3] - 2026-08-12
 
