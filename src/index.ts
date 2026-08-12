@@ -230,6 +230,16 @@ function pageOrder(content: Content): string[] {
   }
 }
 
+/** a sidecar file a document stores once per page, keyed by page id */
+interface PageFile<T> {
+  name(docId: string, pageId: string): string;
+  read(entry: RawEntry): Promise<T>;
+}
+
+interface WritablePageFile<Read, Write = Read> extends PageFile<Read> {
+  write(fileName: string, value: Write): Promise<[RawEntry, Promise<unknown>]>;
+}
+
 // The section has all the types that are stored in the remarkable cloud.
 
 const idReg =
@@ -872,76 +882,26 @@ class Remarkable {
     }
   }
 
-  /**
-   * get a single page's parsed reMarkable lines (`.rm`) drawing
-   *
-   * @param ref - a reference to the document (e.g. from `listItems`)
-   * @param pageId - the id of the page, from the document's `.content` page
-   *     list (see {@link getRmPages | `getRmPages`} for every page)
-   * @returns the parsed page, or `undefined` if the page exists but has no
-   *     `.rm` drawing (a page you haven't drawn on has no `.rm` file)
-   * @throws if `pageId` is not a page of the document
-   */
-  async getRmPage(ref: ItemRef, pageId: string): Promise<RmPage | undefined> {
-    const { id, hash } = ref;
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
-    const content = await this.getContent(ref);
-    if (!pageOrder(content).includes(pageId)) {
-      throw new Error(`document ${id} has no page ${pageId}`);
-    }
-    const entry = entries.find((ent) => ent.id === `${id}/${pageId}.rm`);
-    if (entry === undefined) {
-      return undefined;
-    } else {
-      return await this.raw.getRm(entry);
-    }
-  }
+  readonly #rmPageFile: PageFile<RmPage> = {
+    name: (docId, pageId) => `${docId}/${pageId}.rm`,
+    read: (entry) => this.raw.getRm(entry),
+  };
 
-  /**
-   * get every drawn page of a document, parsed, keyed by page id
-   *
-   * Returns a map from page id to its parsed {@link RmPage | `RmPage`},
-   * iterating in the page order given by the document's `.content`. Pages with
-   * no drawing (and soft-deleted pages) are omitted. Version 3, 5, and 6 pages
-   * are all supported.
-   *
-   * @param ref - a reference to the document (e.g. from `listItems`)
-   * @returns the drawn pages, keyed by page id, in document order
-   */
-  async getRmPages(ref: ItemRef): Promise<Map<string, RmPage>> {
-    const { id, hash } = ref;
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
-    const content = await this.getContent(ref);
-    const byName = new Map(entries.map((entry) => [entry.id, entry]));
-    const drawn = pageOrder(content)
-      .map((pageId) => [pageId, byName.get(`${id}/${pageId}.rm`)] as const)
-      .filter((pair): pair is [string, RawEntry] => pair[1] !== undefined);
-    const parsed = await Promise.all(
-      drawn.map(([, entry]) => this.raw.getRm(entry)),
-    );
-    return new Map(drawn.map(([pageId], index) => [pageId, parsed[index]!]));
-  }
+  readonly #highlightPageFile: WritablePageFile<
+    Highlight[][],
+    readonly Highlight[][]
+  > = {
+    name: (docId, pageId) => `${docId}.highlights/${pageId}.json`,
+    read: (entry) => this.raw.getHighlights(entry),
+    write: (fileName, highlights) =>
+      this.raw.putHighlights(fileName, highlights),
+  };
 
-  /**
-   * get a single page's text highlights
-   *
-   * These are separate from the highlighter strokes drawn in a `.rm` scene.
-   *
-   * @param ref - a reference to the document
-   * @param pageId - the id of the page, from the document's `.content` page list
-   * @returns the page's highlights, or `undefined` if the page has none
-   * @throws if `pageId` is not a page of the document
-   */
-  async getHighlights(
+  async #getPageFile<T>(
     ref: ItemRef,
     pageId: string,
-  ): Promise<Highlight[][] | undefined> {
+    file: PageFile<T>,
+  ): Promise<T | undefined> {
     const { id, hash } = ref;
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
@@ -951,23 +911,18 @@ class Remarkable {
     if (!pageOrder(content).includes(pageId)) {
       throw new Error(`document ${id} has no page ${pageId}`);
     }
-    const entry = entries.find(
-      (e) => e.id === `${id}.highlights/${pageId}.json`,
-    );
+    const entry = entries.find((ent) => ent.id === file.name(id, pageId));
     if (entry === undefined) {
       return undefined;
     } else {
-      return await this.raw.getHighlights(entry);
+      return await file.read(entry);
     }
   }
 
-  /**
-   * get every highlighted page of a document, keyed by page id
-   *
-   * @param ref - a reference to the document
-   * @returns the highlights in page order, omitting pages with none
-   */
-  async getHighlightPages(ref: ItemRef): Promise<Map<string, Highlight[][]>> {
+  async #getPageFiles<T>(
+    ref: ItemRef,
+    file: PageFile<T>,
+  ): Promise<Map<string, T>> {
     const { id, hash } = ref;
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
@@ -976,20 +931,18 @@ class Remarkable {
     const content = await this.getContent(ref);
     const byName = new Map(entries.map((entry) => [entry.id, entry]));
     const found = pageOrder(content)
-      .map(
-        (pageId) =>
-          [pageId, byName.get(`${id}.highlights/${pageId}.json`)] as const,
-      )
+      .map((pageId) => [pageId, byName.get(file.name(id, pageId))] as const)
       .filter((pair): pair is [string, RawEntry] => pair[1] !== undefined);
     const parsed = await Promise.all(
-      found.map(([, entry]) => this.raw.getHighlights(entry)),
+      found.map(([, entry]) => file.read(entry)),
     );
     return new Map(found.map(([pageId], index) => [pageId, parsed[index]!]));
   }
 
-  async #putHighlightsRaw(
+  async #putPageFilesRaw<Read, Write>(
     { id, hash }: ItemRef,
-    pages: ReadonlyMap<string, readonly Highlight[][]>,
+    pages: ReadonlyMap<string, Write>,
+    file: WritablePageFile<Read, Write>,
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<unknown>]> {
     const { entries } = await this.raw.getEntries({
@@ -1009,16 +962,16 @@ class Remarkable {
     }
 
     const written = await Promise.all(
-      [...pages].map(([pageId, highlights]) =>
-        this.raw.putHighlights(`${id}.highlights/${pageId}.json`, highlights),
+      [...pages].map(([pageId, value]) =>
+        file.write(file.name(id, pageId), value),
       ),
     );
-    for (const [highlightsEntry] of written) {
-      const pageInd = entries.findIndex((ent) => ent.id === highlightsEntry.id);
+    for (const [pageEntry] of written) {
+      const pageInd = entries.findIndex((ent) => ent.id === pageEntry.id);
       if (pageInd === -1) {
-        entries.push(highlightsEntry);
+        entries.push(pageEntry);
       } else {
-        entries[pageInd] = highlightsEntry;
+        entries[pageInd] = pageEntry;
       }
     }
     const [result, uploadEntries] = await this.raw.putEntries(
@@ -1028,6 +981,77 @@ class Remarkable {
     );
     const uploads = written.map(([, upload]) => upload);
     return [result, Promise.all([...uploads, uploadEntries])];
+  }
+
+  async #putPageFiles<Read, Write>(
+    ref: ItemRef,
+    pages: ReadonlyMap<string, Write>,
+    file: WritablePageFile<Read, Write>,
+    refresh: boolean,
+  ): Promise<ItemRef> {
+    if (pages.size === 0) {
+      return ref;
+    } else {
+      return await this.#editEntry(ref, refresh, (item, schemaVersion) =>
+        this.#putPageFilesRaw(item, pages, file, schemaVersion),
+      );
+    }
+  }
+
+  /**
+   * get a single page's parsed reMarkable lines (`.rm`) drawing
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @param pageId - the id of the page, from the document's `.content` page
+   *     list (see {@link getRmPages | `getRmPages`} for every page)
+   * @returns the parsed page, or `undefined` if the page exists but has no
+   *     `.rm` drawing (a page you haven't drawn on has no `.rm` file)
+   * @throws if `pageId` is not a page of the document
+   */
+  async getRmPage(ref: ItemRef, pageId: string): Promise<RmPage | undefined> {
+    return await this.#getPageFile(ref, pageId, this.#rmPageFile);
+  }
+
+  /**
+   * get every drawn page of a document, parsed, keyed by page id
+   *
+   * Returns a map from page id to its parsed {@link RmPage | `RmPage`},
+   * iterating in the page order given by the document's `.content`. Pages with
+   * no drawing (and soft-deleted pages) are omitted. Version 3, 5, and 6 pages
+   * are all supported.
+   *
+   * @param ref - a reference to the document (e.g. from `listItems`)
+   * @returns the drawn pages, keyed by page id, in document order
+   */
+  async getRmPages(ref: ItemRef): Promise<Map<string, RmPage>> {
+    return await this.#getPageFiles(ref, this.#rmPageFile);
+  }
+
+  /**
+   * get a single page's text highlights
+   *
+   * These are separate from the highlighter strokes drawn in a `.rm` scene.
+   *
+   * @param ref - a reference to the document
+   * @param pageId - the id of the page, from the document's `.content` page list
+   * @returns the page's highlights, or `undefined` if the page has none
+   * @throws if `pageId` is not a page of the document
+   */
+  async getHighlights(
+    ref: ItemRef,
+    pageId: string,
+  ): Promise<Highlight[][] | undefined> {
+    return await this.#getPageFile(ref, pageId, this.#highlightPageFile);
+  }
+
+  /**
+   * get every highlighted page of a document, keyed by page id
+   *
+   * @param ref - a reference to the document
+   * @returns the highlights in page order, omitting pages with none
+   */
+  async getHighlightPages(ref: ItemRef): Promise<Map<string, Highlight[][]>> {
+    return await this.#getPageFiles(ref, this.#highlightPageFile);
   }
 
   /**
@@ -1068,13 +1092,12 @@ class Remarkable {
     pages: ReadonlyMap<string, readonly Highlight[][]>,
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    if (pages.size === 0) {
-      return ref;
-    } else {
-      return await this.#editEntry(ref, refresh, (item, schemaVersion) =>
-        this.#putHighlightsRaw(item, pages, schemaVersion),
-      );
-    }
+    return await this.#putPageFiles(
+      ref,
+      pages,
+      this.#highlightPageFile,
+      refresh,
+    );
   }
 
   /**
