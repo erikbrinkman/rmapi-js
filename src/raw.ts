@@ -1,3 +1,8 @@
+// core-js installs these only when the runtime lacks them, so node 26+ keeps
+// its native implementations untouched
+import "core-js/modules/es.uint8-array.from-hex.js";
+import "core-js/modules/es.uint8-array.to-base64.js";
+import "core-js/modules/es.uint8-array.to-hex.js";
 import CRC32C from "crc-32/crc32c.js";
 import { z } from "zod";
 import { ValidationError } from "./error.js";
