@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - edits now match an entry on both id and hash, and throw when the hash is stale.
 - version 6 pages now round-trip byte for byte
 - an `.rm` block whose length runs past the end of the file no longer throws
+- an `.rm` block with bytes the reader skips inside a subblock is kept verbatim
 
 ### Removed
 
