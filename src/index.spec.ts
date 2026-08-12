@@ -988,6 +988,16 @@ ${realHash}:0:test-id.pagedata:0:1
     ).toEqual(templates);
   });
 
+  test("#getPagedata() is undefined without a .pagedata", async () => {
+    const file = `3\nhash:0:test-id.content:0:1\n`;
+    mockFetch(emptyResponse(), textResponse(file));
+
+    const api = await remarkable("");
+    expect(
+      await api.getPagedata({ id: "test-id", hash: repHash("0") }),
+    ).toBeUndefined();
+  });
+
   test("#getPageMetadata()", async () => {
     const contentHash = repHash("1");
     const realHash = repHash("2");
