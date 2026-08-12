@@ -1341,6 +1341,39 @@ ${epubHash}:0:doc.epub:0:1
     );
   });
 
+  test("#putEntries() returns an entry #getEntries() can read", async () => {
+    const docId = "043eccc1-35a8-467b-a5f3-7196cb1f57d2";
+    const entry = {
+      type: 0 as const,
+      id: `${docId}.content`,
+      hash: repHash("1"),
+      subfiles: 0,
+      size: 1,
+    };
+    const fetch = mockFetch(
+      emptyResponse(),
+      emptyResponse(),
+      textResponse(`4\n0:${docId}:1:1\n${entry.hash}:0:${entry.id}:0:1\n`),
+    );
+
+    // no caching, so the read actually goes out
+    const api = await remarkable("", { maxCachedBytes: 0 });
+    const written = await api.raw.putEntries(docId, [entry], 4);
+    await written[Symbol.asyncDispose]();
+
+    // the id it hands back is the id getEntries takes
+    const { entries } = await api.raw.getEntries(written);
+    expect(entries).toEqual([entry]);
+
+    // and the index's own file name reaches reMarkable, which validates it
+    const [, , read] = fetch.mock.calls;
+    expect(
+      (read?.[1]?.headers as Record<string, string> | undefined)?.[
+        "rm-filename"
+      ],
+    ).toBe(`${docId}.docSchema`);
+  });
+
   test("#putEntries() sorts entries by code unit", async () => {
     const fetch = mockFetch(emptyResponse(), emptyResponse());
     const api = await remarkable("");
