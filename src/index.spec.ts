@@ -315,7 +315,7 @@ ${realHash}:0:doc.metadata:0:1
     expect(meta).toEqual(metadata);
   });
 
-  test("#listIds()", async () => {
+  test("#listRefs()", async () => {
     const file = `3
 hash:80000000:document:0:1
 hash2:80000000:other:0:2
@@ -331,7 +331,7 @@ hash2:80000000:other:0:2
     );
 
     const api = await remarkable("");
-    const [first, second] = await api.listIds();
+    const [first, second] = await api.listRefs();
     expect(first).toEqual({
       id: "document",
       hash: "hash",
@@ -1859,7 +1859,7 @@ hash2:80000000:other:0:2
     );
 
     const api = await remarkable("");
-    await api.listIds();
+    await api.listRefs();
     expect(api.dumpCache().length).toBeGreaterThan(0);
 
     api.clearCache();
@@ -2158,7 +2158,7 @@ describe("retries", () => {
     }) as unknown as typeof fetch);
 
     const api = await remarkable("");
-    const ids = await api.listIds();
+    const ids = await api.listRefs();
 
     expect(ids).toEqual([]);
     // failed once, then retried
