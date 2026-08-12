@@ -62,6 +62,7 @@ import {
   type Content,
   type DocumentContent,
   type Entries,
+  type EntryType,
   type ItemRef,
   type Metadata,
   type Orientation,
@@ -96,6 +97,7 @@ export type {
   DocumentContent,
   DocumentMetadata,
   Entries,
+  EntryType,
   FileType,
   ItemRef,
   KeyboardMetadata,
@@ -255,7 +257,7 @@ export interface CollectionEntry extends EntryCommon {
 }
 
 /** a file, referred to in the api as a document */
-export interface DocumentType extends EntryCommon {
+export interface DocumentEntry extends EntryCommon {
   /** the key to identify this as a document */
   type: "DocumentType";
   /** the type of the file */
@@ -265,7 +267,7 @@ export interface DocumentType extends EntryCommon {
 }
 
 /** a template, such as from methods.remarkable.com */
-export interface TemplateType extends EntryCommon {
+export interface TemplateEntry extends EntryCommon {
   /** the key to identify this as a template */
   type: "TemplateType";
   /** the timestamp of when the template was added/created */
@@ -277,7 +279,7 @@ export interface TemplateType extends EntryCommon {
 }
 
 /** a remarkable entry for cloud items */
-export type Entry = CollectionEntry | DocumentType | TemplateType;
+export type Entry = CollectionEntry | DocumentEntry | TemplateEntry;
 
 /** options for creating a folder */
 export interface FolderOptions {
@@ -1347,7 +1349,7 @@ class Remarkable {
   async #editContent(
     hash: string,
     update: Partial<Content>,
-    expectedType: "DocumentType" | "CollectionType" | "TemplateType",
+    expectedType: EntryType,
     refresh: boolean,
   ): Promise<ItemRef> {
     return await this.#withRetry(async () => {
