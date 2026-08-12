@@ -5,6 +5,7 @@ import {
   type Content,
   type DocumentContent,
   type Entry,
+  type Highlight,
   type LegacyCollectionContent,
   type LegacyDocumentContent,
   type Metadata,
@@ -24,6 +25,23 @@ import {
 function repHash(hash: string): string {
   const mult = 64 / hash.length;
   return new Array(mult).fill(hash).join("");
+}
+
+function pdfContent(pages: string[]): DocumentContent {
+  return {
+    fileType: "pdf",
+    coverPageNumber: -1,
+    documentMetadata: {},
+    extraMetadata: {},
+    fontName: "",
+    lineHeight: -1,
+    orientation: "portrait",
+    pageCount: pages.length,
+    pages,
+    sizeInBytes: "1",
+    textAlignment: "left",
+    textScale: 1,
+  };
 }
 
 describe("register()", () => {
@@ -596,6 +614,215 @@ hash:0:doc.pdf:0:1
     expect(bytes).toEqual(epub);
   });
 
+  test("#getHighlights()", async () => {
+    const contentHash = repHash("1");
+    const highlightsHash = repHash("2");
+    const file = `3
+${contentHash}:0:test-id.content:0:1
+${highlightsHash}:0:test-id.highlights/p1.json:0:1
+`;
+    const highlights = {
+      highlights: [
+        [
+          {
+            text: "hello world",
+            color: 4,
+            start: 10,
+            length: 11,
+            rects: [{ x: 1, y: 2, width: 3, height: 4 }],
+          },
+        ],
+      ],
+    };
+    mockFetch(
+      emptyResponse(),
+      textResponse(file),
+      jsonResponse(pdfContent(["p1"])),
+      jsonResponse(highlights),
+    );
+
+    const api = await remarkable("");
+    const hl = await api.getHighlights(
+      { id: "test-id", hash: repHash("0") },
+      "p1",
+    );
+    expect(hl).toEqual(highlights.highlights);
+  });
+
+  test("#getHighlights() returns undefined without a highlights file", async () => {
+    const contentHash = repHash("1");
+    const file = `3
+${contentHash}:0:test-id.content:0:1
+`;
+    mockFetch(
+      emptyResponse(),
+      textResponse(file),
+      jsonResponse(pdfContent(["p1"])),
+    );
+
+    const api = await remarkable("");
+    const hl = await api.getHighlights(
+      { id: "test-id", hash: repHash("0") },
+      "p1",
+    );
+    expect(hl).toBeUndefined();
+  });
+
+  test("#getHighlights() throws for a page not in the document", async () => {
+    const contentHash = repHash("1");
+    const file = `3
+${contentHash}:0:test-id.content:0:1
+`;
+    mockFetch(
+      emptyResponse(),
+      textResponse(file),
+      jsonResponse(pdfContent(["p1"])),
+    );
+
+    const api = await remarkable("");
+    await expect(
+      api.getHighlights({ id: "test-id", hash: repHash("0") }, "p2"),
+    ).rejects.toThrow("document test-id has no page p2");
+  });
+
+  const putHighlightsMocks = (docId: string, docHash: string) => {
+    const contentHash = repHash("2");
+    return [
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
+      textResponse(`3\n${contentHash}:0:${docId}.content:0:1\n`),
+      jsonResponse(pdfContent(["p1"])),
+      emptyResponse(), // the highlights file
+      emptyResponse(), // the document index
+      emptyResponse(), // the root index
+      jsonResponse({ hash: repHash("3"), generation: 1 }),
+    ] as const;
+  };
+
+  test("#putHighlights()", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    const highlights: Highlight[][] = [
+      [
+        {
+          text: "hello world",
+          color: 4,
+          start: 10,
+          length: 11,
+          rects: [{ x: 1, y: 2, width: 3, height: 4 }],
+        },
+      ],
+    ];
+    const fetch = mockFetch(...putHighlightsMocks(docId, docHash));
+
+    const api = await remarkable("");
+    const next = await api.putHighlights(
+      { id: docId, hash: docHash },
+      "p1",
+      highlights,
+    );
+    expect(next.id).toBe(docId);
+    expect(next.hash).toHaveLength(64);
+
+    const dec = new TextDecoder();
+    const written = fetch.mock.calls
+      .map(([, init]) => init?.body)
+      .map((body) =>
+        body instanceof Uint8Array ? dec.decode(body) : String(body ?? ""),
+      );
+
+    const highlightsFile = written.find((body) => body.startsWith("{"));
+    expect(highlightsFile).toBeDefined();
+    expect(JSON.parse(highlightsFile!)).toEqual({ highlights });
+
+    // the new file is added to the document index, which reaches the root index
+    const docIndex = written.find((body) =>
+      body.includes(`${docId}.highlights/p1.json`),
+    );
+    expect(docIndex).toBeDefined();
+    expect(written.some((body) => body.includes(`:${docId}:`))).toBe(true);
+  });
+
+  test("#putHighlights() throws for a page not in the document", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    mockFetch(...putHighlightsMocks(docId, docHash));
+
+    const api = await remarkable("");
+    await expect(
+      api.putHighlights({ id: docId, hash: docHash }, "p2", []),
+    ).rejects.toThrow("document test-id has no page p2");
+  });
+
+  test("#putHighlightPages() writes every page in one commit", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    const contentHash = repHash("2");
+    const one: Highlight[][] = [
+      [{ text: "one", color: 1, start: 0, length: 3, rects: [] }],
+    ];
+    const two: Highlight[][] = [
+      [{ text: "two", color: 2, start: 4, length: 3, rects: [] }],
+    ];
+    const fetch = mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
+      textResponse(`3\n${contentHash}:0:${docId}.content:0:1\n`),
+      jsonResponse(pdfContent(["p1", "p2"])),
+      emptyResponse(), // p1 highlights
+      emptyResponse(), // p2 highlights
+      emptyResponse(), // the document index
+      emptyResponse(), // the root index
+      jsonResponse({ hash: repHash("3"), generation: 1 }),
+    );
+
+    const api = await remarkable("");
+    const next = await api.putHighlightPages(
+      { id: docId, hash: docHash },
+      new Map([
+        ["p1", one],
+        ["p2", two],
+      ]),
+    );
+    expect(next.id).toBe(docId);
+
+    const dec = new TextDecoder();
+    const written = fetch.mock.calls
+      .map(([, init]) => init?.body)
+      .map((body) =>
+        body instanceof Uint8Array ? dec.decode(body) : String(body ?? ""),
+      );
+
+    const files = written.filter((body) => body.startsWith('{"highlights"'));
+    expect(files).toHaveLength(2);
+    // the two uploads race, so order isn't meaningful
+    expect(files.map((body) => JSON.parse(body))).toEqual(
+      expect.arrayContaining([{ highlights: one }, { highlights: two }]),
+    );
+
+    const docIndex = written.find((body) =>
+      body.includes(`${docId}.highlights/p1.json`),
+    );
+    expect(docIndex).toContain(`${docId}.highlights/p2.json`);
+
+    // one root-hash put, so the two pages land as a single atomic change
+    const rootPuts = fetch.mock.calls.filter(([url]) =>
+      `${url}`.includes("sync/v4/root"),
+    );
+    expect(rootPuts).toHaveLength(1);
+  });
+
+  test("#putHighlightPages() with nothing to write makes no requests", async () => {
+    const fetch = mockFetch(emptyResponse());
+    const api = await remarkable("");
+    const ref = { id: "test-id", hash: repHash("1") };
+
+    expect(await api.putHighlightPages(ref, new Map())).toEqual(ref);
+    expect(fetch.mock.calls).toHaveLength(1);
+  });
+
   test("#getDocumentArchive()", async () => {
     const contentHash = repHash("1");
     const metadataHash = repHash("2");
@@ -732,6 +959,44 @@ ${epubHash}:0:doc.epub:0:1
     expect(`${url}`).toContain(expectedHash);
     const dec = new TextDecoder();
     expect(dec.decode(init?.body as Uint8Array)).toBe(expectedBody);
+  });
+
+  test("#putHighlights()", async () => {
+    const fetch = mockFetch(emptyResponse(), emptyResponse());
+    const api = await remarkable("");
+    const highlights: Highlight[][] = [
+      [
+        {
+          text: "hello world",
+          color: 4,
+          start: 10,
+          length: 11,
+          rects: [{ x: 1, y: 2, width: 3, height: 4 }],
+        },
+      ],
+    ];
+    const [entry, prom] = await api.raw.putHighlights(
+      "test-id.highlights/p1.json",
+      highlights,
+    );
+    await prom;
+
+    const [, putCall] = fetch.mock.calls;
+    expect(putCall).toBeDefined();
+    const [, init] = putCall!;
+    const dec = new TextDecoder();
+    expect(JSON.parse(dec.decode(init?.body as Uint8Array))).toEqual({
+      highlights,
+    });
+    expect(await api.raw.getHighlights(entry)).toEqual(highlights);
+  });
+
+  test("#putHighlights() rejects a non-highlights file name", async () => {
+    mockFetch(emptyResponse());
+    const api = await remarkable("");
+    await expect(api.raw.putHighlights("test-id.content", [])).rejects.toThrow(
+      "fileName was not of the form",
+    );
   });
 
   test("#putPdf()", async () => {

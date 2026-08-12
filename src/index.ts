@@ -64,6 +64,7 @@ import {
   type DocumentContent,
   type Entries,
   type EntryType,
+  type Highlight,
   type ItemRef,
   type Metadata,
   type Orientation,
@@ -100,6 +101,8 @@ export type {
   Entries,
   EntryType,
   FileType,
+  Highlight,
+  HighlightRect,
   ItemRef,
   KeyboardMetadata,
   LegacyCollectionContent,
@@ -923,6 +926,155 @@ class Remarkable {
       drawn.map(([, entry]) => this.raw.getRm(entry)),
     );
     return new Map(drawn.map(([pageId], index) => [pageId, parsed[index]!]));
+  }
+
+  /**
+   * get a single page's text highlights
+   *
+   * These are separate from the highlighter strokes drawn in a `.rm` scene.
+   *
+   * @param ref - a reference to the document
+   * @param pageId - the id of the page, from the document's `.content` page list
+   * @returns the page's highlights, or `undefined` if the page has none
+   * @throws if `pageId` is not a page of the document
+   */
+  async getHighlights(
+    ref: ItemRef,
+    pageId: string,
+  ): Promise<Highlight[][] | undefined> {
+    const { id, hash } = ref;
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const content = await this.getContent(ref);
+    if (!pageOrder(content).includes(pageId)) {
+      throw new Error(`document ${id} has no page ${pageId}`);
+    }
+    const entry = entries.find(
+      (e) => e.id === `${id}.highlights/${pageId}.json`,
+    );
+    if (entry === undefined) {
+      return undefined;
+    } else {
+      return await this.raw.getHighlights(entry);
+    }
+  }
+
+  /**
+   * get every highlighted page of a document, keyed by page id
+   *
+   * @param ref - a reference to the document
+   * @returns the highlights in page order, omitting pages with none
+   */
+  async getHighlightPages(ref: ItemRef): Promise<Map<string, Highlight[][]>> {
+    const { id, hash } = ref;
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const content = await this.getContent(ref);
+    const byName = new Map(entries.map((entry) => [entry.id, entry]));
+    const found = pageOrder(content)
+      .map(
+        (pageId) =>
+          [pageId, byName.get(`${id}.highlights/${pageId}.json`)] as const,
+      )
+      .filter((pair): pair is [string, RawEntry] => pair[1] !== undefined);
+    const parsed = await Promise.all(
+      found.map(([, entry]) => this.raw.getHighlights(entry)),
+    );
+    return new Map(found.map(([pageId], index) => [pageId, parsed[index]!]));
+  }
+
+  async #putHighlightsRaw(
+    { id, hash }: ItemRef,
+    pages: ReadonlyMap<string, readonly Highlight[][]>,
+    schemaVersion: SchemaVersion,
+  ): Promise<[RawEntry, Promise<unknown>]> {
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const contentEntry = entries.find((ent) => ent.id.endsWith(".content"));
+    if (contentEntry === undefined) {
+      throw new Error(`couldn't find contents for hash ${hash}`);
+    }
+    const content = await this.raw.getContent(contentEntry);
+    const order = new Set(pageOrder(content));
+    for (const pageId of pages.keys()) {
+      if (!order.has(pageId)) {
+        throw new Error(`document ${id} has no page ${pageId}`);
+      }
+    }
+
+    const written = await Promise.all(
+      [...pages].map(([pageId, highlights]) =>
+        this.raw.putHighlights(`${id}.highlights/${pageId}.json`, highlights),
+      ),
+    );
+    for (const [highlightsEntry] of written) {
+      const pageInd = entries.findIndex((ent) => ent.id === highlightsEntry.id);
+      if (pageInd === -1) {
+        entries.push(highlightsEntry);
+      } else {
+        entries[pageInd] = highlightsEntry;
+      }
+    }
+    const [result, uploadEntries] = await this.raw.putEntries(
+      id,
+      entries,
+      schemaVersion,
+    );
+    const uploads = written.map(([, upload]) => upload);
+    return [result, Promise.all([...uploads, uploadEntries])];
+  }
+
+  /**
+   * write a single page's text highlights, replacing any already there
+   *
+   * @param ref - a reference to the document
+   * @param pageId - the id of the page, from the document's `.content` page list
+   * @param highlights - the highlights to write
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @throws if `pageId` is not a page of the document
+   * @returns a reference to the updated document, with its new hash
+   */
+  async putHighlights(
+    ref: ItemRef,
+    pageId: string,
+    highlights: readonly Highlight[][],
+    refresh: boolean = false,
+  ): Promise<ItemRef> {
+    return await this.putHighlightPages(
+      ref,
+      new Map([[pageId, highlights]]),
+      refresh,
+    );
+  }
+
+  /**
+   * write several pages' text highlights in one commit
+   *
+   * @param ref - a reference to the document
+   * @param pages - the highlights to write, keyed by page id, replacing any
+   *     already on those pages and leaving every other page alone
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @throws if any key is not a page of the document
+   * @returns a reference to the updated document, with its new hash
+   */
+  async putHighlightPages(
+    ref: ItemRef,
+    pages: ReadonlyMap<string, readonly Highlight[][]>,
+    refresh: boolean = false,
+  ): Promise<ItemRef> {
+    if (pages.size === 0) {
+      return ref;
+    } else {
+      return await this.#editEntry(ref, refresh, (item, schemaVersion) =>
+        this.#putHighlightsRaw(item, pages, schemaVersion),
+      );
+    }
   }
 
   /**
