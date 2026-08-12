@@ -93,6 +93,32 @@ test("a block that overruns the file is kept verbatim", () => {
   expect(serializeRmScene(parseRmScene(data))).toEqual(data);
 });
 
+test("a subblock with an unread tail keeps the whole block verbatim", () => {
+  // a scene tree block whose parent subblock carries one byte the reader
+  // doesn't know about, as a later firmware might add
+  const id = [0x1f, 0x00, 0x01];
+  const body = [
+    ...id,
+    0x2f,
+    0x00,
+    0x01,
+    0x31,
+    0x01,
+    0x4c,
+    0x04,
+    0x00,
+    0x00,
+    0x00,
+    ...id,
+    0xff,
+  ];
+  const data = file([{ type: 0x01, body }]);
+
+  const [block] = parseRmScene(data).blocks;
+  expect(block?.type).toBe("unknown");
+  expect(serializeRmScene(parseRmScene(data))).toEqual(data);
+});
+
 test("an unparseable block falls back to raw bytes and round-trips", () => {
   // tag 1 as a Byte1 where the reader wants Byte4
   const data = file([{ type: 0x0a, body: [0x11, 0x05] }]);

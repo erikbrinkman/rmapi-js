@@ -488,7 +488,13 @@ class Reader {
     const subEnd = this.#offset + length;
     this.#bounds.push(subEnd);
     try {
-      return fn();
+      const value = fn();
+      if (this.#offset !== subEnd) {
+        throw new Error(
+          `subblock ${index} left ${subEnd - this.#offset} bytes unread`,
+        );
+      }
+      return value;
     } finally {
       this.#bounds.pop();
       this.#offset = subEnd;
