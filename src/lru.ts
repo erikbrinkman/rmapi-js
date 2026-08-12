@@ -1,10 +1,10 @@
-export class LruCache extends Map<string, string | null> {
+export class LruCache extends Map<string, Uint8Array | null> {
   readonly #maxSize: number;
   #currentSize: number = 0;
 
   constructor(
     maxSize: number,
-    entries: Iterable<[string, string | null]> = [],
+    entries: Iterable<[string, Uint8Array | null]> = [],
   ) {
     super();
     this.#maxSize = maxSize;
@@ -13,7 +13,7 @@ export class LruCache extends Map<string, string | null> {
     }
   }
 
-  override get(key: string): string | null | undefined {
+  override get(key: string): Uint8Array | null | undefined {
     const res = super.get(key);
     if (res !== undefined) {
       // update order so key is most recent
@@ -23,22 +23,22 @@ export class LruCache extends Map<string, string | null> {
     return res;
   }
 
-  override set(key: string, value: string | null): this {
+  override set(key: string, value: Uint8Array | null): this {
     const existing = super.get(key);
     if (existing === undefined) {
       this.#currentSize += key.length; // adding a new key
     } else if (existing !== null) {
-      this.#currentSize -= existing.length; // removing old value
+      this.#currentSize -= existing.byteLength; // removing old value
     }
     if (value !== null) {
-      this.#currentSize += value.length;
+      this.#currentSize += value.byteLength;
     }
 
     // delete existing value
     super.delete(key);
 
     // evict down to desired size
-    let entry: [string, string | null] | undefined;
+    let entry: [string, Uint8Array | null] | undefined;
     while (
       this.#currentSize > this.#maxSize &&
       (entry = this.entries().next().value)
@@ -47,7 +47,7 @@ export class LruCache extends Map<string, string | null> {
       super.delete(oldestKey);
       this.#currentSize -= oldestKey.length;
       if (oldestValue !== null) {
-        this.#currentSize -= oldestValue.length;
+        this.#currentSize -= oldestValue.byteLength;
       }
     }
 
@@ -63,7 +63,7 @@ export class LruCache extends Map<string, string | null> {
     }
     super.delete(key);
     if (value !== null) {
-      this.#currentSize -= value.length;
+      this.#currentSize -= value.byteLength;
     }
     this.#currentSize -= key.length;
     return true;

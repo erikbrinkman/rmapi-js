@@ -59,6 +59,8 @@ import { HashNotFoundError, ValidationError } from "./error.js";
 import { LruCache } from "./lru.js";
 import {
   type BackgroundFilter,
+  BYTES_PREFIX,
+  CACHE_VERSION,
   type CollectionContent,
   type Content,
   type DocumentContent,
@@ -504,7 +506,7 @@ export interface PutOptions {
 class Remarkable {
   readonly #sessionToken: string;
   /** the same cache that underlies the raw api, allowing us to modify it */
-  readonly #cache: Map<string, string | null>;
+  readonly #cache: Map<string, Uint8Array | null>;
   /** scoped access to the raw low-level api */
   readonly raw: RawRemarkable;
   readonly #maxGenerationRetries: number;
@@ -518,9 +520,10 @@ class Remarkable {
     sessionToken: string,
     rawHost: string,
     uploadHost: string,
-    cache: Map<string, string | null>,
+    cache: Map<string, Uint8Array | null>,
     maxGenerationRetries: number,
     maxTransientRetries: number,
+    maxCachedBytes: number,
   ) {
     this.#sessionToken = sessionToken;
     this.#cache = cache;
@@ -532,6 +535,7 @@ class Remarkable {
       cache,
       rawHost,
       uploadHost,
+      maxCachedBytes,
     );
   }
 
@@ -1535,7 +1539,10 @@ class Remarkable {
     {
       const contentReq = this.raw.putContent(`${id}.content`, content);
       const metadataReq = this.raw.putMetadata(`${id}.metadata`, metadata);
-      const pagedataReq = this.raw.putText(`${id}.pagedata`, "\n");
+      const pagedataReq = this.raw.putFile(
+        `${id}.pagedata`,
+        new TextEncoder().encode("\n"),
+      );
       const fileReq = this.raw.putFile(`${id}.${fileType}`, buffer);
       await using contentEntry = await contentReq;
       await using metadataEntry = await metadataReq;
@@ -2200,6 +2207,17 @@ export interface RemarkableSessionOptions {
   maxCacheSize?: number;
 
   /**
+   * the largest stored file to keep the contents of, in bytes
+   *
+   * Anything larger is fetched normally but only its existence is recorded, so
+   * one big pdf can't evict everything else. Set to `0` to cache nothing but
+   * existence, or `Infinity` to keep whatever is read.
+   *
+   * @defaultValue 1048576
+   */
+  maxCachedBytes?: number;
+
+  /**
    * how many times to retry updating the root hash after a generation conflict
    *
    * High-level mutators re-fetch the latest root and re-apply their change on a
@@ -2227,10 +2245,48 @@ export interface RemarkableOptions
   extends AuthOptions,
     RemarkableSessionOptions {}
 
-const cached: z.ZodType<Record<string, string | null>> = z.record(
+/** the default {@link RemarkableSessionOptions.maxCachedBytes} */
+const MAX_CACHED_BYTES = 1024 * 1024;
+
+const cacheEntries: z.ZodType<Record<string, string | null>> = z.record(
   z.string(),
   z.string().nullable(),
 );
+
+/** the tagged envelope written by `dumpCache` */
+const cacheDump = z.object({
+  version: z.literal(CACHE_VERSION),
+  entries: cacheEntries,
+});
+
+/** decode a dumped cache into the byte map the api holds, or undefined */
+function decodeCache(
+  dumped: unknown,
+): [string, Uint8Array | null][] | undefined {
+  const enc = new TextEncoder();
+  const tagged = cacheDump.safeParse(dumped);
+  if (tagged.success) {
+    return Object.entries(tagged.data.entries).map(([hash, value]) => {
+      if (value === null) return [hash, null];
+      const body = value.slice(1);
+      return [
+        hash,
+        value.startsWith(BYTES_PREFIX)
+          ? Uint8Array.fromBase64(body)
+          : enc.encode(body),
+      ];
+    });
+  }
+  const legacy = cacheEntries.safeParse(dumped);
+  if (legacy.success) {
+    // the original format held text only, so encoding it is lossless
+    return Object.entries(legacy.data).map(([hash, value]) => [
+      hash,
+      value === null ? null : enc.encode(value),
+    ]);
+  }
+  return undefined;
+}
 
 /**
  * Exchange a device token for a session token.
@@ -2271,14 +2327,13 @@ export function session(
     uploadHost = UPLOAD_HOST,
     cache,
     maxCacheSize = Infinity,
+    maxCachedBytes = MAX_CACHED_BYTES,
     maxGenerationRetries = 10,
     maxTransientRetries = 3,
   }: RemarkableSessionOptions = {},
 ): Remarkable {
-  const initCache = JSON.parse(cache ?? "{}") as unknown;
-  const parsedCache = cached.safeParse(initCache);
-  if (parsedCache.success) {
-    const entries = Object.entries(parsedCache.data);
+  const entries = decodeCache(JSON.parse(cache ?? "{}") as unknown);
+  if (entries !== undefined) {
     const cacheMap =
       maxCacheSize === Infinity
         ? new Map(entries)
@@ -2290,6 +2345,7 @@ export function session(
       cacheMap,
       maxGenerationRetries,
       maxTransientRetries,
+      maxCachedBytes,
     );
   }
   throw new Error(
@@ -2311,22 +2367,9 @@ export async function remarkable(
   deviceToken: string,
   options: RemarkableOptions = {},
 ): Promise<Remarkable> {
-  const {
-    authHost,
-    rawHost,
-    uploadHost,
-    cache,
-    maxCacheSize,
-    maxGenerationRetries,
-    maxTransientRetries,
-  } = options ?? {};
+  // forward everything but the auth option, so a new session option can't be
+  // dropped here by omission
+  const { authHost, ...sessionOptions } = options ?? {};
   const sessionToken = await auth(deviceToken, { authHost });
-  return session(sessionToken, {
-    rawHost,
-    uploadHost,
-    cache,
-    maxCacheSize,
-    maxGenerationRetries,
-    maxTransientRetries,
-  });
+  return session(sessionToken, sessionOptions);
 }

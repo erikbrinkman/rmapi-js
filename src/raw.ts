@@ -2,6 +2,7 @@
 // its native implementations untouched
 import "core-js/modules/es.async-disposable-stack.constructor.js";
 import "core-js/modules/es.symbol.async-dispose.js";
+import "core-js/modules/es.uint8-array.from-base64.js";
 import "core-js/modules/es.uint8-array.from-hex.js";
 import "core-js/modules/es.uint8-array.to-base64.js";
 import "core-js/modules/es.uint8-array.to-hex.js";
@@ -19,6 +20,13 @@ import { parseRmScene, type RmScene, serializeRmScene } from "./rm6.js";
 import { concatArrays } from "./utils.js";
 
 const hashReg = /^[0-9a-f]{64}$/;
+
+/** the dump format version; absent means the original text-only format */
+export const CACHE_VERSION = 2;
+/** marks a dumped cache entry stored as utf-8 text */
+export const TEXT_PREFIX = "t";
+/** marks a dumped cache entry stored as base64 */
+export const BYTES_PREFIX = "b";
 
 /**
  * a parsed reMarkable `.rm` page
@@ -968,24 +976,27 @@ export class RawRemarkable {
   /**
    * a cache of all hashes we know exist
    *
-   * The backend is a readonly file system of hashes to content. After a hash has
-   * been read or written successfully, we know it exists, and potentially it's
-   * contents. We don't want to cache large binary files, but we can cache the
-   * small text based metadata files. For binary files we write null, so we know
-   * not to write a a cached value again, but we'll still need to read it.
+   * The backend is a readonly file system of hashes to content, so once a hash
+   * has been read or written successfully we know it exists, and often what it
+   * holds. Contents are kept as the bytes that were transferred; anything over
+   * `maxCachedBytes` is stored as null, recording existence without the
+   * payload.
    */
-  readonly #cache: Map<string, string | null>;
+  readonly #cache: Map<string, Uint8Array | null>;
+  readonly #maxCachedBytes: number;
 
   constructor(
     authedFetch: AuthedFetch,
-    cache: Map<string, string | null>,
+    cache: Map<string, Uint8Array | null>,
     rawHost: string,
     uploadHost: string,
+    maxCachedBytes: number,
   ) {
     this.#authedFetch = authedFetch;
     this.#cache = cache;
     this.#rawHost = rawHost;
     this.#uploadHost = uploadHost;
+    this.#maxCachedBytes = maxCachedBytes;
   }
   /** make an authorized request to remarkable */
 
@@ -1040,15 +1051,14 @@ export class RawRemarkable {
   async getHash({ id: fileName, hash }: ItemRef): Promise<Uint8Array> {
     const cached = this.#cache.get(hash);
     if (cached != null) {
-      const enc = new TextEncoder();
-      return enc.encode(cached);
+      return cached.slice();
     } else {
+      // NOTE two simultaneous requests will fetch twice
       const res = await this.#getHash(fileName, hash);
-      // mark that we know hash exists
-      const cacheVal = this.#cache.get(hash);
-      if (cacheVal === undefined) {
-        this.#cache.set(hash, null);
-      }
+      this.#cache.set(
+        hash,
+        res.byteLength <= this.#maxCachedBytes ? res.slice() : null,
+      );
       return res;
     }
   }
@@ -1062,18 +1072,8 @@ export class RawRemarkable {
    * @param ref - a reference to the stored file (see {@link getHash})
    * @returns the text
    */
-  async getText({ id: fileName, hash }: ItemRef): Promise<string> {
-    const cached = this.#cache.get(hash);
-    if (cached != null) {
-      return cached;
-    } else {
-      // NOTE two simultaneous requests will fetch twice
-      const raw = await this.#getHash(fileName, hash);
-      const dec = new TextDecoder();
-      const res = dec.decode(raw);
-      this.#cache.set(hash, res);
-      return res;
-    }
+  async getText(ref: ItemRef): Promise<string> {
+    return new TextDecoder().decode(await this.getHash(ref));
   }
 
   /**
@@ -1279,11 +1279,10 @@ export class RawRemarkable {
           "x-goog-hash": `crc32c=${crcHash}`,
         },
       });
-      // mark that we know this hash exists
-      const cacheVal = this.#cache.get(hash);
-      if (cacheVal === undefined) {
-        this.#cache.set(hash, null);
-      }
+      this.#cache.set(
+        hash,
+        bytes.byteLength <= this.#maxCachedBytes ? bytes.slice() : null,
+      );
     }
   }
 
@@ -1319,32 +1318,22 @@ export class RawRemarkable {
     };
   }
 
-  /** the same as {@link putFile | `putFile`} but with caching for text */
-  async putText(fileName: string, text: string): Promise<PendingEntry> {
-    const enc = new TextEncoder();
-    const bytes = enc.encode(text);
-    const entry = await this.putFile(fileName, bytes);
-    return {
-      ...entry,
-      [Symbol.asyncDispose]: async () => {
-        await entry[Symbol.asyncDispose]();
-        // only cache what the server accepted
-        this.#cache.set(entry.hash, text);
-      },
-    };
+  /** write text as utf-8 bytes */
+  async #putEncoded(fileName: string, text: string): Promise<PendingEntry> {
+    return await this.putFile(fileName, new TextEncoder().encode(text));
   }
 
-  /** the same as {@link putText | `putText`} but with extra validation for Content */
+  /** the same as {@link putFile | `putFile`} but with extra validation for Content */
   async putContent(fileName: string, content: Content): Promise<PendingEntry> {
     if (!fileName.endsWith(".content")) {
       throw new Error(`fileName ${fileName} did not end with '.content'`);
     } else {
-      return await this.putText(fileName, JSON.stringify(content));
+      return await this.#putEncoded(fileName, JSON.stringify(content));
     }
   }
 
   /**
-   * the same as {@link putText | `putText`} but for a `.pagedata` file
+   * the same as {@link putFile | `putFile`} but for a `.pagedata` file
    *
    * @param fileName - the file to write, of the form `<docid>.pagedata`
    * @param templates - one template name per page, in page order
@@ -1356,12 +1345,12 @@ export class RawRemarkable {
     if (!fileName.endsWith(".pagedata")) {
       throw new Error(`fileName ${fileName} did not end with '.pagedata'`);
     } else {
-      return await this.putText(fileName, `${templates.join("\n")}\n`);
+      return await this.#putEncoded(fileName, `${templates.join("\n")}\n`);
     }
   }
 
   /**
-   * the same as {@link putText | `putText`} but with extra validation for page
+   * the same as {@link putFile | `putFile`} but with extra validation for page
    * layer metadata
    *
    * @param fileName - the file to write, of the form
@@ -1379,11 +1368,11 @@ export class RawRemarkable {
         "fileName was not of the form '<docid>/<pageid>-metadata.json'",
       );
     } else {
-      return await this.putText(fileName, JSON.stringify(meta));
+      return await this.#putEncoded(fileName, JSON.stringify(meta));
     }
   }
 
-  /** the same as {@link putText | `putText`} but with extra validation for a template sidecar */
+  /** the same as {@link putFile | `putFile`} but with extra validation for a template sidecar */
   async putTemplate(
     fileName: string,
     template: TemplateContent,
@@ -1391,11 +1380,11 @@ export class RawRemarkable {
     if (!fileName.endsWith(".template")) {
       throw new Error(`fileName ${fileName} did not end with '.template'`);
     } else {
-      return await this.putText(fileName, JSON.stringify(template));
+      return await this.#putEncoded(fileName, JSON.stringify(template));
     }
   }
 
-  /** the same as {@link putText | `putText`} but with extra validation for Metadata */
+  /** the same as {@link putFile | `putFile`} but with extra validation for Metadata */
   async putMetadata(
     fileName: string,
     metadata: Metadata,
@@ -1403,12 +1392,12 @@ export class RawRemarkable {
     if (!fileName.endsWith(".metadata")) {
       throw new Error(`fileName ${fileName} did not end with '.metadata'`);
     } else {
-      return await this.putText(fileName, JSON.stringify(metadata));
+      return await this.#putEncoded(fileName, JSON.stringify(metadata));
     }
   }
 
   /**
-   * the same as {@link putText | `putText`} but with extra validation for
+   * the same as {@link putFile | `putFile`} but with extra validation for
    * highlights
    *
    * Rewraps the array in the file's `highlights` envelope, which
@@ -1429,7 +1418,7 @@ export class RawRemarkable {
         "fileName was not of the form '<docid>.highlights/<pageid>.json'",
       );
     } else {
-      return await this.putText(fileName, JSON.stringify({ highlights }));
+      return await this.#putEncoded(fileName, JSON.stringify({ highlights }));
     }
   }
 
@@ -1557,7 +1546,22 @@ export class RawRemarkable {
    * @returns a serialized version of the cache to pass to a new api instance
    */
   dumpCache(): string {
-    return JSON.stringify(Object.fromEntries(this.#cache));
+    const entries: Record<string, string | null> = {};
+    // utf-8 text is stored as itself; base64 would cost a third more for what
+    // is mostly json
+    const dec = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+    for (const [hash, value] of this.#cache) {
+      if (value === null) {
+        entries[hash] = null;
+        continue;
+      }
+      try {
+        entries[hash] = `${TEXT_PREFIX}${dec.decode(value)}`;
+      } catch {
+        entries[hash] = `${BYTES_PREFIX}${value.toBase64()}`;
+      }
+    }
+    return JSON.stringify({ version: CACHE_VERSION, entries });
   }
 
   /** completely clear the cache */

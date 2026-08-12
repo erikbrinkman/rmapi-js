@@ -1824,7 +1824,9 @@ ${fileHash}:0:document.content:0:1
     const api = await remarkable("", { cache });
     await api.pruneCache();
 
-    const pruned = JSON.parse(api.dumpCache()) as Record<string, string | null>;
+    const { entries: pruned } = JSON.parse(api.dumpCache()) as {
+      entries: Record<string, string | null>;
+    };
     expect(rootHash in pruned).toBeTrue();
     expect(entryHash in pruned).toBeTrue();
     expect(fileHash in pruned).toBeTrue();
@@ -1851,7 +1853,52 @@ hash2:80000000:other:0:2
     expect(api.dumpCache().length).toBeGreaterThan(0);
 
     api.clearCache();
-    expect(api.dumpCache()).toHaveLength(2);
+    expect(JSON.parse(api.dumpCache())).toEqual({ version: 2, entries: {} });
+  });
+
+  test("#dumpCache() keeps utf-8 as text and falls back to base64", async () => {
+    mockFetch(emptyResponse(), emptyResponse(), emptyResponse());
+    const api = await remarkable("");
+
+    const enc = new TextEncoder();
+    const text = await api.raw.putFile(
+      "doc.pagedata",
+      enc.encode("Blank\né\n"),
+    );
+    await text[Symbol.asyncDispose]();
+    const binary = await api.raw.putFile(
+      "doc.rm",
+      new Uint8Array([0xff, 0xfe, 0x00, 0x01]),
+    );
+    await binary[Symbol.asyncDispose]();
+
+    const { entries } = JSON.parse(api.dumpCache()) as {
+      entries: Record<string, string | null>;
+    };
+    expect(entries[text.hash]).toBe("tBlank\né\n");
+    // invalid utf-8 can't be stored as text
+    expect(entries[binary.hash]).toBe("b//4AAQ==");
+  });
+
+  test("#remarkable() forwards maxCachedBytes", async () => {
+    mockFetch(emptyResponse(), emptyResponse());
+    const api = await remarkable("", { maxCachedBytes: 0 });
+    const entry = await api.raw.putFile("doc.rm", new Uint8Array([1, 2, 3]));
+    await entry[Symbol.asyncDispose]();
+
+    // nothing over the limit keeps its contents, only its existence
+    const { entries } = JSON.parse(api.dumpCache()) as {
+      entries: Record<string, string | null>;
+    };
+    expect(entries[entry.hash]).toBeNull();
+  });
+
+  test("a cache dumped in the old text-only format still loads", async () => {
+    const hash = repHash("3");
+    const legacy = JSON.stringify({ [hash]: "Blank\n" });
+    mockFetch(emptyResponse());
+    const api = await remarkable("", { cache: legacy });
+    expect(await api.raw.getText({ id: "doc.pagedata", hash })).toBe("Blank\n");
   });
 
   test("validation fail", async () => {
