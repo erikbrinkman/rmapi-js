@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `raw.putText`, encode the text and call `putFile`
 - `parseRmScene`, `ROOT_ID`, and `END_MARKER`
+- a `TreeNodeBlock`'s four anchor fields are now one optional `anchor`
 
 ## [12.0.3] - 2026-08-12
 
