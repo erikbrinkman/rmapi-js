@@ -180,7 +180,6 @@ const TRASH_ID = "trash";
 /** the id of the root entry list */
 const ROOT_LIST = "root";
 /** the file name of the root entry index */
-const ROOT_SCHEMA = `${ROOT_LIST}.docSchema`;
 
 /** base backoff in milliseconds for transient request retries */
 const TRANSIENT_BASE_MS = 200;
@@ -612,7 +611,7 @@ class Remarkable {
     await this.#withRetry(async () => {
       const [rootHash, generation] = await this.#getRootHash();
       const { entries } = await this.raw.getEntries({
-        id: ROOT_SCHEMA,
+        id: ROOT_LIST,
         hash: rootHash,
       });
       entries.push(entry);
@@ -691,11 +690,9 @@ class Remarkable {
     }
   }
 
-  async #convertEntry({ hash, id }: ItemRef): Promise<Entry> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+  async #convertEntry(ref: ItemRef): Promise<Entry> {
+    const { id, hash } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const metaEnt = entries.find((ent) => ent.id.endsWith(".metadata"));
     const contentEnt = entries.find((ent) => ent.id.endsWith(".content"));
     if (metaEnt === undefined) {
@@ -795,7 +792,7 @@ class Remarkable {
    */
   async listRefs(refresh: boolean = false): Promise<ItemRef[]> {
     const [hash] = await this.#getRootHash(refresh);
-    const { entries } = await this.raw.getEntries({ id: ROOT_SCHEMA, hash });
+    const { entries } = await this.raw.getEntries({ id: ROOT_LIST, hash });
     return entries.map(({ id, hash }) => ({ id, hash }));
   }
 
@@ -810,11 +807,9 @@ class Remarkable {
    * @param ref - a reference to the item (e.g. from `listItems` or `listRefs`)
    * @returns the content
    */
-  async getContent({ id, hash }: ItemRef): Promise<Content> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+  async getContent(ref: ItemRef): Promise<Content> {
+    const { hash } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const cont = entries.find((e) => e.id.endsWith(".content"));
     if (cont === undefined) {
       throw new Error(`couldn't find contents for hash ${hash}`);
@@ -834,11 +829,9 @@ class Remarkable {
    * @param ref - a reference to the item (e.g. from `listItems` or `listRefs`)
    * @returns the metadata
    */
-  async getMetadata({ id, hash }: ItemRef): Promise<Metadata> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+  async getMetadata(ref: ItemRef): Promise<Metadata> {
+    const { hash } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const meta = entries.find((e) => e.id.endsWith(".metadata"));
     if (meta === undefined) {
       throw new Error(`couldn't find metadata for hash ${hash}`);
@@ -855,11 +848,9 @@ class Remarkable {
    * @param ref - a reference to the document (e.g. from `listItems`)
    * @returns the pdf bytes
    */
-  async getPdf({ id, hash }: ItemRef): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+  async getPdf(ref: ItemRef): Promise<Uint8Array> {
+    const { hash } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const pdf = entries.find((e) => e.id.endsWith(".pdf"));
     if (pdf === undefined) {
       throw new Error(`couldn't find pdf for hash ${hash}`);
@@ -876,11 +867,9 @@ class Remarkable {
    * @param ref - a reference to the document (e.g. from `listItems`)
    * @returns the epub bytes
    */
-  async getEpub({ id, hash }: ItemRef): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+  async getEpub(ref: ItemRef): Promise<Uint8Array> {
+    const { hash } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const epub = entries.find((e) => e.id.endsWith(".epub"));
     if (epub === undefined) {
       throw new Error(`couldn't find epub for hash ${hash}`);
@@ -916,11 +905,8 @@ class Remarkable {
     pageId: string,
     file: PageFile<T>,
   ): Promise<T | undefined> {
-    const { id, hash } = ref;
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+    const { id } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const content = await this.getContent(ref);
     if (!pageOrder(content).includes(pageId)) {
       throw new Error(`document ${id} has no page ${pageId}`);
@@ -937,11 +923,8 @@ class Remarkable {
     ref: ItemRef,
     file: PageFile<T>,
   ): Promise<Map<string, T>> {
-    const { id, hash } = ref;
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+    const { id } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const content = await this.getContent(ref);
     const byName = new Map(entries.map((entry) => [entry.id, entry]));
     const found = pageOrder(content)
@@ -954,15 +937,13 @@ class Remarkable {
   }
 
   async #putPageFilesRaw<Read, Write>(
-    { id, hash }: ItemRef,
+    ref: ItemRef,
     pages: ReadonlyMap<string, Write>,
     file: WritablePageFile<Read, Write>,
     schemaVersion: SchemaVersion,
   ): Promise<PendingEntry> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+    const { id, hash } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const contentEntry = entries.find((ent) => ent.id.endsWith(".content"));
     if (contentEntry === undefined) {
       throw new Error(`couldn't find contents for hash ${hash}`);
@@ -1158,11 +1139,8 @@ class Remarkable {
    * @returns the template content, or `undefined` if the item has no `.template`
    */
   async getTemplate(ref: ItemRef): Promise<TemplateContent | undefined> {
-    const { id, hash } = ref;
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+    const { id } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const entry = entries.find((e) => e.id === `${id}.template`);
     if (entry === undefined) {
       return undefined;
@@ -1184,27 +1162,21 @@ class Remarkable {
     template: TemplateContent,
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    return await this.#editEntry(
-      ref,
-      refresh,
-      async ({ id, hash }, schemaVersion) => {
-        const { entries } = await this.raw.getEntries({
-          id: `${id}.docSchema`,
-          hash,
-        });
-        await using templateEntry = await this.raw.putTemplate(
-          `${id}.template`,
-          template,
-        );
-        const ind = entries.findIndex((ent) => ent.id === templateEntry.id);
-        if (ind === -1) {
-          entries.push(templateEntry);
-        } else {
-          entries[ind] = templateEntry;
-        }
-        return await this.raw.putEntries(id, entries, schemaVersion);
-      },
-    );
+    return await this.#editEntry(ref, refresh, async (item, schemaVersion) => {
+      const { id } = item;
+      const { entries } = await this.raw.getEntries(item);
+      await using templateEntry = await this.raw.putTemplate(
+        `${id}.template`,
+        template,
+      );
+      const ind = entries.findIndex((ent) => ent.id === templateEntry.id);
+      if (ind === -1) {
+        entries.push(templateEntry);
+      } else {
+        entries[ind] = templateEntry;
+      }
+      return await this.raw.putEntries(id, entries, schemaVersion);
+    });
   }
 
   /**
@@ -1218,11 +1190,8 @@ class Remarkable {
    *     no `.pagedata`
    */
   async getPagedata(ref: ItemRef): Promise<string[] | undefined> {
-    const { id, hash } = ref;
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+    const { id } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const entry = entries.find((e) => e.id === `${id}.pagedata`);
     if (entry === undefined) {
       return undefined;
@@ -1247,27 +1216,21 @@ class Remarkable {
     templates: readonly string[],
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    return await this.#editEntry(
-      ref,
-      refresh,
-      async ({ id, hash }, schemaVersion) => {
-        const { entries } = await this.raw.getEntries({
-          id: `${id}.docSchema`,
-          hash,
-        });
-        await using pagedataEntry = await this.raw.putPagedata(
-          `${id}.pagedata`,
-          templates,
-        );
-        const ind = entries.findIndex((ent) => ent.id === pagedataEntry.id);
-        if (ind === -1) {
-          entries.push(pagedataEntry);
-        } else {
-          entries[ind] = pagedataEntry;
-        }
-        return await this.raw.putEntries(id, entries, schemaVersion);
-      },
-    );
+    return await this.#editEntry(ref, refresh, async (item, schemaVersion) => {
+      const { id } = item;
+      const { entries } = await this.raw.getEntries(item);
+      await using pagedataEntry = await this.raw.putPagedata(
+        `${id}.pagedata`,
+        templates,
+      );
+      const ind = entries.findIndex((ent) => ent.id === pagedataEntry.id);
+      if (ind === -1) {
+        entries.push(pagedataEntry);
+      } else {
+        entries[ind] = pagedataEntry;
+      }
+      return await this.raw.putEntries(id, entries, schemaVersion);
+    });
   }
 
   /**
@@ -1353,11 +1316,8 @@ class Remarkable {
    *
    * @param ref - a reference to the document (e.g. from `listItems`)
    */
-  async getDocumentArchive({ id, hash }: ItemRef): Promise<Uint8Array> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+  async getDocumentArchive(ref: ItemRef): Promise<Uint8Array> {
+    const { entries } = await this.raw.getEntries(ref);
     const zip = new JSZip();
     for (const entry of entries) {
       // TODO if this is .metadata we might want to assert type === "DocumentType"
@@ -1733,14 +1693,12 @@ class Remarkable {
 
   /** edit just a content entry */
   async #editContentRaw(
-    { id, hash }: ItemRef,
+    ref: ItemRef,
     update: Partial<Content>,
     schemaVersion: SchemaVersion,
   ): Promise<PendingEntry> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+    const { id } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const contInd = entries.findIndex((ent) => ent.id.endsWith(".content"));
     const contEntry = entries[contInd];
     if (contEntry === undefined) {
@@ -1772,7 +1730,7 @@ class Remarkable {
       const [rootHash, generation, schemaVersion] =
         await this.#getRootHash(refresh);
       const { entries } = await this.raw.getEntries({
-        id: ROOT_SCHEMA,
+        id: ROOT_LIST,
         hash: rootHash,
       });
       const hashInd = entries.findIndex(
@@ -1886,14 +1844,12 @@ class Remarkable {
   }
 
   async #editMetaRaw(
-    { id, hash }: ItemRef,
+    ref: ItemRef,
     update: Partial<Metadata>,
     schemaVersion: SchemaVersion,
   ): Promise<PendingEntry> {
-    const { entries } = await this.raw.getEntries({
-      id: `${id}.docSchema`,
-      hash,
-    });
+    const { id } = ref;
+    const { entries } = await this.raw.getEntries(ref);
     const metaInd = entries.findIndex((ent) => ent.id.endsWith(".metadata"));
     const metaEntry = entries[metaInd];
     if (metaEntry === undefined) {
@@ -2026,7 +1982,7 @@ class Remarkable {
       const [rootHash, generation, schemaVersion] =
         await this.#getRootHash(refresh);
       const { entries } = await this.raw.getEntries({
-        id: ROOT_SCHEMA,
+        id: ROOT_LIST,
         hash: rootHash,
       });
 
@@ -2131,17 +2087,15 @@ class Remarkable {
     // should only go one step) to track all hashes encountered
     // NOTE that we could increase the cache in this process, or it's possible
     // for other calls to increase the cache with misc values.
-    const base = await this.raw.getEntries({ id: ROOT_SCHEMA, hash: rootHash });
+    const base = await this.raw.getEntries({ id: ROOT_LIST, hash: rootHash });
     let entries = [base.entries];
     let nextEntries: Promise<Entries>[] = [];
     while (entries.length) {
       for (const entryList of entries) {
-        for (const { hash, subfiles, id } of entryList) {
-          toDelete.delete(hash);
-          if (subfiles > 0) {
-            nextEntries.push(
-              this.raw.getEntries({ id: `${id}.docSchema`, hash }),
-            );
+        for (const entry of entryList) {
+          toDelete.delete(entry.hash);
+          if (entry.subfiles > 0) {
+            nextEntries.push(this.raw.getEntries(entry));
           }
         }
       }

@@ -1084,12 +1084,12 @@ export class RawRemarkable {
    * A list hash is the root hash, or any hash with the type 80000000. NOTE
    * these are hashed differently than files.
    *
-   * @param ref - a reference whose `id` is `"root.docSchema"` for the root, or
-   *   `"<id>.docSchema"` for a sub-document's entry index
+   * @param ref - a reference whose `id` is the bare document id, or `"root"`
+   *   for the root index
    * @returns the entries
    */
-  async getEntries(ref: ItemRef): Promise<Entries> {
-    const rawFile = await this.getText(ref);
+  async getEntries({ id, hash }: ItemRef): Promise<Entries> {
+    const rawFile = await this.getText({ id: `${id}.docSchema`, hash });
     const [version, ...rest] = rawFile.slice(0, -1).split("\n");
     if (version === "3") {
       return { entries: rest.map(parseRawEntryLine) };
@@ -1439,8 +1439,6 @@ export class RawRemarkable {
    * @param id - the id of the list to upload - this should be the item id if
    *   uploading an item list, or "root" if uploading a new root list. Note the
    *   asymmetry with {@link getEntries | `getEntries`}: `getEntries` takes the
-   *   full `"<id>.docSchema"` file name, whereas `putEntries` takes the bare id
-   *   and appends `.docSchema` (and special-cases `"root"`) itself.
    * @param entries - the entries to upload
    *
    * @returns the new list entry, pending its upload
