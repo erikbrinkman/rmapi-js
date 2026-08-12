@@ -316,13 +316,6 @@ export interface PutDocumentOptions {
   parent?: string;
   /** the visible name to use, overriding the archived value */
   visibleName?: string;
-  /**
-   * reuse this document id instead of generating a fresh one
-   *
-   * By default a new uuid is generated so re-uploading an archive to the same
-   * account doesn't collide with the original. Pass an id to restore in place.
-   */
-  id?: string;
 }
 
 /** An error that gets thrown when the backend while trying to update
@@ -1381,23 +1374,18 @@ class Remarkable {
    * as a blob, and commits a new document into the root.
    *
    * @remarks
-   * This is an experimental feature. By default a fresh document id is generated
-   * so re-uploading to the same account doesn't collide with the original; pass
-   * {@link PutDocumentOptions.id | `id`} to keep the original id. Like the other
-   * low-level puts, this may throw a {@link GenerationError | `GenerationError`}
-   * if the generation is stale, requiring a retry.
+   * This is an experimental feature. A fresh document id is generated, so
+   * re-uploading to the same account doesn't collide with the original. Like
+   * the other low-level puts, this may throw a
+   * {@link GenerationError | `GenerationError`} if the generation is stale,
+   * requiring a retry.
    *
    * @param buffer - the archive bytes, as returned by `getDocumentArchive`
-   * @param options - overrides for parent, visible name, and id
+   * @param options - overrides for parent and visible name
    */
   async putDocumentArchive(
     buffer: Uint8Array,
-    {
-      refresh = false,
-      parent,
-      visibleName,
-      id: keepId,
-    }: PutDocumentOptions = {},
+    { refresh = false, parent, visibleName }: PutDocumentOptions = {},
   ): Promise<ItemRef> {
     if (parent !== undefined && parent && !idReg.test(parent)) {
       throw new ValidationError(
@@ -1418,7 +1406,7 @@ class Remarkable {
     if (oldId.includes("/")) {
       throw new Error(`unexpected nested .metadata path '${metaPath}'`);
     }
-    const newId = keepId ?? uuid4();
+    const newId = uuid4();
 
     // rewrite the old document id prefix on every archived file to the new id,
     // patching the .metadata as we pass it (parent/name/lastModified). the
