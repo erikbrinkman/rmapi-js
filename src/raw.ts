@@ -12,10 +12,10 @@ import {
   HEADER_LENGTH,
   parseV5,
   type RmPageV5,
-  serializeRm,
+  serializeRm as serializeV5,
   VERSION_PREFIX,
 } from "./rm5.js";
-import { parseRmScene, type RmScene } from "./rm6.js";
+import { parseRmScene, type RmScene, serializeRmScene } from "./rm6.js";
 import { concatArrays } from "./utils.js";
 
 const hashReg = /^[0-9a-f]{64}$/;
@@ -55,6 +55,20 @@ export function parseRm(data: Uint8Array): RmPage {
   } else {
     throw new Error(`unsupported .lines version '${versionChar}'`);
   }
+}
+
+/**
+ * serialize a parsed reMarkable `.rm` page back to bytes
+ *
+ * The inverse of {@link parseRm | `parseRm`}: versions 3 and 5 render from a
+ * flat {@link RmPageV5 | `RmPageV5`}, version 6 from an
+ * {@link RmScene | `RmScene`}.
+ *
+ * @param page - the page to render
+ * @returns the `.rm` file bytes
+ */
+export function serializeRm(page: RmPage): Uint8Array {
+  return page.version === 6 ? serializeRmScene(page) : serializeV5(page);
 }
 
 /** request types */
@@ -1188,7 +1202,7 @@ export class RawRemarkable {
    *
    * Only version 3 and 5 pages can be rendered; version 6 pages are read-only.
    */
-  async putRm(fileName: string, page: RmPageV5): Promise<PendingEntry> {
+  async putRm(fileName: string, page: RmPage): Promise<PendingEntry> {
     if (!fileName.endsWith(".rm")) {
       throw new Error(`fileName ${fileName} did not end with '.rm'`);
     } else {

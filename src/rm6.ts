@@ -5,8 +5,9 @@
  * of length-prefixed, tagged blocks. This module reads every block faithfully
  * — preserving `CrdtId`s, `LwwValue` wrappers, and each block's unread tail —
  * into an {@link RmScene | `RmScene`}, whose methods resolve the CRDT into
- * ordered layers, strokes, and text. Because nothing is dropped, the blocks
- * round-trip back to bytes.
+ * ordered layers, strokes, and text. Nothing is dropped, so
+ * {@link serializeRmScene | `serializeRmScene`} reproduces the original bytes
+ * exactly, including blocks it could not parse.
  *
  * @packageDocumentation
  */
@@ -51,7 +52,7 @@ export interface RmV6Point {
   y: number;
   /** pen speed */
   speed: number;
-  /** stroke width */
+  /** stroke width; integral for version 2 points, fractional for version 1 */
   width: number;
   /** pen direction, 0–255 mapping onto 0–2π */
   direction: number;
@@ -71,6 +72,10 @@ export interface RmV6Line {
   startingLength: number;
   /** the sampled points */
   points: RmV6Point[];
+  /** the stroke's timestamp id, if the file carried one */
+  timestampId?: CrdtId;
+  /** the stroke's move id, if the file carried one */
+  moveId?: CrdtId;
   /**
    * a packed little-endian uint32 color, only present for highlighter strokes
    *
@@ -142,6 +147,12 @@ export interface RmV6Text {
 
 /** fields carried by every block */
 interface BlockCommon {
+  /**
+   * the header byte between the block length and the versions
+   *
+   * Zero in every well-formed file seen, but preserved rather than assumed.
+   */
+  reserved: number;
   /** the block's minimum reader version */
   minVersion: number;
   /** the block's current version (selects the point encoding for lines) */
@@ -266,8 +277,8 @@ export interface PageInfoBlock extends BlockCommon {
   textCharsCount: number;
   /** the number of text lines on the page */
   textLinesCount: number;
-  /** the type-folio use count */
-  typeFolioUseCount: number;
+  /** the type-folio use count, if the block carried one */
+  typeFolioUseCount?: number;
 }
 
 /** the `0x09` author ids block — the author-id to uuid table */
@@ -300,6 +311,13 @@ export interface UnknownBlock extends BlockCommon {
   blockType: number;
   /** the raw block body bytes */
   data: Uint8Array;
+  /**
+   * the length the block header declared, when it overran the file
+   *
+   * Corrupt files exist in the wild; keeping the original figure lets them
+   * round-trip byte for byte instead of being silently rewritten.
+   */
+  declaredLength?: number;
 }
 
 /** any parsed version 6 block */
@@ -528,6 +546,149 @@ class Reader {
   }
 }
 
+/** the tagged-write counterpart to {@link Reader | `Reader`} */
+class Writer {
+  #buffer = new Uint8Array(4096);
+  #view = new DataView(this.#buffer.buffer);
+  #length = 0;
+
+  #ensure(extra: number): void {
+    if (this.#length + extra <= this.#buffer.length) return;
+    let size = this.#buffer.length;
+    while (size < this.#length + extra) size *= 2;
+    const grown = new Uint8Array(size);
+    grown.set(this.#buffer);
+    this.#buffer = grown;
+    this.#view = new DataView(grown.buffer);
+  }
+
+  get length(): number {
+    return this.#length;
+  }
+
+  u8(value: number): void {
+    this.#ensure(1);
+    this.#view.setUint8(this.#length, value);
+    this.#length += 1;
+  }
+
+  u16(value: number): void {
+    this.#ensure(2);
+    this.#view.setUint16(this.#length, value, true);
+    this.#length += 2;
+  }
+
+  u32(value: number): void {
+    this.#ensure(4);
+    this.#view.setUint32(this.#length, value, true);
+    this.#length += 4;
+  }
+
+  f32(value: number): void {
+    this.#ensure(4);
+    this.#view.setFloat32(this.#length, value, true);
+    this.#length += 4;
+  }
+
+  f64(value: number): void {
+    this.#ensure(8);
+    this.#view.setFloat64(this.#length, value, true);
+    this.#length += 8;
+  }
+
+  varuint(value: number): void {
+    let rest = value;
+    do {
+      let byte = rest % 128;
+      rest = Math.floor(rest / 128);
+      if (rest > 0) byte |= 0x80;
+      this.u8(byte);
+    } while (rest > 0);
+  }
+
+  crdtId(id: CrdtId): void {
+    this.u8(id.authorId);
+    this.varuint(id.counter);
+  }
+
+  bytes(data: Uint8Array): void {
+    this.#ensure(data.length);
+    this.#buffer.set(data, this.#length);
+    this.#length += data.length;
+  }
+
+  patchU32(at: number, value: number): void {
+    this.#view.setUint32(at, value, true);
+  }
+
+  finish(): Uint8Array {
+    return this.#buffer.slice(0, this.#length);
+  }
+
+  tag(index: number, type: number): void {
+    this.varuint(index * 16 + type);
+  }
+
+  writeInt(index: number, value: number): void {
+    this.tag(index, TAG_BYTE4);
+    this.u32(value);
+  }
+
+  writeFloat(index: number, value: number): void {
+    this.tag(index, TAG_BYTE4);
+    this.f32(value);
+  }
+
+  writeDouble(index: number, value: number): void {
+    this.tag(index, TAG_BYTE8);
+    this.f64(value);
+  }
+
+  writeId(index: number, id: CrdtId): void {
+    this.tag(index, TAG_ID);
+    this.crdtId(id);
+  }
+
+  writeBool(index: number, value: boolean): void {
+    this.tag(index, TAG_BYTE1);
+    this.u8(value ? 1 : 0);
+  }
+
+  writeByte(index: number, value: number): void {
+    this.tag(index, TAG_BYTE1);
+    this.u8(value);
+  }
+
+  subblock(index: number, write: () => void): void {
+    this.tag(index, TAG_LENGTH4);
+    const at = this.length;
+    this.u32(0);
+    write();
+    this.patchU32(at, this.length - at - 4);
+  }
+
+  writeLww<T>(
+    index: number,
+    lww: LwwValue<T>,
+    write: (value: T) => void,
+  ): void {
+    this.subblock(index, () => {
+      this.writeId(1, lww.timestamp);
+      write(lww.value);
+    });
+  }
+
+  writeString(index: number, text: string): void {
+    this.subblock(index, () => {
+      const encoded = new TextEncoder().encode(text);
+      this.varuint(encoded.length);
+      // the device writes this flag as 1 even for non-ascii text
+      this.u8(1);
+      this.bytes(encoded);
+    });
+  }
+}
+
 /** read the `SceneItem` envelope shared by item blocks */
 function readItemEnvelope<V>(
   reader: Reader,
@@ -567,7 +728,7 @@ function readLineValue(reader: Reader, version: number): RmV6Line {
           y,
           speed: reader.f32() * 4,
           direction: (reader.f32() * 255) / (2 * Math.PI),
-          width: Math.round(reader.f32() * 4),
+          width: reader.f32() * 4,
           pressure: reader.f32() * 255,
         };
       } else {
@@ -587,10 +748,8 @@ function readLineValue(reader: Reader, version: number): RmV6Line {
     startingLength,
     points,
   };
-  // optional trailing timestamp / move id / color are skipped by seeking to the
-  // subblock end; only the highlighter rgba color is captured
-  if (reader.hasTag(6, TAG_ID)) reader.readId(6);
-  if (reader.hasTag(7, TAG_ID)) reader.readId(7);
+  if (reader.hasTag(6, TAG_ID)) line.timestampId = reader.readId(6);
+  if (reader.hasTag(7, TAG_ID)) line.moveId = reader.readId(7);
   if (reader.hasTag(8, TAG_BYTE4)) line.colorRgba = reader.readInt(8);
   return line;
 }
@@ -761,15 +920,19 @@ function readBlockBody(
       }
       return { type: "authorIds", authors };
     }
-    case 0x0a:
-      return {
+    case 0x0a: {
+      const info: Omit<PageInfoBlock, keyof BlockCommon> = {
         type: "pageInfo",
         loadsCount: reader.readInt(1),
         mergesCount: reader.readInt(2),
         textCharsCount: reader.readInt(3),
         textLinesCount: reader.readInt(4),
-        typeFolioUseCount: reader.hasTag(5, TAG_BYTE4) ? reader.readInt(5) : 0,
       };
+      if (reader.hasTag(5, TAG_BYTE4)) {
+        info.typeFolioUseCount = reader.readInt(5);
+      }
+      return info;
+    }
     case 0x0d: {
       const info: Omit<SceneInfoBlock, keyof BlockCommon> = {
         type: "sceneInfo",
@@ -791,29 +954,24 @@ function readBlockBody(
   }
 }
 
+/**
+ * the byte order of a little-endian (bytes_le) uuid
+ *
+ * The permutation is its own inverse, so one table serves both directions.
+ */
+const UUID_LE_ORDER = [3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15];
+
+function swapUuidBytes(bytes: Uint8Array): Uint8Array {
+  const out = new Uint8Array(16);
+  for (let index = 0; index < 16; index++) {
+    out[index] = bytes[UUID_LE_ORDER[index]!] ?? 0;
+  }
+  return out;
+}
+
 function uuidToString(bytes: Uint8Array): string {
-  // the uuid is stored little-endian (bytes_le); reverse the standard fields
-  const b = [...bytes];
-  const le = [
-    b[3],
-    b[2],
-    b[1],
-    b[0],
-    b[5],
-    b[4],
-    b[7],
-    b[6],
-    b[8],
-    b[9],
-    b[10],
-    b[11],
-    b[12],
-    b[13],
-    b[14],
-    b[15],
-  ];
-  const hex = le.map((byte) => (byte ?? 0).toString(16).padStart(2, "0"));
-  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
+  const hex = swapUuidBytes(bytes).toHex();
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /** parse the raw block list of a version 6 `.rm` file */
@@ -827,18 +985,38 @@ function parseV6Blocks(data: Uint8Array): RmBlock[] {
   while (!reader.atFileEnd) {
     if (reader.bytesRemaining() < 8) break;
     const length = reader.u32();
-    reader.u8(); // unknown, always 0
+    const reserved = reader.u8();
     const minVersion = reader.u8();
     const currentVersion = reader.u8();
     const blockType = reader.u8();
     const blockStart = reader.offset;
+    if (length > reader.bytesRemaining()) {
+      // the block overruns the file; keep what's left verbatim and stop
+      blocks.push({
+        type: "unknown",
+        blockType,
+        data: reader.bytes(reader.bytesRemaining()),
+        declaredLength: length,
+        reserved,
+        minVersion,
+        currentVersion,
+        extraData: new Uint8Array(),
+      });
+      break;
+    }
     const blockEnd = blockStart + length;
     let block: RmBlock;
     try {
       const [body, extraData] = reader.bounded(blockEnd, () =>
         readBlockBody(reader, blockType, currentVersion),
       );
-      block = { ...body, minVersion, currentVersion, extraData } as RmBlock;
+      block = {
+        ...body,
+        reserved,
+        minVersion,
+        currentVersion,
+        extraData,
+      } as RmBlock;
     } catch {
       // couldn't parse this block; keep its raw bytes so the file still
       // round-trips and later blocks still parse
@@ -847,6 +1025,7 @@ function parseV6Blocks(data: Uint8Array): RmBlock[] {
         type: "unknown",
         blockType,
         data: reader.bytes(length),
+        reserved,
         minVersion,
         currentVersion,
         extraData: new Uint8Array(),
@@ -1109,6 +1288,277 @@ export class RmScene {
   text(): RmV6Text | undefined {
     return this.#text;
   }
+}
+
+function writeItemEnvelope<V>(
+  writer: Writer,
+  parentId: CrdtId,
+  item: SceneItem<V>,
+  itemType: number,
+  writeValue: (value: V) => void,
+): void {
+  writer.writeId(1, parentId);
+  writer.writeId(2, item.itemId);
+  writer.writeId(3, item.leftId);
+  writer.writeId(4, item.rightId);
+  writer.writeInt(5, item.deletedLength);
+  const { value } = item;
+  if (value !== undefined) {
+    writer.subblock(6, () => {
+      writer.u8(itemType);
+      writeValue(value);
+    });
+  }
+}
+
+function writeLineValue(writer: Writer, line: RmV6Line, version: number): void {
+  writer.writeInt(1, line.tool);
+  writer.writeInt(2, line.color);
+  writer.writeDouble(3, line.thicknessScale);
+  writer.writeFloat(4, line.startingLength);
+  writer.subblock(5, () => {
+    for (const point of line.points) {
+      writer.f32(point.x);
+      writer.f32(point.y);
+      if (version === 1) {
+        writer.f32(point.speed / 4);
+        writer.f32((point.direction * 2 * Math.PI) / 255);
+        writer.f32(point.width / 4);
+        writer.f32(point.pressure / 255);
+      } else {
+        writer.u16(point.speed);
+        writer.u16(point.width);
+        writer.u8(point.direction);
+        writer.u8(point.pressure);
+      }
+    }
+  });
+  if (line.timestampId !== undefined) writer.writeId(6, line.timestampId);
+  if (line.moveId !== undefined) writer.writeId(7, line.moveId);
+  if (line.colorRgba !== undefined) writer.writeInt(8, line.colorRgba);
+}
+
+function writeGlyphValue(writer: Writer, glyph: GlyphRange): void {
+  if (glyph.start !== undefined) writer.writeInt(2, glyph.start);
+  writer.writeInt(3, glyph.length);
+  writer.writeInt(4, glyph.color);
+  writer.writeString(5, glyph.text);
+  writer.subblock(6, () => {
+    writer.varuint(glyph.rectangles.length);
+    for (const rect of glyph.rectangles) {
+      writer.f64(rect.x);
+      writer.f64(rect.y);
+      writer.f64(rect.w);
+      writer.f64(rect.h);
+    }
+  });
+  if (glyph.colorRgba !== undefined) writer.writeInt(10, glyph.colorRgba);
+}
+
+function writeText(writer: Writer, text: RmV6Text): void {
+  writer.subblock(2, () => {
+    writer.subblock(1, () => {
+      writer.subblock(1, () => {
+        writer.varuint(text.items.length);
+        for (const item of text.items) {
+          writer.subblock(0, () => {
+            writer.writeId(2, item.itemId);
+            writer.writeId(3, item.leftId);
+            writer.writeId(4, item.rightId);
+            writer.writeInt(5, item.deletedLength);
+            const { value } = item;
+            if (value !== "" && value !== undefined) {
+              writer.subblock(6, () => {
+                if (typeof value === "number") {
+                  writer.varuint(0);
+                  writer.u8(1);
+                  writer.writeInt(2, value);
+                } else {
+                  const encoded = new TextEncoder().encode(value);
+                  writer.varuint(encoded.length);
+                  writer.u8(1);
+                  writer.bytes(encoded);
+                }
+              });
+            }
+          });
+        }
+      });
+    });
+    writer.subblock(2, () => {
+      writer.subblock(1, () => {
+        writer.varuint(text.styles.size);
+        for (const [key, style] of text.styles) {
+          const [authorId, counter] = key.split(":");
+          writer.crdtId({
+            authorId: Number(authorId),
+            counter: Number(counter),
+          });
+          writer.writeId(1, style.timestamp);
+          writer.subblock(2, () => {
+            writer.u8(17);
+            writer.u8(style.value);
+          });
+        }
+      });
+    });
+  });
+  writer.subblock(3, () => {
+    writer.f64(text.posX);
+    writer.f64(text.posY);
+  });
+  writer.writeFloat(4, text.width);
+}
+
+function uuidToBytes(uuid: string): Uint8Array {
+  return swapUuidBytes(Uint8Array.fromHex(uuid.replaceAll("-", "")));
+}
+
+const BLOCK_TYPES: Record<Exclude<RmBlock["type"], "unknown">, number> = {
+  migrationInfo: 0x00,
+  sceneTree: 0x01,
+  treeNode: 0x02,
+  sceneGlyphItem: 0x03,
+  sceneGroupItem: 0x04,
+  sceneLineItem: 0x05,
+  sceneTextItem: 0x06,
+  rootText: 0x07,
+  sceneTombstone: 0x08,
+  authorIds: 0x09,
+  pageInfo: 0x0a,
+  sceneInfo: 0x0d,
+};
+
+function writeBlockBody(writer: Writer, block: RmBlock): void {
+  switch (block.type) {
+    case "migrationInfo":
+      writer.writeId(1, block.migrationId);
+      writer.writeBool(2, block.isDevice);
+      break;
+    case "sceneTree":
+      writer.writeId(1, block.treeId);
+      writer.writeId(2, block.nodeId);
+      writer.writeBool(3, block.isUpdate);
+      writer.subblock(4, () => writer.writeId(1, block.parentId));
+      break;
+    case "treeNode":
+      writer.writeId(1, block.nodeId);
+      writer.writeLww(2, block.label, (value) => writer.writeString(2, value));
+      writer.writeLww(3, block.visible, (value) => writer.writeBool(2, value));
+      if (block.anchorId !== undefined) {
+        writer.writeLww(7, block.anchorId, (value) => writer.writeId(2, value));
+        writer.writeLww(8, block.anchorType!, (value) =>
+          writer.writeByte(2, value),
+        );
+        writer.writeLww(9, block.anchorThreshold!, (value) =>
+          writer.writeFloat(2, value),
+        );
+        writer.writeLww(10, block.anchorOriginX!, (value) =>
+          writer.writeFloat(2, value),
+        );
+      }
+      break;
+    case "sceneGlyphItem":
+      writeItemEnvelope(writer, block.parentId, block.item, 0x01, (glyph) =>
+        writeGlyphValue(writer, glyph),
+      );
+      break;
+    case "sceneGroupItem":
+      writeItemEnvelope(writer, block.parentId, block.item, 0x02, (id) =>
+        writer.writeId(2, id),
+      );
+      break;
+    case "sceneLineItem":
+      writeItemEnvelope(writer, block.parentId, block.item, 0x03, (line) =>
+        writeLineValue(writer, line, block.currentVersion),
+      );
+      break;
+    case "sceneTextItem":
+    case "sceneTombstone":
+      writeItemEnvelope(
+        writer,
+        block.parentId,
+        block.item,
+        0x00,
+        () => undefined,
+      );
+      break;
+    case "rootText":
+      writer.writeId(1, block.blockId);
+      writeText(writer, block.text);
+      break;
+    case "authorIds":
+      writer.varuint(block.authors.size);
+      for (const [authorId, uuid] of block.authors) {
+        writer.subblock(0, () => {
+          const bytes = uuidToBytes(uuid);
+          writer.varuint(bytes.length);
+          writer.bytes(bytes);
+          writer.u16(authorId);
+        });
+      }
+      break;
+    case "pageInfo":
+      writer.writeInt(1, block.loadsCount);
+      writer.writeInt(2, block.mergesCount);
+      writer.writeInt(3, block.textCharsCount);
+      writer.writeInt(4, block.textLinesCount);
+      if (block.typeFolioUseCount !== undefined) {
+        writer.writeInt(5, block.typeFolioUseCount);
+      }
+      break;
+    case "sceneInfo":
+      writer.writeLww(1, block.currentLayer, (value) =>
+        writer.writeId(2, value),
+      );
+      if (block.backgroundVisible !== undefined) {
+        writer.writeLww(2, block.backgroundVisible, (value) =>
+          writer.writeBool(2, value),
+        );
+      }
+      if (block.rootDocumentVisible !== undefined) {
+        writer.writeLww(3, block.rootDocumentVisible, (value) =>
+          writer.writeBool(2, value),
+        );
+      }
+      if (block.paperSize !== undefined) {
+        writer.subblock(5, () => {
+          writer.u32(block.paperSize![0]);
+          writer.u32(block.paperSize![1]);
+        });
+      }
+      break;
+    case "unknown":
+      writer.bytes(block.data);
+      break;
+  }
+}
+
+/** serialize a parsed scene back to version 6 `.rm` bytes */
+export function serializeRmScene(scene: RmScene): Uint8Array {
+  const writer = new Writer();
+  const header = V6_HEADER.padEnd(HEADER_LENGTH, " ");
+  writer.bytes(new TextEncoder().encode(header));
+  for (const block of scene.blocks) {
+    const lengthAt = writer.length;
+    writer.u32(0);
+    writer.u8(block.reserved);
+    writer.u8(block.minVersion);
+    writer.u8(block.currentVersion);
+    writer.u8(
+      block.type === "unknown" ? block.blockType : BLOCK_TYPES[block.type],
+    );
+    const bodyStart = writer.length;
+    writeBlockBody(writer, block);
+    if (block.type !== "unknown") writer.bytes(block.extraData);
+    writer.patchU32(
+      lengthAt,
+      block.type === "unknown" && block.declaredLength !== undefined
+        ? block.declaredLength
+        : writer.length - bodyStart,
+    );
+  }
+  return writer.finish();
 }
 
 /** parse a version 6 `.rm` file into a resolvable scene */
