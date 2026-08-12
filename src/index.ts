@@ -135,8 +135,6 @@ export type {
 } from "./rm5.js";
 export { decodeBrush, rmColors } from "./rm5.js";
 
-import type { RmPageV5 } from "./rm5.js";
-
 export type {
   AuthorIdsBlock,
   CrdtId,
@@ -882,7 +880,7 @@ class Remarkable {
     }
   }
 
-  readonly #rmPageFile: WritablePageFile<RmPage, RmPageV5> = {
+  readonly #rmPageFile: WritablePageFile<RmPage> = {
     name: (docId, pageId) => `${docId}/${pageId}.rm`,
     read: (entry) => this.raw.getRm(entry),
     write: (fileName, page) => this.raw.putRm(fileName, page),
@@ -1008,9 +1006,7 @@ class Remarkable {
    * @param pageId - the id of the page, from the document's `.content` page
    *     list (see {@link getRmPages | `getRmPages`} for every page)
    * @returns the parsed page, or `undefined` if the page exists but has no
-   *     `.rm` drawing (a page you haven't drawn on has no `.rm` file). A page
-   *     that parses as an {@link RmScene | `RmScene`} (version 6) cannot be
-   *     written back, since only versions 3 and 5 serialize.
+   *     `.rm` drawing (a page you haven't drawn on has no `.rm` file)
    * @throws if `pageId` is not a page of the document
    */
   async getRmPage(ref: ItemRef, pageId: string): Promise<RmPage | undefined> {
@@ -1023,7 +1019,7 @@ class Remarkable {
    * Returns a map from page id to its parsed {@link RmPage | `RmPage`},
    * iterating in the page order given by the document's `.content`. Pages with
    * no drawing (and soft-deleted pages) are omitted. Version 3, 5, and 6 pages
-   * are all read, but only 3 and 5 can be written back.
+   * are all supported.
    *
    * @param ref - a reference to the document (e.g. from `listItems`)
    * @returns the drawn pages, keyed by page id, in document order
@@ -1035,10 +1031,6 @@ class Remarkable {
   /**
    * write a single page's reMarkable lines (`.rm`) drawing
    *
-   * Only version 3 and 5 pages can be written; version 6 pages parse but do
-   * not serialize, so a page read back as an {@link RmScene | `RmScene`} cannot
-   * be written through this.
-   *
    * @param ref - a reference to the document
    * @param pageId - the id of the page, from the document's `.content` page list
    * @param page - the drawing to write, replacing any already there
@@ -1049,7 +1041,7 @@ class Remarkable {
   async putRmPage(
     ref: ItemRef,
     pageId: string,
-    page: RmPageV5,
+    page: RmPage,
     refresh: boolean = false,
   ): Promise<ItemRef> {
     return await this.putRmPages(ref, new Map([[pageId, page]]), refresh);
@@ -1057,9 +1049,6 @@ class Remarkable {
 
   /**
    * write several pages' reMarkable lines (`.rm`) drawings in one commit
-   *
-   * Only version 3 and 5 pages can be written; see
-   * {@link putRmPage | `putRmPage`}.
    *
    * @param ref - a reference to the document
    * @param pages - the drawings to write, keyed by page id, replacing any
@@ -1070,7 +1059,7 @@ class Remarkable {
    */
   async putRmPages(
     ref: ItemRef,
-    pages: ReadonlyMap<string, RmPageV5>,
+    pages: ReadonlyMap<string, RmPage>,
     refresh: boolean = false,
   ): Promise<ItemRef> {
     return await this.#putPageFiles(ref, pages, this.#rmPageFile, refresh);
