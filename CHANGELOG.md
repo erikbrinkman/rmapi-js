@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ItemType` is now `EntryType`, and `DocumentType` and `TemplateType` are now `DocumentEntry` and `TemplateEntry` to be more consistent
 - raw `put` methods now return a `PendingEntry` instead of a tuple, scope it with `await using` rather than awaiting the second element
 - `listIds` is now `listRefs`
+- `getEntries` takes the bare id, like `putEntries`
 - `putDocumentArchive` always mints a fresh id
 - the cache now holds bytes instead of text
 - `getPagedata` returns `undefined` when a document has no `.pagedata`
