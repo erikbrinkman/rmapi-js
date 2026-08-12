@@ -1078,6 +1078,71 @@ class Remarkable {
   }
 
   /**
+   * get a template attached to an item as a `.template` sidecar
+   *
+   * This is distinct from a {@link TemplateEntry | `TemplateEntry`} (whose
+   * template is its `.content`); collections and documents can carry a template
+   * this way.
+   *
+   * @param ref - a reference to the item
+   * @returns the template content, or `undefined` if the item has no `.template`
+   */
+  async getTemplate(ref: ItemRef): Promise<TemplateContent | undefined> {
+    const { id, hash } = ref;
+    const { entries } = await this.raw.getEntries({
+      id: `${id}.docSchema`,
+      hash,
+    });
+    const entry = entries.find((e) => e.id === `${id}.template`);
+    if (entry === undefined) {
+      return undefined;
+    } else {
+      return await this.raw.getTemplate(entry);
+    }
+  }
+
+  /**
+   * attach a template to an item as a `.template` sidecar
+   *
+   * @param ref - a reference to the item
+   * @param template - the template to attach, replacing any already there
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @returns a reference to the updated item, with its new hash
+   */
+  async putTemplate(
+    ref: ItemRef,
+    template: TemplateContent,
+    refresh: boolean = false,
+  ): Promise<ItemRef> {
+    return await this.#editEntry(
+      ref,
+      refresh,
+      async ({ id, hash }, schemaVersion) => {
+        const { entries } = await this.raw.getEntries({
+          id: `${id}.docSchema`,
+          hash,
+        });
+        const [templateEntry, uploadTemplate] = await this.raw.putTemplate(
+          `${id}.template`,
+          template,
+        );
+        const ind = entries.findIndex((ent) => ent.id === templateEntry.id);
+        if (ind === -1) {
+          entries.push(templateEntry);
+        } else {
+          entries[ind] = templateEntry;
+        }
+        const [result, uploadEntries] = await this.raw.putEntries(
+          id,
+          entries,
+          schemaVersion,
+        );
+        return [result, Promise.all([uploadTemplate, uploadEntries])];
+      },
+    );
+  }
+
+  /**
    * get a document's entire contents as a zip archive
    *
    * This gets every file associated with a document and puts them into a zip

@@ -823,6 +823,80 @@ ${contentHash}:0:test-id.content:0:1
     expect(fetch.mock.calls).toHaveLength(1);
   });
 
+  test("#getTemplate() parses a sidecar with mixed constants", async () => {
+    const realHash = repHash("1");
+    const file = `3
+hash:0:test-id.content:0:1
+${realHash}:0:test-id.template:0:1
+`;
+    const template = {
+      name: "Grid",
+      author: "reMarkable",
+      iconData: "",
+      categories: ["Life/organize"],
+      orientation: "portrait",
+      templateVersion: "1.0",
+      items: [],
+      constants: [{ marginSmall: 14, label: "top" }],
+    };
+    mockFetch(emptyResponse(), textResponse(file), jsonResponse(template));
+
+    const api = await remarkable("");
+    const templ = await api.getTemplate({ id: "test-id", hash: repHash("0") });
+    expect(templ?.name).toBe("Grid");
+    expect(templ?.constants).toEqual([{ marginSmall: 14, label: "top" }]);
+  });
+
+  test("#putTemplate()", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    const template: TemplateContent = {
+      author: "",
+      categories: ["a"],
+      iconData: "",
+      items: [],
+      labels: [],
+      name: "Grid",
+      orientation: "portrait",
+      supportedScreens: ["rm2"],
+      templateVersion: "1.0",
+    };
+    const fetch = mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
+      textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
+      emptyResponse(), // the template file
+      emptyResponse(), // the document index
+      emptyResponse(), // the root index
+      jsonResponse({ hash: repHash("3"), generation: 1 }),
+    );
+
+    const api = await remarkable("");
+    const next = await api.putTemplate({ id: docId, hash: docHash }, template);
+    expect(next.id).toBe(docId);
+
+    const dec = new TextDecoder();
+    const written = fetch.mock.calls
+      .map(([, init]) => init?.body)
+      .map((body) =>
+        body instanceof Uint8Array ? dec.decode(body) : String(body ?? ""),
+      );
+    const file = written.find((body) => body.startsWith("{"));
+    expect(JSON.parse(file!)).toEqual(template);
+    expect(written.some((body) => body.includes(`${docId}.template`))).toBe(
+      true,
+    );
+  });
+
+  test("#putTemplate() rejects a bad file name", async () => {
+    mockFetch(emptyResponse());
+    const api = await remarkable("");
+    await expect(
+      api.raw.putTemplate("doc.content", {} as TemplateContent),
+    ).rejects.toThrow("did not end with '.template'");
+  });
+
   test("#getDocumentArchive()", async () => {
     const contentHash = repHash("1");
     const metadataHash = repHash("2");
