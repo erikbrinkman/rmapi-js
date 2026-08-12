@@ -897,6 +897,74 @@ ${realHash}:0:test-id.template:0:1
     ).rejects.toThrow("did not end with '.template'");
   });
 
+  test("#getPagedata() splits lines and drops the trailing newline", async () => {
+    const realHash = repHash("1");
+    const file = `3
+hash:0:test-id.content:0:1
+${realHash}:0:test-id.pagedata:0:1
+`;
+    mockFetch(
+      emptyResponse(),
+      textResponse(file),
+      textResponse("Blank\nGrid\n\n"),
+    );
+
+    const api = await remarkable("");
+    const pagedata = await api.getPagedata({
+      id: "test-id",
+      hash: repHash("0"),
+    });
+    expect(pagedata).toEqual(["Blank", "Grid", ""]);
+  });
+
+  test("#putPagedata()", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    const fetch = mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
+      textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
+      emptyResponse(), // the pagedata file
+      emptyResponse(), // the document index
+      emptyResponse(), // the root index
+      jsonResponse({ hash: repHash("3"), generation: 1 }),
+    );
+
+    const api = await remarkable("");
+    const next = await api.putPagedata({ id: docId, hash: docHash }, [
+      "Blank",
+      "",
+      "Grid",
+    ]);
+    expect(next.id).toBe(docId);
+
+    const dec = new TextDecoder();
+    const written = fetch.mock.calls
+      .map(([, init]) => init?.body)
+      .map((body) =>
+        body instanceof Uint8Array ? dec.decode(body) : String(body ?? ""),
+      );
+    expect(written).toContain("Blank\n\nGrid\n");
+    expect(written.some((body) => body.includes(`${docId}.pagedata`))).toBe(
+      true,
+    );
+  });
+
+  test("#putPagedata() round-trips through #getPagedata()", async () => {
+    const templates = ["Blank", "", "Grid"];
+    mockFetch(
+      emptyResponse(),
+      textResponse(`3\n${repHash("1")}:0:test-id.pagedata:0:1\n`),
+      textResponse(`${templates.join("\n")}\n`),
+    );
+
+    const api = await remarkable("");
+    expect(
+      await api.getPagedata({ id: "test-id", hash: repHash("0") }),
+    ).toEqual(templates);
+  });
+
   test("#getDocumentArchive()", async () => {
     const contentHash = repHash("1");
     const metadataHash = repHash("2");

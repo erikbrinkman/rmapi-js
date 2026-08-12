@@ -1277,6 +1277,23 @@ export class RawRemarkable {
     }
   }
 
+  /**
+   * the same as {@link putText | `putText`} but for a `.pagedata` file
+   *
+   * @param fileName - the file to write, of the form `<docid>.pagedata`
+   * @param templates - one template name per page, in page order
+   */
+  async putPagedata(
+    fileName: string,
+    templates: readonly string[],
+  ): Promise<[RawEntry, Promise<void>]> {
+    if (!fileName.endsWith(".pagedata")) {
+      throw new Error(`fileName ${fileName} did not end with '.pagedata'`);
+    } else {
+      return await this.putText(fileName, `${templates.join("\n")}\n`);
+    }
+  }
+
   /** the same as {@link putText | `putText`} but with extra validation for a template sidecar */
   async putTemplate(
     fileName: string,
