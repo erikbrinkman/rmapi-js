@@ -122,7 +122,7 @@ describe("remarkable", () => {
       mockFetch();
 
       expect(() => session("token", { cache: "42" })).toThrow(
-        "cache was not a valid cache (json string mapping)",
+        "cache was neither a version 2 dump nor the original mapping",
       );
     });
   });
@@ -1891,6 +1891,12 @@ hash2:80000000:other:0:2
       entries: Record<string, string | null>;
     };
     expect(entries[entry.hash]).toBeNull();
+  });
+
+  test("a cache with an unrecognized tag is rejected", async () => {
+    const hash = repHash("4");
+    const dump = JSON.stringify({ version: 2, entries: { [hash]: "zhello" } });
+    expect(() => session("tok", { cache: dump })).toThrow();
   });
 
   test("a cache dumped in the old text-only format still loads", async () => {
