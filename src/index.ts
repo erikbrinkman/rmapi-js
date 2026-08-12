@@ -36,11 +36,12 @@
  * The cloud api is essentially a collection of entries. Each entry has an id,
  * which is a uuid4 and a hash, which indicates it's current state, and changes
  * as the item mutates, where the id is constant. Most mutable operations take
- * the initial hash so that merge conflicts can be resolved. Each entry has a
- * number of properties, but a key property is the `parent`, which represents
- * its parent in the file structure. This will be another document id, or one of
- * two special ids, "" (the empty string) for the root directory, or "trash" for
- * the trash.
+ * both, as an {@link ItemRef | `ItemRef`}: the id says which item, and the hash
+ * says which state you meant to change, so a conflicting update fails rather
+ * than overwriting. Each entry has a number of properties, but a key property
+ * is the `parent`, which represents its parent in the file structure. This will
+ * be another document id, or one of two special ids, "" (the empty string) for
+ * the root directory, or "trash" for the trash.
  *
  * Detailed information about the low-level storage an apis can be found in
  * {@link RawRemarkableApi | `RawRemarkableApi`}.
@@ -1315,8 +1316,7 @@ class Remarkable {
 
   /** edit just a content entry */
   async #editContentRaw(
-    id: string,
-    hash: string,
+    { id, hash }: ItemRef,
     update: Partial<Content>,
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<[void, void]>]> {
@@ -1345,12 +1345,20 @@ class Remarkable {
     return [result, upload];
   }
 
-  /** fully sync a content edit */
-  async #editContent(
-    hash: string,
-    update: Partial<Content>,
-    expectedType: EntryType,
+  /**
+   * rewrite one item's files and splice the result into the root
+   *
+   * `edit` receives a ref to the item and the schema version, and returns its
+   * new entry plus a promise for the uploads. Everything generation-dependent
+   * lives here, so writers only describe the file change.
+   */
+  async #editEntry(
+    ref: ItemRef,
     refresh: boolean,
+    edit: (
+      item: ItemRef,
+      schemaVersion: SchemaVersion,
+    ) => Promise<[RawEntry, Promise<unknown>]>,
   ): Promise<ItemRef> {
     return await this.#withRetry(async () => {
       const [rootHash, generation, schemaVersion] =
@@ -1359,22 +1367,18 @@ class Remarkable {
         id: ROOT_SCHEMA,
         hash: rootHash,
       });
-      const hashInd = entries.findIndex((ent) => ent.hash === hash);
+      const hashInd = entries.findIndex(
+        (ent) => ent.id === ref.id && ent.hash === ref.hash,
+      );
       const hashEnt = entries[hashInd];
       if (hashEnt === undefined) {
-        throw new HashNotFoundError(hash);
+        throw new HashNotFoundError(ref.hash);
       }
 
-      const [[newEnt, uploadEnt], meta] = await Promise.all([
-        this.#editContentRaw(hashEnt.id, hash, update, schemaVersion),
-        this.getMetadata(hashEnt),
-      ]);
-      if (meta.type !== expectedType) {
-        throw new Error(
-          `expected type ${expectedType} but got ${meta.type} for hash ${hash}`,
-        );
-      }
-
+      const [newEnt, upload] = await edit(
+        { id: hashEnt.id, hash: ref.hash },
+        schemaVersion,
+      );
       entries[hashInd] = newEnt;
       const [rootEntry, uploadRoot] = await this.raw.putEntries(
         ROOT_LIST,
@@ -1382,9 +1386,30 @@ class Remarkable {
         4,
       );
 
-      await Promise.all([uploadEnt, uploadRoot]);
+      await Promise.all([upload, uploadRoot]);
       await this.#putRootHash(rootEntry.hash, generation);
       return { id: hashEnt.id, hash: newEnt.hash };
+    });
+  }
+
+  /** fully sync a content edit */
+  async #editContent(
+    ref: ItemRef,
+    update: Partial<Content>,
+    expectedType: EntryType,
+    refresh: boolean,
+  ): Promise<ItemRef> {
+    return await this.#editEntry(ref, refresh, async (item, schemaVersion) => {
+      const [[newEnt, uploadEnt], meta] = await Promise.all([
+        this.#editContentRaw(item, update, schemaVersion),
+        this.getMetadata(item),
+      ]);
+      if (meta.type !== expectedType) {
+        throw new Error(
+          `expected type ${expectedType} but got ${meta.type} for hash ${item.hash}`,
+        );
+      }
+      return [newEnt, uploadEnt];
     });
   }
 
@@ -1405,7 +1430,7 @@ class Remarkable {
     content: Partial<DocumentContent>,
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    return await this.#editContent(ref.hash, content, "DocumentType", refresh);
+    return await this.#editContent(ref, content, "DocumentType", refresh);
   }
 
   /**
@@ -1425,12 +1450,7 @@ class Remarkable {
     content: Partial<CollectionContent>,
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    return await this.#editContent(
-      ref.hash,
-      content,
-      "CollectionType",
-      refresh,
-    );
+    return await this.#editContent(ref, content, "CollectionType", refresh);
   }
 
   /**
@@ -1450,12 +1470,11 @@ class Remarkable {
     content: Partial<TemplateContent>,
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    return await this.#editContent(ref.hash, content, "TemplateType", refresh);
+    return await this.#editContent(ref, content, "TemplateType", refresh);
   }
 
   async #editMetaRaw(
-    id: string,
-    hash: string,
+    { id, hash }: ItemRef,
     update: Partial<Metadata>,
     schemaVersion: SchemaVersion,
   ): Promise<[RawEntry, Promise<[void, void]>]> {
@@ -1487,40 +1506,13 @@ class Remarkable {
   }
 
   async #editMeta(
-    hash: string,
+    ref: ItemRef,
     update: Partial<Metadata>,
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    return await this.#withRetry(async () => {
-      const [rootHash, generation, schemaVersion] =
-        await this.#getRootHash(refresh);
-      const { entries } = await this.raw.getEntries({
-        id: ROOT_SCHEMA,
-        hash: rootHash,
-      });
-      const hashInd = entries.findIndex((ent) => ent.hash === hash);
-      const hashEnt = entries[hashInd];
-      if (hashEnt === undefined) {
-        throw new HashNotFoundError(hash);
-      }
-      const [newEnt, uploadEnt] = await this.#editMetaRaw(
-        hashEnt.id,
-        hash,
-        update,
-        schemaVersion,
-      );
-      entries[hashInd] = newEnt;
-      const [rootEntry, uploadRoot] = await this.raw.putEntries(
-        ROOT_LIST,
-        entries,
-        4,
-      );
-
-      await Promise.all([uploadEnt, uploadRoot]);
-
-      await this.#putRootHash(rootEntry.hash, generation);
-      return { id: hashEnt.id, hash: newEnt.hash };
-    });
+    return await this.#editEntry(ref, refresh, (item, schemaVersion) =>
+      this.#editMetaRaw(item, update, schemaVersion),
+    );
   }
 
   /**
@@ -1547,7 +1539,7 @@ class Remarkable {
         "parent must be a valid document id",
       );
     }
-    return await this.#editMeta(ref.hash, { parent }, refresh);
+    return await this.#editMeta(ref, { parent }, refresh);
   }
 
   /**
@@ -1580,7 +1572,7 @@ class Remarkable {
     visibleName: string,
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    return await this.#editMeta(ref.hash, { visibleName }, refresh);
+    return await this.#editMeta(ref, { visibleName }, refresh);
   }
 
   /**
@@ -1599,7 +1591,7 @@ class Remarkable {
     starred: boolean,
     refresh: boolean = false,
   ): Promise<ItemRef> {
-    return await this.#editMeta(ref.hash, { pinned: starred }, refresh);
+    return await this.#editMeta(ref, { pinned: starred }, refresh);
   }
 
   /**
@@ -1635,17 +1627,28 @@ class Remarkable {
         hash: rootHash,
       });
 
-      const hashSet = new Set(refs.map((ref) => ref.hash));
+      const wanted = new Set(refs.map((ref) => `${ref.id}\0${ref.hash}`));
+      const found = new Set<string>();
       const toUpdate: RawEntry[] = [];
       const newEntries: RawEntry[] = [];
       for (const entry of entries) {
-        const part = hashSet.has(entry.hash) ? toUpdate : newEntries;
-        part.push(entry);
+        const key = `${entry.id}\0${entry.hash}`;
+        if (wanted.has(key)) {
+          toUpdate.push(entry);
+          found.add(key);
+        } else {
+          newEntries.push(entry);
+        }
+      }
+      for (const ref of refs) {
+        if (!found.has(`${ref.id}\0${ref.hash}`)) {
+          throw new HashNotFoundError(ref.hash);
+        }
       }
 
       const resolved = await Promise.all(
-        toUpdate.map(({ id, hash }) =>
-          this.#editMetaRaw(id, hash, { parent }, schemaVersion),
+        toUpdate.map((entry) =>
+          this.#editMetaRaw(entry, { parent }, schemaVersion),
         ),
       );
       const uploads: Promise<[void, void]>[] = [];
