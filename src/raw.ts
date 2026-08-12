@@ -1,5 +1,6 @@
 // core-js installs these only when the runtime lacks them, so node 26+ keeps
 // its native implementations untouched
+import "core-js/modules/es.symbol.async-dispose.js";
 import "core-js/modules/es.uint8-array.from-hex.js";
 import "core-js/modules/es.uint8-array.to-base64.js";
 import "core-js/modules/es.uint8-array.to-hex.js";
