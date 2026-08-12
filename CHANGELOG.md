@@ -7,11 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- page text highlights
+- document template sidecar
+- page data templates
+- page metadata
+- rm pages for v3/5/6
+- binary cache support
+
+### Changed
+
+- `ItemType` is now `EntryType`, and `DocumentType` and `TemplateType` are now `DocumentEntry` and `TemplateEntry` to be more consistent
+- raw `put` methods now return a `PendingEntry` instead of a tuple, scope it with `await using` rather than awaiting the second element
+- `putDocumentArchive` always mints a fresh id
+- the cache now holds bytes instead of text
+- edits now match an entry on both id and hash, and throw when the hash is stale.
+- version 6 pages now round-trip byte for byte
+- an `.rm` block whose length runs past the end of the file no longer throws
+
+### Removed
+
+- `raw.putText`, encode the text and call `putFile`
+
 ## [12.0.3] - 2026-08-12
+
+### Changed
+
+- `crc-32` is now imported with a file extension
+- the `Uint8Array` base64 and hex methods are now polyfilled
 
 ## [12.0.2] - 2026-08-10
 
+### Changed
+
+- legacy boolean metadata fields now accept `null`, which previously made `getMetadata` throw.
+
 ## [12.0.1] - 2026-08-09
+
+### Changed
+
+- `lastModified` is now optional in metadata
+- `labels` and `supportedScreens` are now optional in template content
 
 ## [12.0.0] - 2026-08-02
 

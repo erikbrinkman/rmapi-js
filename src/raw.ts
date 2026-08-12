@@ -957,9 +957,12 @@ function parseRawEntryLine(line: string): RawEntry {
  * ## Caching
  *
  * Since everything is tied to the hash of it's contents, we can agressively
- * cache results. We assume that text contents are "small" and so fully cache
- * them, where as binary files we treat as large and only store that we know
- * they exist to prevent future writes.
+ * cache results. Anything up to `maxCachedBytes` is kept as the bytes that were
+ * transferred; anything larger records only that the hash exists, which is
+ * enough to skip writing it again.
+ *
+ * A dump is tied to the account it came from, since a known hash is taken as
+ * proof the server already holds that file. Don't share one between accounts.
  *
  * By default, this only persists as long as the api instance is alive. However,
  * for performance reasons, you should call {@link dumpCache | `dumpCache`} to
@@ -998,7 +1001,6 @@ export class RawRemarkable {
     this.#uploadHost = uploadHost;
     this.#maxCachedBytes = maxCachedBytes;
   }
-  /** make an authorized request to remarkable */
 
   /**
    * gets the root hash and the current generation
@@ -1200,7 +1202,6 @@ export class RawRemarkable {
    * the same as {@link putFile | `putFile`} but rendering an `RmPage` to `.rm`
    * bytes
    *
-   * Only version 3 and 5 pages can be rendered; version 6 pages are read-only.
    */
   async putRm(fileName: string, page: RmPage): Promise<PendingEntry> {
     if (!fileName.endsWith(".rm")) {
@@ -1318,7 +1319,6 @@ export class RawRemarkable {
     };
   }
 
-  /** write text as utf-8 bytes */
   async #putEncoded(fileName: string, text: string): Promise<PendingEntry> {
     return await this.putFile(fileName, new TextEncoder().encode(text));
   }
@@ -1443,7 +1443,7 @@ export class RawRemarkable {
    *   and appends `.docSchema` (and special-cases `"root"`) itself.
    * @param entries - the entries to upload
    *
-   * @returns the new list entry and a promise to finish the upload
+   * @returns the new list entry, pending its upload
    */
   async putEntries(
     id: string,
