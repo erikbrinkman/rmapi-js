@@ -10,6 +10,7 @@ import {
   type LegacyDocumentContent,
   type Metadata,
   type PageMetadata,
+  type RmPageV5,
   register,
   remarkable,
   session,
@@ -1079,6 +1080,58 @@ ${contentHash}:0:test-id.content:0:1
     });
     expect([...pages.keys()]).toEqual(["p2"]);
     expect(pages.get("p2")).toEqual(meta);
+  });
+
+  test("#putRmPage()", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    const page: RmPageV5 = { version: 5, layers: [{ lines: [] }] };
+    const fetch = mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
+      textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
+      jsonResponse(pdfContent(["p1"])),
+      emptyResponse(), // the .rm file
+      emptyResponse(), // the document index
+      emptyResponse(), // the root index
+      jsonResponse({ hash: repHash("3"), generation: 1 }),
+    );
+
+    const api = await remarkable("");
+    const next = await api.putRmPage({ id: docId, hash: docHash }, "p1", page);
+    expect(next.id).toBe(docId);
+
+    const dec = new TextDecoder();
+    const written = fetch.mock.calls
+      .map(([, init]) => init?.body)
+      .map((body) =>
+        body instanceof Uint8Array ? dec.decode(body) : String(body ?? ""),
+      );
+    expect(
+      written.some((body) => body.startsWith("reMarkable .lines file")),
+    ).toBe(true);
+    expect(written.some((body) => body.includes(`${docId}/p1.rm`))).toBe(true);
+  });
+
+  test("#putRmPage() throws for a page not in the document", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
+      textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
+      jsonResponse(pdfContent(["p1"])),
+    );
+
+    const api = await remarkable("");
+    await expect(
+      api.putRmPage({ id: docId, hash: docHash }, "p2", {
+        version: 5,
+        layers: [],
+      }),
+    ).rejects.toThrow("document test-id has no page p2");
   });
 
   test("#getDocumentArchive()", async () => {
