@@ -1052,6 +1052,70 @@ ${epubHash}:0:doc.epub:0:1
     expect(res[0]!.hash).toHaveLength(64);
   });
 
+  test("#bulkMove() errors when a hash is gone", async () => {
+    const staleHash = repHash("9");
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${repHash("1")}:80000000:fake_id:2:123\n`),
+    );
+
+    const api = await remarkable("");
+    await expect(
+      api.bulkMove([{ id: "fake_id", hash: staleHash }], ""),
+    ).rejects.toThrow(staleHash);
+  });
+
+  test("#rename() picks the entry matching both id and hash", async () => {
+    // two empty collections have identical content, so identical hashes
+    const sharedHash = repHash("1");
+    const oldMeta: Metadata = {
+      lastModified: "",
+      visibleName: "test",
+      parent: "",
+      pinned: false,
+      type: "CollectionType",
+    };
+
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(
+        `3\n${sharedHash}:80000000:first_id:2:123\n${sharedHash}:80000000:second_id:2:123\n`,
+      ),
+      textResponse(
+        `3\n${repHash("2")}:0:second_id.metadata:0:1\n${repHash("3")}:0:second_id.content:0:122\n`,
+      ),
+      jsonResponse(oldMeta),
+      emptyResponse(),
+      emptyResponse(),
+      emptyResponse(),
+      jsonResponse({ hash: repHash("4"), generation: 1 }),
+    );
+
+    const api = await remarkable("");
+    const res = await api.rename(
+      { id: "second_id", hash: sharedHash },
+      "renamed",
+    );
+
+    expect(res.id).toBe("second_id");
+  });
+
+  test("#updateDocument() errors when the hash is gone", async () => {
+    const staleHash = repHash("9");
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${repHash("1")}:80000000:fake_id:2:123\n`),
+    );
+
+    const api = await remarkable("");
+    await expect(
+      api.updateDocument({ id: "fake_id", hash: staleHash }, { textScale: 1 }),
+    ).rejects.toThrow(staleHash);
+  });
+
   test("#bulkDelete()", async () => {
     const moveHash = repHash("1");
     const oldMeta: Metadata = {
