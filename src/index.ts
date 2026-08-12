@@ -1211,9 +1211,10 @@ class Remarkable {
    * empty string for a page with no template).
    *
    * @param ref - a reference to the document
-   * @returns the per-page template names, or `[]` if there is no `.pagedata`
+   * @returns the per-page template names, or `undefined` if the document has
+   *     no `.pagedata`
    */
-  async getPagedata(ref: ItemRef): Promise<string[]> {
+  async getPagedata(ref: ItemRef): Promise<string[] | undefined> {
     const { id, hash } = ref;
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
@@ -1221,7 +1222,7 @@ class Remarkable {
     });
     const entry = entries.find((e) => e.id === `${id}.pagedata`);
     if (entry === undefined) {
-      return [];
+      return undefined;
     } else {
       const lines = (await this.raw.getText(entry)).split("\n");
       if (lines.at(-1) === "") lines.pop();
