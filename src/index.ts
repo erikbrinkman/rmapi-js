@@ -166,7 +166,12 @@ export type {
   TreeNodeBlock,
   UnknownBlock,
 } from "./rm6.js";
-export { crdtKey, END_MARKER, parseRmScene, ROOT_ID } from "./rm6.js";
+export {
+  crdtKey,
+  END_MARKER,
+  parseRmScene,
+  ROOT_ID,
+} from "./rm6.js";
 
 const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 const RAW_HOST = "https://eu.tectonic.remarkable.com";
@@ -2197,11 +2202,10 @@ export interface RemarkableSessionOptions {
   cache?: string;
 
   /**
-   * the maximum size of the cache in terms of total string length
+   * the maximum size of the cache, in bytes of cached content plus key length
    *
-   * By the JavaScript specification there are two bytes per character, but the
-   * total memory usage of the cache will also be larger than just the size of
-   * the data stored.
+   * The total memory usage of the cache will be somewhat larger than this,
+   * since it counts only the stored data.
    *
    * @defaultValue Infinity
    */

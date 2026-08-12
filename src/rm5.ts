@@ -67,7 +67,7 @@ export interface RmLayer {
  * a parsed version 3 or 5 page
  *
  * Coordinates use a top-left origin: `x` in `[0, width]`, `y` in `[0, height]`,
- * in device pixels. Only these pages can be re-rendered (via `raw.putRm`).
+ * in device pixels.
  */
 export interface RmPageV5 {
   /** the file format version */
