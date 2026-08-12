@@ -163,6 +163,7 @@ export type {
   SceneTextItemBlock,
   SceneTombstoneItemBlock,
   SceneTreeBlock,
+  TreeNodeAnchor,
   TreeNodeBlock,
   UnknownBlock,
 } from "./rm6.js";
