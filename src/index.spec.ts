@@ -746,6 +746,27 @@ ${contentHash}:0:test-id.content:0:1
     expect(written.some((body) => body.includes(`:${docId}:`))).toBe(true);
   });
 
+  test("#putHighlights() doesn't write a root hash when an upload fails", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    const mocks = putHighlightsMocks(docId, docHash);
+    const fetch = mockFetch(
+      ...mocks.slice(0, 5),
+      emptyResponse({ status: 400, statusText: "Bad Request" }), // the highlights file
+      ...mocks.slice(6),
+    );
+
+    const api = await remarkable("");
+    await expect(
+      api.putHighlights({ id: docId, hash: docHash }, "p1", []),
+    ).rejects.toThrow("failed reMarkable request");
+
+    const roots = fetch.mock.calls.filter(
+      ([url, init]) => init?.method === "PUT" && String(url).endsWith("/root"),
+    );
+    expect(roots).toHaveLength(0);
+  });
+
   test("#putHighlights() throws for a page not in the document", async () => {
     const docId = "test-id";
     const docHash = repHash("1");
@@ -1208,7 +1229,7 @@ ${epubHash}:0:doc.epub:0:1
       emptyResponse(), // put entry
     );
     const api = await remarkable("");
-    const [entry, prom] = await api.raw.putEntries(
+    const entry = await api.raw.putEntries(
       "043eccc1-35a8-467b-a5f3-7196cb1f57d2",
       [
         {
@@ -1224,7 +1245,7 @@ ${epubHash}:0:doc.epub:0:1
     expect(entry.hash).toBe(
       "3c89dd3036f0b335188659d4f7139fcfd906167d99729d638af956906b647646",
     );
-    await prom;
+    await entry[Symbol.asyncDispose]();
   });
 
   /**
@@ -1239,7 +1260,7 @@ ${epubHash}:0:doc.epub:0:1
     const api = await remarkable("");
     const docId = "043eccc1-35a8-467b-a5f3-7196cb1f57d2";
     const docHash = repHash("1");
-    const [entry, prom] = await api.raw.putEntries(
+    const entry = await api.raw.putEntries(
       "root",
       [
         {
@@ -1252,7 +1273,7 @@ ${epubHash}:0:doc.epub:0:1
       ],
       4,
     );
-    await prom;
+    await entry[Symbol.asyncDispose]();
 
     const expectedBody = `4\n0:.:1:219\n${docHash}:0:${docId}:2:219\n`;
     const enc = new TextEncoder();
@@ -1286,11 +1307,11 @@ ${epubHash}:0:doc.epub:0:1
         },
       ],
     ];
-    const [entry, prom] = await api.raw.putHighlights(
+    const entry = await api.raw.putHighlights(
       "test-id.highlights/p1.json",
       highlights,
     );
-    await prom;
+    await entry[Symbol.asyncDispose]();
 
     const [, putCall] = fetch.mock.calls;
     expect(putCall).toBeDefined();
@@ -1321,7 +1342,7 @@ ${epubHash}:0:doc.epub:0:1
       `${docId}.highlights/${pageId}.json`,
       `${docId}.content`,
     ];
-    const [, prom] = await api.raw.putEntries(
+    const entry = await api.raw.putEntries(
       docId,
       names.map((name, index) => ({
         type: 0 as const,
@@ -1332,7 +1353,7 @@ ${epubHash}:0:doc.epub:0:1
       })),
       4,
     );
-    await prom;
+    await entry[Symbol.asyncDispose]();
 
     const [, putCall] = fetch.mock.calls;
     expect(putCall).toBeDefined();

@@ -69,6 +69,7 @@ import {
   type Metadata,
   type Orientation,
   type PageMetadata,
+  type PendingEntry,
   parseMetadata,
   type RawEntry,
   RawRemarkable,
@@ -113,6 +114,7 @@ export type {
   PageLayer,
   PageMetadata,
   PageTag,
+  PendingEntry,
   RawEntry,
   RawRemarkableApi,
   RmPage,
@@ -242,7 +244,7 @@ interface PageFile<T> {
 }
 
 interface WritablePageFile<Read, Write = Read> extends PageFile<Read> {
-  write(fileName: string, value: Write): Promise<[RawEntry, Promise<unknown>]>;
+  write(fileName: string, value: Write): Promise<PendingEntry>;
 }
 
 // The section has all the types that are stored in the remarkable cloud.
@@ -617,13 +619,16 @@ class Remarkable {
         hash: rootHash,
       });
       entries.push(entry);
-      const [rootEntry, uploadRoot] = await this.raw.putEntries(
-        ROOT_LIST,
-        entries,
-        4,
-      );
-      await uploadRoot;
-      await this.#putRootHash(rootEntry.hash, generation);
+      let newRoot: string;
+      {
+        await using rootEntry = await this.raw.putEntries(
+          ROOT_LIST,
+          entries,
+          4,
+        );
+        newRoot = rootEntry.hash;
+      }
+      await this.#putRootHash(newRoot, generation);
     });
   }
 
@@ -953,7 +958,7 @@ class Remarkable {
     pages: ReadonlyMap<string, Write>,
     file: WritablePageFile<Read, Write>,
     schemaVersion: SchemaVersion,
-  ): Promise<[RawEntry, Promise<unknown>]> {
+  ): Promise<PendingEntry> {
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
       hash,
@@ -970,12 +975,14 @@ class Remarkable {
       }
     }
 
+    await using uploads = new AsyncDisposableStack();
     const written = await Promise.all(
       [...pages].map(([pageId, value]) =>
         file.write(file.name(id, pageId), value),
       ),
     );
-    for (const [pageEntry] of written) {
+    for (const pageEntry of written) {
+      uploads.use(pageEntry);
       const pageInd = entries.findIndex((ent) => ent.id === pageEntry.id);
       if (pageInd === -1) {
         entries.push(pageEntry);
@@ -983,13 +990,7 @@ class Remarkable {
         entries[pageInd] = pageEntry;
       }
     }
-    const [result, uploadEntries] = await this.raw.putEntries(
-      id,
-      entries,
-      schemaVersion,
-    );
-    const uploads = written.map(([, upload]) => upload);
-    return [result, Promise.all([...uploads, uploadEntries])];
+    return await this.raw.putEntries(id, entries, schemaVersion);
   }
 
   async #putPageFiles<Read, Write>(
@@ -1200,7 +1201,7 @@ class Remarkable {
           id: `${id}.docSchema`,
           hash,
         });
-        const [templateEntry, uploadTemplate] = await this.raw.putTemplate(
+        await using templateEntry = await this.raw.putTemplate(
           `${id}.template`,
           template,
         );
@@ -1210,12 +1211,7 @@ class Remarkable {
         } else {
           entries[ind] = templateEntry;
         }
-        const [result, uploadEntries] = await this.raw.putEntries(
-          id,
-          entries,
-          schemaVersion,
-        );
-        return [result, Promise.all([uploadTemplate, uploadEntries])];
+        return await this.raw.putEntries(id, entries, schemaVersion);
       },
     );
   }
@@ -1267,7 +1263,7 @@ class Remarkable {
           id: `${id}.docSchema`,
           hash,
         });
-        const [pagedataEntry, uploadPagedata] = await this.raw.putPagedata(
+        await using pagedataEntry = await this.raw.putPagedata(
           `${id}.pagedata`,
           templates,
         );
@@ -1277,12 +1273,7 @@ class Remarkable {
         } else {
           entries[ind] = pagedataEntry;
         }
-        const [result, uploadEntries] = await this.raw.putEntries(
-          id,
-          entries,
-          schemaVersion,
-        );
-        return [result, Promise.all([uploadPagedata, uploadEntries])];
+        return await this.raw.putEntries(id, entries, schemaVersion);
       },
     );
   }
@@ -1456,13 +1447,19 @@ class Remarkable {
         return this.raw.putFile(newPath, bytes);
       }),
     );
-    const fileEntries = fileUploads.map(([entry]) => entry);
-    const [docEntry, uploadDoc] = await this.raw.putEntries(
-      newId,
-      fileEntries,
-      schemaVersion,
-    );
-    await Promise.all([...fileUploads.map(([, upload]) => upload), uploadDoc]);
+    let docEntry: RawEntry;
+    {
+      await using uploads = new AsyncDisposableStack();
+      for (const entry of fileUploads) {
+        uploads.use(entry);
+      }
+      await using indexEntry = await this.raw.putEntries(
+        newId,
+        fileUploads,
+        schemaVersion,
+      );
+      docEntry = indexEntry;
+    }
 
     await this.#commit(docEntry);
     return { id: newId, hash: docEntry.hash };
@@ -1553,34 +1550,28 @@ class Remarkable {
     // themselves don't depend on the generation, so upload them once and let
     // #commit retry only the root merge
     const [, , schemaVersion] = await this.#getRootHash(refresh);
-    const [
-      [contentEntry, uploadContent],
-      [metadataEntry, uploadMetadata],
-      [pagedataEntry, uploadPagedata],
-      [fileEntry, uploadFile],
-    ] = await Promise.all([
-      this.raw.putContent(`${id}.content`, content),
-      this.raw.putMetadata(`${id}.metadata`, metadata),
-      this.raw.putText(`${id}.pagedata`, "\n"),
-      this.raw.putFile(`${id}.${fileType}`, buffer),
-    ]);
-    const [collectionEntry, uploadCollection] = await this.raw.putEntries(
-      id,
-      [contentEntry, metadataEntry, pagedataEntry, fileEntry],
-      schemaVersion,
-    );
-
     // TODO we could return a full entry here, but we should probably decide
     // what that should be, e.g. we could return more fields than the standard
     // entry. Same for putFolder
     // TODO we should also decide if the api should take hashes or ids...
-    await Promise.all([
-      uploadContent,
-      uploadMetadata,
-      uploadPagedata,
-      uploadFile,
-      uploadCollection,
-    ]);
+    let collectionEntry: RawEntry;
+    {
+      const contentReq = this.raw.putContent(`${id}.content`, content);
+      const metadataReq = this.raw.putMetadata(`${id}.metadata`, metadata);
+      const pagedataReq = this.raw.putText(`${id}.pagedata`, "\n");
+      const fileReq = this.raw.putFile(`${id}.${fileType}`, buffer);
+      await using contentEntry = await contentReq;
+      await using metadataEntry = await metadataReq;
+      await using pagedataEntry = await pagedataReq;
+      await using fileEntry = await fileReq;
+
+      await using indexEntry = await this.raw.putEntries(
+        id,
+        [contentEntry, metadataEntry, pagedataEntry, fileEntry],
+        schemaVersion,
+      );
+      collectionEntry = indexEntry;
+    }
     await this.#commit(collectionEntry);
     return { id, hash: collectionEntry.hash };
   }
@@ -1686,17 +1677,20 @@ class Remarkable {
     // the blobs don't depend on the generation, so upload them once and let
     // #commit retry only the root merge
     const [, , schemaVersion] = await this.#getRootHash(refresh);
-    const [[contentEntry, uploadContent], [metadataEntry, uploadMetadata]] =
-      await Promise.all([
-        this.raw.putContent(`${id}.content`, content),
-        this.raw.putMetadata(`${id}.metadata`, metadata),
-      ]);
-    const [collectionEntry, uploadCollection] = await this.raw.putEntries(
-      id,
-      [contentEntry, metadataEntry],
-      schemaVersion,
-    );
-    await Promise.all([uploadContent, uploadMetadata, uploadCollection]);
+    let collectionEntry: RawEntry;
+    {
+      const contentReq = this.raw.putContent(`${id}.content`, content);
+      const metadataReq = this.raw.putMetadata(`${id}.metadata`, metadata);
+      await using contentEntry = await contentReq;
+      await using metadataEntry = await metadataReq;
+
+      await using indexEntry = await this.raw.putEntries(
+        id,
+        [contentEntry, metadataEntry],
+        schemaVersion,
+      );
+      collectionEntry = indexEntry;
+    }
 
     await this.#commit(collectionEntry);
     return { id, hash: collectionEntry.hash };
@@ -1752,7 +1746,7 @@ class Remarkable {
     { id, hash }: ItemRef,
     update: Partial<Content>,
     schemaVersion: SchemaVersion,
-  ): Promise<[RawEntry, Promise<[void, void]>]> {
+  ): Promise<PendingEntry> {
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
       hash,
@@ -1764,18 +1758,9 @@ class Remarkable {
     }
     const cont = await this.raw.getContent(contEntry);
     Object.assign(cont, update);
-    const [newContEntry, uploadCont] = await this.raw.putContent(
-      contEntry.id,
-      cont,
-    );
+    await using newContEntry = await this.raw.putContent(contEntry.id, cont);
     entries[contInd] = newContEntry;
-    const [result, uploadEntries] = await this.raw.putEntries(
-      id,
-      entries,
-      schemaVersion,
-    );
-    const upload = Promise.all([uploadCont, uploadEntries]);
-    return [result, upload];
+    return await this.raw.putEntries(id, entries, schemaVersion);
   }
 
   /**
@@ -1791,7 +1776,7 @@ class Remarkable {
     edit: (
       item: ItemRef,
       schemaVersion: SchemaVersion,
-    ) => Promise<[RawEntry, Promise<unknown>]>,
+    ) => Promise<PendingEntry>,
   ): Promise<ItemRef> {
     return await this.#withRetry(async () => {
       const [rootHash, generation, schemaVersion] =
@@ -1808,20 +1793,24 @@ class Remarkable {
         throw new HashNotFoundError(ref.hash);
       }
 
-      const [newEnt, upload] = await edit(
-        { id: hashEnt.id, hash: ref.hash },
-        schemaVersion,
-      );
-      entries[hashInd] = newEnt;
-      const [rootEntry, uploadRoot] = await this.raw.putEntries(
-        ROOT_LIST,
-        entries,
-        4,
-      );
-
-      await Promise.all([upload, uploadRoot]);
-      await this.#putRootHash(rootEntry.hash, generation);
-      return { id: hashEnt.id, hash: newEnt.hash };
+      let newRoot: string;
+      let newHash: string;
+      {
+        await using newEnt = await edit(
+          { id: hashEnt.id, hash: ref.hash },
+          schemaVersion,
+        );
+        entries[hashInd] = newEnt;
+        await using rootEntry = await this.raw.putEntries(
+          ROOT_LIST,
+          entries,
+          4,
+        );
+        newRoot = rootEntry.hash;
+        newHash = newEnt.hash;
+      }
+      await this.#putRootHash(newRoot, generation);
+      return { id: hashEnt.id, hash: newHash };
     });
   }
 
@@ -1833,7 +1822,7 @@ class Remarkable {
     refresh: boolean,
   ): Promise<ItemRef> {
     return await this.#editEntry(ref, refresh, async (item, schemaVersion) => {
-      const [[newEnt, uploadEnt], meta] = await Promise.all([
+      const [newEnt, meta] = await Promise.all([
         this.#editContentRaw(item, update, schemaVersion),
         this.getMetadata(item),
       ]);
@@ -1842,7 +1831,7 @@ class Remarkable {
           `expected type ${expectedType} but got ${meta.type} for hash ${item.hash}`,
         );
       }
-      return [newEnt, uploadEnt];
+      return newEnt;
     });
   }
 
@@ -1910,7 +1899,7 @@ class Remarkable {
     { id, hash }: ItemRef,
     update: Partial<Metadata>,
     schemaVersion: SchemaVersion,
-  ): Promise<[RawEntry, Promise<[void, void]>]> {
+  ): Promise<PendingEntry> {
     const { entries } = await this.raw.getEntries({
       id: `${id}.docSchema`,
       hash,
@@ -1924,18 +1913,9 @@ class Remarkable {
     Object.assign(meta, update);
     meta.version = (meta.version ?? 0) + 1;
     meta.metadatamodified = true;
-    const [newMetaEntry, uploadMeta] = await this.raw.putMetadata(
-      metaEntry.id,
-      meta,
-    );
+    await using newMetaEntry = await this.raw.putMetadata(metaEntry.id, meta);
     entries[metaInd] = newMetaEntry;
-    const [result, uploadEntries] = await this.raw.putEntries(
-      id,
-      entries,
-      schemaVersion,
-    );
-    const upload = Promise.all([uploadMeta, uploadEntries]);
-    return [result, upload];
+    return await this.raw.putEntries(id, entries, schemaVersion);
   }
 
   async #editMeta(
@@ -2084,22 +2064,26 @@ class Remarkable {
           this.#editMetaRaw(entry, { parent }, schemaVersion),
         ),
       );
-      const uploads: Promise<[void, void]>[] = [];
       const result: ItemRef[] = [];
-      for (const [i, [newEnt, upload]] of resolved.entries()) {
+      for (const [i, newEnt] of resolved.entries()) {
         newEntries.push(newEnt);
-        uploads.push(upload);
         result.push({ id: toUpdate[i]!.id, hash: newEnt.hash });
       }
 
-      const [rootEntry, uploadRoot] = await this.raw.putEntries(
-        ROOT_LIST,
-        newEntries,
-        4,
-      );
-      await Promise.all([Promise.all(uploads), uploadRoot]);
-
-      await this.#putRootHash(rootEntry.hash, generation);
+      let newRoot: string;
+      {
+        await using docs = new AsyncDisposableStack();
+        for (const entry of resolved) {
+          docs.use(entry);
+        }
+        await using rootEntry = await this.raw.putEntries(
+          ROOT_LIST,
+          newEntries,
+          4,
+        );
+        newRoot = rootEntry.hash;
+      }
+      await this.#putRootHash(newRoot, generation);
       return result;
     });
   }

@@ -1,5 +1,6 @@
 // core-js installs these only when the runtime lacks them, so node 26+ keeps
 // its native implementations untouched
+import "core-js/modules/es.async-disposable-stack.constructor.js";
 import "core-js/modules/es.symbol.async-dispose.js";
 import "core-js/modules/es.uint8-array.from-hex.js";
 import "core-js/modules/es.uint8-array.to-base64.js";
@@ -106,6 +107,29 @@ export interface RawEntry extends ItemRef {
   /** the total size of everything in the collection */
   size: number;
 }
+
+/**
+ * an entry whose upload is still in flight
+ *
+ * The hash is a digest of the bytes, so the entry describes the upload before
+ * the server has it — you can splice it into a parent index immediately.
+ * Disposing waits for the upload to land, and throws if it failed, so scoping
+ * it keeps a root hash from being written against a file that never arrived:
+ *
+ * ```ts
+ * let hash;
+ * {
+ *   await using entry = await raw.putFile(`${id}.pdf`, bytes);
+ *   hash = entry.hash;
+ * }
+ * await raw.putRootHash(hash, generation);
+ * ```
+ *
+ * Where the number of uploads isn't known until runtime, collect them in an
+ * `AsyncDisposableStack` with `stack.use(entry)`; the scope holding the stack
+ * waits for all of them.
+ */
+export interface PendingEntry extends RawEntry, AsyncDisposable {}
 
 /** the type of files reMarkable supports */
 export type FileType = "epub" | "pdf" | "notebook";
@@ -1164,10 +1188,7 @@ export class RawRemarkable {
    *
    * Only version 3 and 5 pages can be rendered; version 6 pages are read-only.
    */
-  async putRm(
-    fileName: string,
-    page: RmPageV5,
-  ): Promise<[RawEntry, Promise<void>]> {
+  async putRm(fileName: string, page: RmPageV5): Promise<PendingEntry> {
     if (!fileName.endsWith(".rm")) {
       throw new Error(`fileName ${fileName} did not end with '.rm'`);
     } else {
@@ -1253,56 +1274,54 @@ export class RawRemarkable {
   }
 
   /**
-   * put a raw onto the server
+   * put a raw file onto the server
    *
-   * This returns the new expeced entry of the file you uploaded, and a promise
-   * to finish the upload successful. By splitting these two operations you can
-   * start using the uploaded entry while file finishes uploading.
+   * The returned entry is usable immediately, while the upload is still in
+   * flight; disposing it waits for the upload to finish. See
+   * {@link PendingEntry | `PendingEntry`}.
    *
    * NOTE: This won't update the state of the reMarkable until this entry is
    * incorporated into the root hash.
    *
    * @param fileName - the file name to upload (e.g. `<id>.pdf`)
    * @param bytes - the bytes to upload
-   * @returns the new entry and a promise to finish the upload
+   * @returns the new entry, pending its upload
    */
-  async putFile(
-    fileName: string,
-    bytes: Uint8Array,
-  ): Promise<[RawEntry, Promise<void>]> {
+  async putFile(fileName: string, bytes: Uint8Array): Promise<PendingEntry> {
     const hash = await digest(bytes);
-    const res: RawEntry = {
+    const upload = this.#putFile(fileName, hash, bytes);
+    // an upload that fails before anyone disposes the entry would otherwise be
+    // an unhandled rejection; disposing re-awaits it and still throws
+    upload.catch(() => {});
+    return {
       id: fileName,
       hash,
       type: 0,
       subfiles: 0,
       size: bytes.length,
+      async [Symbol.asyncDispose]() {
+        await upload;
+      },
     };
-    return [res, this.#putFile(fileName, hash, bytes)];
   }
 
   /** the same as {@link putFile | `putFile`} but with caching for text */
-  async putText(
-    fileName: string,
-    text: string,
-  ): Promise<[RawEntry, Promise<void>]> {
+  async putText(fileName: string, text: string): Promise<PendingEntry> {
     const enc = new TextEncoder();
     const bytes = enc.encode(text);
-    const [ent, upload] = await this.putFile(fileName, bytes);
-    return [
-      ent,
-      upload.then(() => {
-        // on success, write to cache
-        this.#cache.set(ent.hash, text);
-      }),
-    ];
+    const entry = await this.putFile(fileName, bytes);
+    return {
+      ...entry,
+      [Symbol.asyncDispose]: async () => {
+        await entry[Symbol.asyncDispose]();
+        // only cache what the server accepted
+        this.#cache.set(entry.hash, text);
+      },
+    };
   }
 
   /** the same as {@link putText | `putText`} but with extra validation for Content */
-  async putContent(
-    fileName: string,
-    content: Content,
-  ): Promise<[RawEntry, Promise<void>]> {
+  async putContent(fileName: string, content: Content): Promise<PendingEntry> {
     if (!fileName.endsWith(".content")) {
       throw new Error(`fileName ${fileName} did not end with '.content'`);
     } else {
@@ -1319,7 +1338,7 @@ export class RawRemarkable {
   async putPagedata(
     fileName: string,
     templates: readonly string[],
-  ): Promise<[RawEntry, Promise<void>]> {
+  ): Promise<PendingEntry> {
     if (!fileName.endsWith(".pagedata")) {
       throw new Error(`fileName ${fileName} did not end with '.pagedata'`);
     } else {
@@ -1338,7 +1357,7 @@ export class RawRemarkable {
   async putPageMetadata(
     fileName: string,
     meta: PageMetadata,
-  ): Promise<[RawEntry, Promise<void>]> {
+  ): Promise<PendingEntry> {
     if (!pageMetadataReg.test(fileName)) {
       throw new ValidationError(
         fileName,
@@ -1354,7 +1373,7 @@ export class RawRemarkable {
   async putTemplate(
     fileName: string,
     template: TemplateContent,
-  ): Promise<[RawEntry, Promise<void>]> {
+  ): Promise<PendingEntry> {
     if (!fileName.endsWith(".template")) {
       throw new Error(`fileName ${fileName} did not end with '.template'`);
     } else {
@@ -1366,7 +1385,7 @@ export class RawRemarkable {
   async putMetadata(
     fileName: string,
     metadata: Metadata,
-  ): Promise<[RawEntry, Promise<void>]> {
+  ): Promise<PendingEntry> {
     if (!fileName.endsWith(".metadata")) {
       throw new Error(`fileName ${fileName} did not end with '.metadata'`);
     } else {
@@ -1388,7 +1407,7 @@ export class RawRemarkable {
   async putHighlights(
     fileName: string,
     highlights: readonly Highlight[][],
-  ): Promise<[RawEntry, Promise<void>]> {
+  ): Promise<PendingEntry> {
     if (!highlightsReg.test(fileName)) {
       throw new ValidationError(
         fileName,
@@ -1427,7 +1446,7 @@ export class RawRemarkable {
     id: string,
     entries: readonly RawEntry[],
     schemaVersion: SchemaVersion,
-  ): Promise<[RawEntry, Promise<void>]> {
+  ): Promise<PendingEntry> {
     if (id === "root" && schemaVersion === 3) {
       console.warn(
         'writing a schema 3 root index, which reMarkable rejects with a 400 "Software must be updated" error; write the root index with schema version 4 instead',
@@ -1465,14 +1484,18 @@ export class RawRemarkable {
       throw new Error(`unsupported schema version ${schemaVersion as number}`);
     }
 
-    const res: RawEntry = {
+    const upload = this.#putFile(`${id}.docSchema`, hash, entryBuff);
+    upload.catch(() => {});
+    return {
       id,
       hash,
       type: schemaVersion > 3 ? 0 : 80000000,
       subfiles: sorted.length,
       size,
+      async [Symbol.asyncDispose]() {
+        await upload;
+      },
     };
-    return [res, this.#putFile(`${id}.docSchema`, hash, entryBuff)];
   }
 
   /**
