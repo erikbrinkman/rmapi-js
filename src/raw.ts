@@ -878,6 +878,7 @@ function parseRawEntryLine(line: string): RawEntry {
  * - `<docid>.content` - a json file roughly describing document properties (see {@link DocumentContent | `DocumentContent`})
  * - `<docid>.metadata` - metadata about the document (see {@link Metadata | `Metadata`})
  * - `<docid>.pagedata` - a text file where each line is the template of that page
+ * - `<docid>.template` - a template attached to the item (see {@link TemplateContent | `TemplateContent`})
  * - `<docid>/<pageid>.rm` - [speculative] raw remarkable vectors, text, etc
  * - `<docid>/<pageid>-metadata.json` - [speculative] metadata about the individual page
  * - `<docid>.highlights/<pageid>.json` - text highlights on the page (see {@link Highlight | `Highlight`})
@@ -1113,6 +1114,18 @@ export class RawRemarkable {
   }
 
   /**
+   * get a template stored as a `<docid>.template` sidecar file
+   *
+   * @param ref - a reference to a `<docid>.template` file
+   * @returns the template content
+   */
+  async getTemplate(ref: ItemRef): Promise<TemplateContent> {
+    const raw = await this.getText(ref);
+    const loaded = JSON.parse(raw) as unknown;
+    return templateContent.parse(loaded);
+  }
+
+  /**
    * the same as {@link putFile | `putFile`} but rendering an `RmPage` to `.rm`
    * bytes
    *
@@ -1261,6 +1274,18 @@ export class RawRemarkable {
       throw new Error(`fileName ${fileName} did not end with '.content'`);
     } else {
       return await this.putText(fileName, JSON.stringify(content));
+    }
+  }
+
+  /** the same as {@link putText | `putText`} but with extra validation for a template sidecar */
+  async putTemplate(
+    fileName: string,
+    template: TemplateContent,
+  ): Promise<[RawEntry, Promise<void>]> {
+    if (!fileName.endsWith(".template")) {
+      throw new Error(`fileName ${fileName} did not end with '.template'`);
+    } else {
+      return await this.putText(fileName, JSON.stringify(template));
     }
   }
 
