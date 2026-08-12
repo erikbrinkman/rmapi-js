@@ -9,6 +9,7 @@ import {
   type LegacyCollectionContent,
   type LegacyDocumentContent,
   type Metadata,
+  type PageMetadata,
   register,
   remarkable,
   session,
@@ -963,6 +964,121 @@ ${realHash}:0:test-id.pagedata:0:1
     expect(
       await api.getPagedata({ id: "test-id", hash: repHash("0") }),
     ).toEqual(templates);
+  });
+
+  test("#getPageMetadata()", async () => {
+    const contentHash = repHash("1");
+    const realHash = repHash("2");
+    const file = `3
+${contentHash}:0:test-id.content:0:1
+${realHash}:0:test-id/p1-metadata.json:0:1
+`;
+    const meta = { layers: [{ name: "Layer 1" }, { name: "Layer 2" }] };
+    mockFetch(
+      emptyResponse(),
+      textResponse(file),
+      jsonResponse(pdfContent(["p1"])),
+      jsonResponse(meta),
+    );
+
+    const api = await remarkable("");
+    const pm = await api.getPageMetadata(
+      { id: "test-id", hash: repHash("0") },
+      "p1",
+    );
+    expect(pm).toEqual(meta);
+  });
+
+  test("#getPageMetadata() throws for a page not in the document", async () => {
+    const contentHash = repHash("1");
+    const file = `3
+${contentHash}:0:test-id.content:0:1
+`;
+    mockFetch(
+      emptyResponse(),
+      textResponse(file),
+      jsonResponse(pdfContent(["p1"])),
+    );
+
+    const api = await remarkable("");
+    await expect(
+      api.getPageMetadata({ id: "test-id", hash: repHash("0") }, "p2"),
+    ).rejects.toThrow("document test-id has no page p2");
+  });
+
+  test("#putPageMetadata()", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    const meta: PageMetadata = { layers: [{ name: "Layer 1" }] };
+    const fetch = mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
+      textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
+      jsonResponse(pdfContent(["p1"])),
+      emptyResponse(), // the page metadata file
+      emptyResponse(), // the document index
+      emptyResponse(), // the root index
+      jsonResponse({ hash: repHash("3"), generation: 1 }),
+    );
+
+    const api = await remarkable("");
+    const next = await api.putPageMetadata(
+      { id: docId, hash: docHash },
+      "p1",
+      meta,
+    );
+    expect(next.id).toBe(docId);
+
+    const dec = new TextDecoder();
+    const written = fetch.mock.calls
+      .map(([, init]) => init?.body)
+      .map((body) =>
+        body instanceof Uint8Array ? dec.decode(body) : String(body ?? ""),
+      );
+    const file = written.find((body) => body.startsWith("{"));
+    expect(JSON.parse(file!)).toEqual(meta);
+    expect(
+      written.some((body) => body.includes(`${docId}/p1-metadata.json`)),
+    ).toBe(true);
+  });
+
+  test("#putPageMetadata() throws for a page not in the document", async () => {
+    const docId = "test-id";
+    const docHash = repHash("1");
+    mockFetch(
+      emptyResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
+      textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
+      jsonResponse(pdfContent(["p1"])),
+    );
+
+    const api = await remarkable("");
+    await expect(
+      api.putPageMetadata({ id: docId, hash: docHash }, "p2", { layers: [] }),
+    ).rejects.toThrow("document test-id has no page p2");
+  });
+
+  test("#getPageMetadataPages()", async () => {
+    const docId = "test-id";
+    const meta: PageMetadata = { layers: [{ name: "Layer 1" }] };
+    mockFetch(
+      emptyResponse(),
+      textResponse(
+        `3\n${repHash("2")}:0:${docId}.content:0:1\n${repHash("3")}:0:${docId}/p2-metadata.json:0:1\n`,
+      ),
+      jsonResponse(pdfContent(["p1", "p2"])),
+      jsonResponse(meta),
+    );
+
+    const api = await remarkable("");
+    const pages = await api.getPageMetadataPages({
+      id: docId,
+      hash: repHash("0"),
+    });
+    expect([...pages.keys()]).toEqual(["p2"]);
+    expect(pages.get("p2")).toEqual(meta);
   });
 
   test("#getDocumentArchive()", async () => {

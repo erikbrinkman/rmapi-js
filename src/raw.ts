@@ -695,6 +695,26 @@ const highlightsFile: z.ZodType<{ highlights: Highlight[][] }> = z
   })
   .passthrough();
 
+/** a single layer on a page */
+export interface PageLayer {
+  /** the layer's display name */
+  name: string;
+}
+
+/** a page's layer metadata, from `<docid>/<pageid>-metadata.json` */
+export interface PageMetadata {
+  /** the page's layers, in order */
+  layers: PageLayer[];
+}
+
+const pageMetadataReg = /\/[^/]+-metadata\.json$/;
+
+const pageMetadata: z.ZodType<PageMetadata> = z
+  .object({
+    layers: z.array(z.object({ name: z.string() }).passthrough()),
+  })
+  .passthrough();
+
 /**
  * item level metadata
  *
@@ -880,7 +900,7 @@ function parseRawEntryLine(line: string): RawEntry {
  * - `<docid>.pagedata` - a text file where each line is the template of that page
  * - `<docid>.template` - a template attached to the item (see {@link TemplateContent | `TemplateContent`})
  * - `<docid>/<pageid>.rm` - [speculative] raw remarkable vectors, text, etc
- * - `<docid>/<pageid>-metadata.json` - [speculative] metadata about the individual page
+ * - `<docid>/<pageid>-metadata.json` - page layer metadata (see {@link PageMetadata | `PageMetadata`})
  * - `<docid>.highlights/<pageid>.json` - text highlights on the page (see {@link Highlight | `Highlight`})
  *
  * Some items will have both a `.pdf` and `.epub` file, likely due to preparing
@@ -1126,6 +1146,18 @@ export class RawRemarkable {
   }
 
   /**
+   * get the parsed layer metadata of a page
+   *
+   * @param ref - a reference to a `<docid>/<pageid>-metadata.json` file
+   * @returns the page metadata
+   */
+  async getPageMetadata(ref: ItemRef): Promise<PageMetadata> {
+    const raw = await this.getText(ref);
+    const loaded = JSON.parse(raw) as unknown;
+    return pageMetadata.parse(loaded);
+  }
+
+  /**
    * the same as {@link putFile | `putFile`} but rendering an `RmPage` to `.rm`
    * bytes
    *
@@ -1291,6 +1323,29 @@ export class RawRemarkable {
       throw new Error(`fileName ${fileName} did not end with '.pagedata'`);
     } else {
       return await this.putText(fileName, `${templates.join("\n")}\n`);
+    }
+  }
+
+  /**
+   * the same as {@link putText | `putText`} but with extra validation for page
+   * layer metadata
+   *
+   * @param fileName - the file to write, of the form
+   *     `<docid>/<pageid>-metadata.json`
+   * @param meta - the page's layer metadata
+   */
+  async putPageMetadata(
+    fileName: string,
+    meta: PageMetadata,
+  ): Promise<[RawEntry, Promise<void>]> {
+    if (!pageMetadataReg.test(fileName)) {
+      throw new ValidationError(
+        fileName,
+        pageMetadataReg,
+        "fileName was not of the form '<docid>/<pageid>-metadata.json'",
+      );
+    } else {
+      return await this.putText(fileName, JSON.stringify(meta));
     }
   }
 
