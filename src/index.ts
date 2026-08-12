@@ -68,6 +68,7 @@ import {
   type ItemRef,
   type Metadata,
   type Orientation,
+  type PageMetadata,
   parseMetadata,
   type RawEntry,
   RawRemarkable,
@@ -109,6 +110,8 @@ export type {
   LegacyDocumentContent,
   Metadata,
   Orientation,
+  PageLayer,
+  PageMetadata,
   PageTag,
   RawEntry,
   RawRemarkableApi,
@@ -897,6 +900,12 @@ class Remarkable {
       this.raw.putHighlights(fileName, highlights),
   };
 
+  readonly #pageMetadataFile: WritablePageFile<PageMetadata> = {
+    name: (docId, pageId) => `${docId}/${pageId}-metadata.json`,
+    read: (entry) => this.raw.getPageMetadata(entry),
+    write: (fileName, meta) => this.raw.putPageMetadata(fileName, meta),
+  };
+
   async #getPageFile<T>(
     ref: ItemRef,
     pageId: string,
@@ -1229,6 +1238,77 @@ class Remarkable {
         );
         return [result, Promise.all([uploadPagedata, uploadEntries])];
       },
+    );
+  }
+
+  /**
+   * get a single page's layer metadata
+   *
+   * @param ref - a reference to the document
+   * @param pageId - the id of the page, from the document's `.content` page list
+   * @returns the page's layer metadata, or `undefined` if the page has none
+   * @throws if `pageId` is not a page of the document
+   */
+  async getPageMetadata(
+    ref: ItemRef,
+    pageId: string,
+  ): Promise<PageMetadata | undefined> {
+    return await this.#getPageFile(ref, pageId, this.#pageMetadataFile);
+  }
+
+  /**
+   * get every page's layer metadata, keyed by page id
+   *
+   * @param ref - a reference to the document
+   * @returns the layer metadata in page order, omitting pages with none
+   */
+  async getPageMetadataPages(ref: ItemRef): Promise<Map<string, PageMetadata>> {
+    return await this.#getPageFiles(ref, this.#pageMetadataFile);
+  }
+
+  /**
+   * write a single page's layer metadata, replacing any already there
+   *
+   * @param ref - a reference to the document
+   * @param pageId - the id of the page, from the document's `.content` page list
+   * @param meta - the layer metadata to write
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @throws if `pageId` is not a page of the document
+   * @returns a reference to the updated document, with its new hash
+   */
+  async putPageMetadata(
+    ref: ItemRef,
+    pageId: string,
+    meta: PageMetadata,
+    refresh: boolean = false,
+  ): Promise<ItemRef> {
+    return await this.putPageMetadataPages(
+      ref,
+      new Map([[pageId, meta]]),
+      refresh,
+    );
+  }
+
+  /**
+   * write several pages' layer metadata in one commit
+   *
+   * @param ref - a reference to the document
+   * @param pages - the layer metadata to write, keyed by page id, replacing any
+   *     already on those pages and leaving every other page alone
+   * @throws GenerationError if the generation doesn't match the current server generation
+   * @throws if any key is not a page of the document
+   * @returns a reference to the updated document, with its new hash
+   */
+  async putPageMetadataPages(
+    ref: ItemRef,
+    pages: ReadonlyMap<string, PageMetadata>,
+    refresh: boolean = false,
+  ): Promise<ItemRef> {
+    return await this.#putPageFiles(
+      ref,
+      pages,
+      this.#pageMetadataFile,
+      refresh,
     );
   }
 
