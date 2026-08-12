@@ -110,6 +110,14 @@ export interface RawEntry extends ItemRef {
 export type FileType = "epub" | "pdf" | "notebook";
 
 /**
+ * the kind of entry this is
+ *
+ * DocumentType is an epub, pdf, or notebook, CollectionType is a folder, and
+ * TemplateType is a template.
+ */
+export type EntryType = "DocumentType" | "CollectionType" | "TemplateType";
+
+/**
  * a parsed entries file
  *
  * id and size are defined for schema 4 but not for 3
@@ -659,13 +667,8 @@ export interface Metadata {
   pinned: boolean;
   /** [unknown] */
   synced?: boolean | null;
-  /**
-   * the type of item this corresponds to
-   *
-   * DocumentType is a document, an epub, pdf, or notebook, CollectionType is a
-   * folder.
-   */
-  type: "DocumentType" | "CollectionType" | "TemplateType";
+  /** the type of item this corresponds to */
+  type: EntryType;
   /** whether this is this a newly-installed template */
   new?: boolean;
   /**
