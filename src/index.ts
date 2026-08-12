@@ -199,27 +199,26 @@ function backoffMs(attempt: number, baseMs: number): number {
 }
 
 /**
- * a mutex acquired by async iteration
+ * a mutex held for the scope of the acquiring block
  *
- * `for await (const _lock of mutex) { ... }` runs the body with the lock held
- * and releases it when the body exits — by return, throw, or break — the way a
- * `using` block would. Waiters are served in acquisition order.
+ * `await using lock = await mutex.lock()` releases when the block exits, by
+ * return or by throw. Waiters are served in acquisition order.
  */
 class Mutex {
   #tail: Promise<void> = Promise.resolve();
 
-  async *[Symbol.asyncIterator](): AsyncGenerator<void> {
+  async lock(): Promise<AsyncDisposable> {
     const previous = this.#tail;
     let release!: () => void;
     this.#tail = new Promise<void>((resolve) => {
       release = resolve;
     });
     await previous;
-    try {
-      yield;
-    } finally {
-      release();
-    }
+    return {
+      async [Symbol.asyncDispose]() {
+        release();
+      },
+    };
   }
 }
 
@@ -586,24 +585,21 @@ class Remarkable {
     // hold the root lock across the whole read-merge-write so concurrent
     // mutators serialize instead of sharing a generation and forcing each
     // other into avoidable conflicts
-    for await (const _lock of this.#rootMutex) {
-      for (let attempt = 0; ; attempt++) {
-        try {
-          return await op();
-        } catch (ex) {
-          if (
-            ex instanceof GenerationError &&
-            attempt < this.#maxGenerationRetries
-          ) {
-            await sleep(backoffMs(attempt, GENERATION_BASE_MS));
-          } else {
-            throw ex;
-          }
+    await using _lock = await this.#rootMutex.lock();
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await op();
+      } catch (ex) {
+        if (
+          ex instanceof GenerationError &&
+          attempt < this.#maxGenerationRetries
+        ) {
+          await sleep(backoffMs(attempt, GENERATION_BASE_MS));
+        } else {
+          throw ex;
         }
       }
     }
-    // the mutex yields exactly once, so the loop always returns or throws
-    throw new Error("unreachable");
   }
 
   /**
