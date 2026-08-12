@@ -20,9 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `ItemType` is now `EntryType`, and `DocumentType` and `TemplateType` are now `DocumentEntry` and `TemplateEntry` to be more consistent
 - raw `put` methods now return a `PendingEntry` instead of a tuple, scope it with `await using` rather than awaiting the second element
+- `listIds` is now `listRefs`
 - `putDocumentArchive` always mints a fresh id
 - the cache now holds bytes instead of text
-- `getPagedata` returns `undefined` rather than `[]` when a document has no `.pagedata`, matching the other page reads
+- `getPagedata` returns `undefined` when a document has no `.pagedata`
 - edits now match an entry on both id and hash, and throw when the hash is stale.
 - version 6 pages now round-trip byte for byte
 - an `.rm` block whose length runs past the end of the file no longer throws
