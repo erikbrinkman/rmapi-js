@@ -80,6 +80,7 @@ import {
   type RmPage,
   type SchemaVersion,
   type Tag,
+  TEXT_PREFIX,
   type TemplateContent,
   type TextAlignment,
   type ZoomMode,
@@ -2253,39 +2254,43 @@ const cacheEntries: z.ZodType<Record<string, string | null>> = z.record(
   z.string().nullable(),
 );
 
-/** the tagged envelope written by `dumpCache` */
-const cacheDump = z.object({
-  version: z.literal(CACHE_VERSION),
-  entries: cacheEntries,
-});
+/**
+ * a dumped cache, either the tagged envelope or the original bare mapping
+ *
+ * The original format had no version, so its absence marks untagged text.
+ */
+const cacheDump = z
+  .object({
+    version: z.literal(CACHE_VERSION),
+    entries: cacheEntries,
+  })
+  .or(cacheEntries.transform((entries) => ({ version: undefined, entries })));
 
-/** decode a dumped cache into the byte map the api holds, or undefined */
-function decodeCache(
-  dumped: unknown,
-): [string, Uint8Array | null][] | undefined {
+/** decode a dumped cache into the byte map the api holds */
+function decodeCache(dumped: unknown): [string, Uint8Array | null][] {
+  const parsed = cacheDump.safeParse(dumped);
+  if (!parsed.success) {
+    throw new Error(
+      `cache was neither a version ${CACHE_VERSION} dump nor the original mapping of hashes to text. Either construct the api without a cache, or fix its format.`,
+    );
+  }
+  const { version, entries } = parsed.data;
   const enc = new TextEncoder();
-  const tagged = cacheDump.safeParse(dumped);
-  if (tagged.success) {
-    return Object.entries(tagged.data.entries).map(([hash, value]) => {
-      if (value === null) return [hash, null];
-      const body = value.slice(1);
-      return [
-        hash,
-        value.startsWith(BYTES_PREFIX)
-          ? Uint8Array.fromBase64(body)
-          : enc.encode(body),
-      ];
-    });
-  }
-  const legacy = cacheEntries.safeParse(dumped);
-  if (legacy.success) {
-    // the original format held text only, so encoding it is lossless
-    return Object.entries(legacy.data).map(([hash, value]) => [
-      hash,
-      value === null ? null : enc.encode(value),
-    ]);
-  }
-  return undefined;
+  return Object.entries(entries).map(([hash, value]) => {
+    if (value === null) {
+      return [hash, null];
+    } else if (version === undefined) {
+      return [hash, enc.encode(value)];
+    } else if (value.startsWith(BYTES_PREFIX)) {
+      return [hash, Uint8Array.fromBase64(value.slice(1))];
+    } else if (value.startsWith(TEXT_PREFIX)) {
+      return [hash, enc.encode(value.slice(1))];
+    } else {
+      throw new Error(
+        `cache entry ${hash} wasn't tagged '${TEXT_PREFIX}' or '${BYTES_PREFIX}'. Either construct the api without a cache, or fix its format.`,
+      );
+    }
+  });
 }
 
 /**
@@ -2333,23 +2338,18 @@ export function session(
   }: RemarkableSessionOptions = {},
 ): Remarkable {
   const entries = decodeCache(JSON.parse(cache ?? "{}") as unknown);
-  if (entries !== undefined) {
-    const cacheMap =
-      maxCacheSize === Infinity
-        ? new Map(entries)
-        : new LruCache(maxCacheSize, entries);
-    return new Remarkable(
-      sessionToken,
-      rawHost,
-      uploadHost,
-      cacheMap,
-      maxGenerationRetries,
-      maxTransientRetries,
-      maxCachedBytes,
-    );
-  }
-  throw new Error(
-    "cache was not a valid cache (json string mapping); your cache must be corrupted somehow. Either initialize remarkable without a cache, or fix its format.",
+  const cacheMap =
+    maxCacheSize === Infinity
+      ? new Map(entries)
+      : new LruCache(maxCacheSize, entries);
+  return new Remarkable(
+    sessionToken,
+    rawHost,
+    uploadHost,
+    cacheMap,
+    maxGenerationRetries,
+    maxTransientRetries,
+    maxCachedBytes,
   );
 }
 
