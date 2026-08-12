@@ -1257,6 +1257,48 @@ ${epubHash}:0:doc.epub:0:1
     );
   });
 
+  test("#putEntries() sorts entries by code unit", async () => {
+    const fetch = mockFetch(emptyResponse(), emptyResponse());
+    const api = await remarkable("");
+    const docId = "043eccc1-35a8-467b-a5f3-7196cb1f57d2";
+    const pageId = "b6f2c1a0-1111-2222-3333-444455556666";
+    const names = [
+      `${docId}/${pageId}.rm`,
+      `${docId}.metadata`,
+      `${docId}.highlights/${pageId}.json`,
+      `${docId}.content`,
+    ];
+    const [, prom] = await api.raw.putEntries(
+      docId,
+      names.map((name, index) => ({
+        type: 0 as const,
+        id: name,
+        hash: repHash(index.toFixed()),
+        subfiles: 0,
+        size: 1,
+      })),
+      4,
+    );
+    await prom;
+
+    const [, putCall] = fetch.mock.calls;
+    expect(putCall).toBeDefined();
+    const [, init] = putCall!;
+    const dec = new TextDecoder();
+    const written = dec
+      .decode(init?.body as Uint8Array)
+      .trimEnd()
+      .split("\n")
+      .slice(2)
+      .map((line) => line.split(":")[2]);
+    expect(written).toEqual([
+      `${docId}.content`,
+      `${docId}.highlights/${pageId}.json`,
+      `${docId}.metadata`,
+      `${docId}/${pageId}.rm`,
+    ]);
+  });
+
   test("#putPdf()", async () => {
     const enc = new TextEncoder();
     const pdf = enc.encode("pdf content");
