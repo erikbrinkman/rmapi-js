@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `rmColors` now names the full palette
+- `decodeBrush` is now the `rmBrushes` map
+- a stroke's pen and color are now `RmBrushCode` and `RmColorCode`
+
 ## [13.0.0] - 2026-08-12
 
 ### Added

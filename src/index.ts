@@ -86,6 +86,13 @@ import {
   type ZoomMode,
 } from "./raw.js";
 
+export type {
+  RmBrush,
+  RmBrushCode,
+  RmColor,
+  RmColorCode,
+} from "./codes.js";
+export { rmBrushes, rmColors } from "./codes.js";
 export {
   type DeviceModel,
   type DeviceScreen,
@@ -129,14 +136,12 @@ export type {
   ZoomMode,
 } from "./raw.js";
 export type {
-  RmBrush,
   RmLayer,
   RmLine,
   RmPageV5,
   RmPoint,
   RmVersion,
 } from "./rm5.js";
-export { decodeBrush, rmColors } from "./rm5.js";
 
 export type {
   AuthorIdsBlock,
