@@ -1975,7 +1975,7 @@ hash2:80000000:other:0:2
     mockFetch(emptyResponse(), jsonResponse([{}]));
 
     const api = await remarkable("");
-    expect(api.listItems()).rejects.toThrow("Expected object");
+    expect(api.listItems()).rejects.toThrow("expected object");
   });
 
   test("response fail", async () => {
@@ -1992,7 +1992,7 @@ hash2:80000000:other:0:2
     mockFetch(emptyResponse(), jsonResponse([{}]));
 
     const api = await remarkable("");
-    expect(api.listItems()).rejects.toThrow("Expected object");
+    expect(api.listItems()).rejects.toThrow("expected object");
   });
 });
 

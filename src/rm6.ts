@@ -12,6 +12,13 @@
  * @packageDocumentation
  */
 
+import {
+  type RmBrushCode,
+  type RmColorCode,
+  rmBrushCode,
+  rmColorCode,
+} from "./codes.js";
+
 /**
  * a CRDT identifier: an `(authorId, counter)` pair, unique across replicas
  *
@@ -62,10 +69,10 @@ export interface RmV6Point {
 
 /** a version 6 stroke */
 export interface RmV6Line {
-  /** the raw pen/tool code */
-  tool: number;
-  /** the raw color code */
-  color: number;
+  /** the pen code, named by `rmBrushes` */
+  tool: RmBrushCode;
+  /** the color code, named by `rmColors` */
+  color: RmColorCode;
   /** the stroke thickness scale */
   thicknessScale: number;
   /** the length at which the stroke starts */
@@ -104,8 +111,8 @@ export interface GlyphRange {
   start?: number;
   /** the length of the range */
   length: number;
-  /** the raw color code */
-  color: number;
+  /** the color code, named by `rmColors` */
+  color: RmColorCode;
   /** the highlighted text */
   text: string;
   /** the bounding rectangles of the highlight */
@@ -722,8 +729,8 @@ function readItemEnvelope<V>(
 }
 
 function readLineValue(reader: Reader, version: number): RmV6Line {
-  const tool = reader.readInt(1);
-  const color = reader.readInt(2);
+  const tool = rmBrushCode.parse(reader.readInt(1));
+  const color = rmColorCode.parse(reader.readInt(2));
   const thicknessScale = reader.readDouble(3);
   const startingLength = reader.readFloat(4);
   const points = reader.subblock(5, () => {
@@ -771,7 +778,7 @@ function readGlyphValue(reader: Reader): GlyphRange {
   const explicitLength = reader.hasTag(3, TAG_BYTE4)
     ? reader.readInt(3)
     : undefined;
-  const color = reader.readInt(4);
+  const color = rmColorCode.parse(reader.readInt(4));
   const text = reader.readString(5);
   const rectangles = reader.subblock(6, () => {
     const count = reader.varuint();
