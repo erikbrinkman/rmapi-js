@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { rmBrushCode, rmBrushes, rmColorCode, rmColors } from "./codes.js";
 import { parseRm, type RmPage } from "./raw.js";
 import { type RmPageV5, serializeRm } from "./rm5.js";
-import type { RmScene } from "./rm6.js";
+import { type RmScene, serializeRmScene } from "./rm6.js";
 
 /** narrow a parsed page to a version 3/5 page, or fail the test */
 function asV5(page: RmPage): RmPageV5 {
@@ -281,6 +282,61 @@ describe("parseRm()", () => {
     });
   });
 
+  test("rejects a version 5 stroke with an unknown pen code", () => {
+    const data = new Writer()
+      .ascii(header(5))
+      .int(1) // num layers
+      .int(1) // num lines
+      .int(99) // brush type, not a pen we know
+      .int(0) // color
+      .int(0) // padding
+      .float(1)
+      .int(0)
+      .int(0) // num points
+      .bytes();
+    expect(() => parseRm(data)).toThrow("unknown pen code");
+  });
+
+  test("keeps a version 6 stroke with an unknown color as raw bytes", () => {
+    const lineValue = [
+      ...tag(1, 0x4),
+      ...u32le(17), // tool
+      ...tag(2, 0x4),
+      ...u32le(99), // color, not one we know
+      ...tag(3, 0x8),
+      ...f64le(2),
+      ...tag(4, 0x4),
+      ...f32le(0),
+      ...tag(5, 0xc),
+      ...u32le(0), // no points
+    ];
+    const lineItem = [0x03, ...lineValue];
+    const lineEnvelope = [
+      ...tag(1, 0xf),
+      ...crdt(1, 5),
+      ...tag(2, 0xf),
+      ...crdt(2, 10),
+      ...tag(3, 0xf),
+      ...crdt(0, 0),
+      ...tag(4, 0xf),
+      ...crdt(0, 0),
+      ...tag(5, 0x4),
+      ...u32le(0),
+      ...tag(6, 0xc),
+      ...u32le(lineItem.length),
+      ...lineItem,
+    ];
+    const data = new Uint8Array([
+      ...asciiBytes(header(6)),
+      ...block(0x05, 2, lineEnvelope),
+    ]);
+
+    const scene = asScene(parseRm(data));
+    expect(scene.strokes()).toEqual([]);
+    expect(scene.blocks[0]!.type).toBe("unknown");
+    expect(serializeRmScene(scene)).toEqual(data);
+  });
+
   test("parses a version 6 file with no blocks as an empty scene", () => {
     const data = new Uint8Array(asciiBytes(header(6)));
     const scene = asScene(parseRm(data));
@@ -316,5 +372,39 @@ describe("parseRm()", () => {
 
   test("throws on data shorter than the header", () => {
     expect(() => parseRm(new Uint8Array(10))).toThrow("too short");
+  });
+});
+
+describe("rmBrushes", () => {
+  test("names both pen families", () => {
+    expect(rmBrushes[2]).toBe("ballpoint");
+    expect(rmBrushes[15]).toBe("ballpoint");
+  });
+
+  test("rejects an unknown code", () => {
+    expect(() => rmBrushCode.parse(99)).toThrow("unknown pen code");
+  });
+});
+
+describe("rmColors", () => {
+  test("names the monochrome palette", () => {
+    expect(rmColors[0]).toBe("black");
+    expect(rmColors[1]).toBe("gray");
+    expect(rmColors[2]).toBe("white");
+  });
+
+  test("names both color families", () => {
+    expect(rmColors[4]).toBe("green");
+    expect(rmColors[10]).toBe("green");
+    expect(rmColors[3]).toBe("yellow");
+    expect(rmColors[13]).toBe("yellow");
+  });
+
+  test("marks highlighter strokes", () => {
+    expect(rmColors[9]).toBe("highlight");
+  });
+
+  test("rejects an unknown code", () => {
+    expect(() => rmColorCode.parse(99)).toThrow("unknown color code");
   });
 });

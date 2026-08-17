@@ -14,6 +14,12 @@
  * @packageDocumentation
  */
 
+import {
+  type RmBrushCode,
+  type RmColorCode,
+  rmBrushCode,
+  rmColorCode,
+} from "./codes.js";
 /** the flat reMarkable `.lines` file versions read into an {@link RmPageV5} */
 export type RmVersion = 3 | 5;
 
@@ -33,20 +39,12 @@ export interface RmPoint {
   pressure: number;
 }
 
-/**
- * a single stroke (called a "line") within a layer
- *
- * `brushType` and `color` are kept as raw integers because both are overloaded
- * across firmware versions (there are two pen-code families, and the color
- * field is reinterpreted as a palette index when colored annotations are
- * enabled), so the right meaning can only be resolved with the source firmware
- * in mind.
- */
+/** a single stroke (called a "line") within a layer */
 export interface RmLine {
-  /** the raw brush/pen type code */
-  brushType: number;
-  /** the raw color code */
-  color: number;
+  /** the pen code, named by {@link rmBrushes | `rmBrushes`} */
+  brushType: RmBrushCode;
+  /** the color code, named by {@link rmColors | `rmColors`} */
+  color: RmColorCode;
   /** a per-stroke padding field, typically 0 */
   padding?: number;
   /** the base brush size */
@@ -75,64 +73,6 @@ export interface RmPageV5 {
   /** the drawing layers, back to front */
   layers: RmLayer[];
 }
-
-/** a decoded pen/tool for a stroke */
-export type RmBrush =
-  | "brush"
-  | "pencil"
-  | "ballpoint"
-  | "marker"
-  | "fineliner"
-  | "highlighter"
-  | "eraser"
-  | "mechanicalPencil"
-  | "eraseArea"
-  | "calligraphy"
-  | "shader";
-
-const BRUSHES: Readonly<Record<number, RmBrush>> = {
-  0: "brush",
-  12: "brush",
-  1: "pencil",
-  14: "pencil",
-  2: "ballpoint",
-  15: "ballpoint",
-  3: "marker",
-  16: "marker",
-  4: "fineliner",
-  17: "fineliner",
-  5: "highlighter",
-  18: "highlighter",
-  6: "eraser",
-  7: "mechanicalPencil",
-  13: "mechanicalPencil",
-  8: "eraseArea",
-  21: "calligraphy",
-  23: "shader",
-};
-
-/**
- * decode a raw {@link RmLine.brushType | `brushType`} code to a pen name
- *
- * Best-effort and advisory: the reMarkable pen codes come in two firmware
- * families and new ones appear over time, so an unrecognized code returns
- * `undefined`. The raw `brushType` int stays authoritative.
- */
-export function decodeBrush(code: number): RmBrush | undefined {
-  return BRUSHES[code];
-}
-
-/**
- * the default (monochrome) reMarkable palette, by raw {@link RmLine.color | `color`}
- *
- * Advisory only: when "colored annotations" are enabled or on version 6, the
- * `color` field is reinterpreted, so resolve against the source firmware.
- */
-export const rmColors: Readonly<Record<number, string>> = {
-  0: "black",
-  1: "gray",
-  2: "white",
-};
 
 /** the length of the fixed `.lines` header, in bytes */
 export const HEADER_LENGTH = 43;
@@ -165,8 +105,8 @@ export function parseV5(data: Uint8Array, version: 3 | 5): RmPageV5 {
     const numLines = readInt();
     const lines: RmLine[] = [];
     for (let line = 0; line < numLines; line++) {
-      const brushType = readInt();
-      const color = readInt();
+      const brushType = rmBrushCode.parse(readInt());
+      const color = rmColorCode.parse(readInt());
       const padding = readInt();
       const brushBaseSize = readFloat();
       const unknown = version === 5 ? readInt() : undefined;
