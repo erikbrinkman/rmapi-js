@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `deviceId` is now stored with the api
+- `listen` yields sync notifications as they arrive
 
 ### Changed
 

@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import JSZip from "jszip";
 import {
   auth,
@@ -2335,5 +2335,255 @@ describe("retries", () => {
     expect(root.generation).toBe(3);
 
     spy.mockRestore();
+  });
+});
+
+class FakeSocket {
+  readonly #listeners = new Map<string, ((ev: unknown) => void)[]>();
+  closed = false;
+
+  constructor(readonly url: string) {}
+
+  addEventListener(type: string, listener: (ev: unknown) => void): void {
+    const existing = this.#listeners.get(type);
+    if (existing) {
+      existing.push(listener);
+    } else {
+      this.#listeners.set(type, [listener]);
+    }
+  }
+
+  close(): void {
+    if (!this.closed) {
+      this.closed = true;
+      this.emit("close", {});
+    }
+  }
+
+  emit(type: string, ev: unknown): void {
+    for (const listener of this.#listeners.get(type) ?? []) {
+      listener(ev);
+    }
+  }
+}
+
+function syncMessage(sourceDeviceID: string, messageid: string): string {
+  return JSON.stringify({
+    message: {
+      attributes: {
+        auth0UserID: "auth0|user",
+        event: "SyncComplete",
+        eventType: "SyncEventNotification",
+        eventVersion: "1",
+        orgID: "",
+        sourceDeviceID,
+        userID: "auth0|user",
+      },
+      data: null,
+      messageid,
+    },
+  });
+}
+
+const realWebSocket = globalThis.WebSocket;
+
+afterEach(() => {
+  globalThis.WebSocket = realWebSocket;
+});
+
+function mockSockets(): FakeSocket[] {
+  const sockets: FakeSocket[] = [];
+  globalThis.WebSocket = function fakeWebSocket(url: string) {
+    const socket = new FakeSocket(url);
+    sockets.push(socket);
+    return socket;
+  } as unknown as typeof WebSocket;
+  return sockets;
+}
+
+describe("listen()", () => {
+  test("yields events and closes the socket when the loop ends", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }));
+
+    const events = [];
+    const iter = api.listen();
+    const first = iter.next();
+    const [socket] = sockets;
+    socket!.emit("open", {});
+    socket!.emit("message", { data: syncMessage("RM01", "1") });
+    events.push((await first).value);
+
+    await iter.return();
+    expect(sockets).toHaveLength(1);
+    expect(socket!.url).toBe(
+      "wss://eu.tectonic.remarkable.com/notifications/ws/json/1",
+    );
+    expect(socket!.closed).toBe(true);
+    expect(events[0] as unknown).toEqual({
+      attributes: {
+        auth0UserID: "auth0|user",
+        event: "SyncComplete",
+        eventType: "SyncEventNotification",
+        eventVersion: "1",
+        orgID: "",
+        sourceDeviceID: "RM01",
+        userID: "auth0|user",
+      },
+      data: null,
+      messageid: "1",
+    });
+  });
+
+  test("reopens the socket when the server drops it", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }));
+
+    const iter = api.listen();
+    const first = iter.next();
+    sockets[0]!.emit("open", {});
+    sockets[0]!.emit("message", { data: syncMessage("RM01", "1") });
+    expect((await first).value?.attributes.sourceDeviceID).toBe("RM01");
+
+    const second = iter.next();
+    sockets[0]!.emit("close", {});
+    await Bun.sleep(250);
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.emit("open", {});
+    sockets[1]!.emit("message", { data: syncMessage("RM02", "2") });
+    expect((await second).value?.attributes.sourceDeviceID).toBe("RM02");
+
+    await iter.return();
+  });
+
+  test("throws when the socket never opens", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }), {
+      maxTransientRetries: 0,
+    });
+
+    const iter = api.listen();
+    const first = iter.next();
+    sockets[0]!.emit("close", {});
+    await expect(first).rejects.toThrow(
+      "couldn't open the reMarkable notification",
+    );
+  });
+
+  test("stops while waiting for an event", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }));
+
+    const iter = api.listen();
+    void iter.next();
+    sockets[0]!.emit("open", {});
+    const stopped = await Promise.race([
+      iter.return().then(() => "stopped" as const),
+      Bun.sleep(500).then(() => "hung" as const),
+    ]);
+    expect(stopped).toBe("stopped");
+    expect(sockets[0]!.closed).toBe(true);
+  });
+
+  test("keeps the extra attributes reMarkable tags messages with", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }));
+
+    const iter = api.listen();
+    const first = iter.next();
+    sockets[0]!.emit("open", {});
+    sockets[0]!.emit("message", {
+      data: JSON.stringify({
+        message: {
+          attributes: {
+            auth0UserID: "auth0|user",
+            event: "SyncComplete",
+            eventType: "SyncEventNotification",
+            eventVersion: "1",
+            googclient_traceparent: "00-91d5680cf4177e36-c4987d3e7f02b6de-00",
+            orgID: "",
+            sourceDeviceID: "RM02A004250117J",
+            userID: "auth0|user",
+          },
+          data: null,
+          messageid: "21279395402976696",
+        },
+      }),
+    });
+    const { value } = await first;
+    expect(value?.attributes.sourceDeviceID).toBe("RM02A004250117J");
+    expect(value?.attributes).toHaveProperty("googclient_traceparent");
+
+    await iter.return();
+  });
+
+  test("accepts an event without the fields only reMarkable sends", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }));
+
+    const iter = api.listen();
+    const first = iter.next();
+    sockets[0]!.emit("open", {});
+    sockets[0]!.emit("message", {
+      data: JSON.stringify({
+        message: {
+          attributes: {
+            auth0UserID: "auth0|user",
+            event: "SyncComplete",
+            sourceDeviceID: "RM01",
+          },
+        },
+      }),
+    });
+    const { value } = await first;
+    expect(value?.attributes.sourceDeviceID).toBe("RM01");
+    expect(value?.attributes.userID).toBeUndefined();
+    expect(value?.messageid).toBeUndefined();
+
+    await iter.return();
+  });
+
+  test("skips events that aren't sync completions", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }));
+
+    const iter = api.listen();
+    const first = iter.next();
+    sockets[0]!.emit("open", {});
+    sockets[0]!.emit("message", {
+      data: JSON.stringify({
+        message: { attributes: { event: "ScreenshareMessage" } },
+      }),
+    });
+    sockets[0]!.emit("message", { data: syncMessage("RM02", "2") });
+    expect((await first).value?.attributes.sourceDeviceID).toBe("RM02");
+
+    await iter.return();
+  });
+
+  test("throws on a message it can't parse", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }));
+
+    const iter = api.listen();
+    const first = iter.next();
+    sockets[0]!.emit("open", {});
+    sockets[0]!.emit("message", { data: JSON.stringify({ message: {} }) });
+    await expect(first).rejects.toThrow("invalid_type");
+  });
+
+  test("throws on a sync notification that drifted", async () => {
+    const sockets = mockSockets();
+    const api = session(jwt({ "device-id": mockDeviceId }));
+
+    const iter = api.listen();
+    const first = iter.next();
+    sockets[0]!.emit("open", {});
+    sockets[0]!.emit("message", {
+      data: JSON.stringify({
+        message: { attributes: { event: "SyncComplete" }, data: null },
+      }),
+    });
+    await expect(first).rejects.toThrow("invalid_type");
   });
 });
