@@ -191,7 +191,7 @@ const tag: z.ZodType<Tag> = z
     name: z.string(),
     timestamp: z.number(),
   })
-  .passthrough();
+  .loose();
 
 /** a tag for individual pages */
 export interface PageTag extends Tag {
@@ -205,7 +205,7 @@ const pageTag: z.ZodType<PageTag> = z
     pageId: z.string(),
     timestamp: z.number(),
   })
-  .passthrough();
+  .loose();
 
 /** all supported document orientations */
 export type Orientation = "portrait" | "landscape";
@@ -244,7 +244,7 @@ const documentMetadata: z.ZodType<DocumentMetadata> = z
     publicationDate: z.string().optional(),
     publisher: z.string().optional(),
   })
-  .passthrough();
+  .loose();
 
 /** [speculative] metadata stored about keyboard interactions */
 export interface KeyboardMetadata {
@@ -299,33 +299,33 @@ export interface CPagePage {
 const cPagePage: z.ZodType<CPagePage> = z
   .object({
     id: z.string(),
-    idx: z.object({ timestamp: z.string(), value: z.string() }).passthrough(),
+    idx: z.object({ timestamp: z.string(), value: z.string() }).loose(),
     template: z
       .object({ timestamp: z.string(), value: z.string() })
-      .passthrough()
+      .loose()
       .optional(),
     redir: z
       .object({ timestamp: z.string(), value: z.number().int() })
-      .passthrough()
+      .loose()
       .optional(),
     scrollTime: z
       .object({
         timestamp: z.string(),
-        value: z.string().datetime({ offset: true }),
+        value: z.iso.datetime({ offset: true }),
       })
-      .passthrough()
+      .loose()
       .optional(),
     verticalScroll: z
       .object({ timestamp: z.string(), value: z.number() })
-      .passthrough()
+      .loose()
       .optional(),
     deleted: z
       .object({ timestamp: z.string(), value: z.number().int() })
-      .passthrough()
+      .loose()
       .optional(),
     modifed: z.string().optional(),
   })
-  .passthrough();
+  .loose();
 
 /** [unknown] */
 export interface CPageUUID {
@@ -349,22 +349,20 @@ export interface CPages {
 
 const cPages: z.ZodType<CPages> = z
   .object({
-    lastOpened: z
-      .object({ timestamp: z.string(), value: z.string() })
-      .passthrough(),
+    lastOpened: z.object({ timestamp: z.string(), value: z.string() }).loose(),
     original: z
       .object({ timestamp: z.string(), value: z.number().int() })
-      .passthrough(),
+      .loose(),
     pages: z.array(cPagePage),
     uuids: z
       .array(
         z
           .object({ first: z.string(), second: z.number().int().nonnegative() })
-          .passthrough(),
+          .loose(),
       )
       .nullable(),
   })
-  .passthrough();
+  .loose();
 
 /** the content metadata for collections (folders) */
 export interface CollectionContent {
@@ -561,7 +559,7 @@ const documentContentOptional = {
   formatVersion: z.number().int().nonnegative().optional(),
   keyboardMetadata: z
     .object({ count: z.number().int().nonnegative(), timestamp: z.number() })
-    .passthrough()
+    .loose()
     .optional(),
   lastOpenedPage: z.number().int().optional(),
   margins: z.number().int().nonnegative().optional(),
@@ -582,7 +580,7 @@ const documentContentOptional = {
       m32: z.number().optional(),
       m33: z.number().optional(),
     })
-    .passthrough()
+    .loose()
     .optional(),
   viewBackgroundFilter: z.enum(["off", "fullpage"]).optional(),
   zoomMode: z
@@ -592,16 +590,16 @@ const documentContentOptional = {
 
 const commonDocumentContent = z
   .object({ ...documentContentRequired, ...documentContentOptional })
-  .passthrough() satisfies z.ZodType<CommonDocumentContent>;
+  .loose() satisfies z.ZodType<CommonDocumentContent>;
 
 const documentContent: z.ZodType<DocumentContent> = commonDocumentContent
   .extend({ tags: z.array(tag).optional() })
-  .passthrough();
+  .loose();
 
 const legacyDocumentContent: z.ZodType<LegacyDocumentContent> =
   commonDocumentContent
     .extend({ tags: z.array(z.string()).optional() })
-    .passthrough();
+    .loose();
 
 /**
  * content metadata, stored with the "content" extension
@@ -663,7 +661,7 @@ const templateContent: z.ZodType<TemplateContent> = z
     items: z.array(z.unknown() as unknown as z.ZodType<object>),
     formatVersion: z.number().int().nonnegative().optional(),
   })
-  .passthrough();
+  .loose();
 
 /** content metadata for any item */
 export type Content =
@@ -733,14 +731,14 @@ const highlightsFile: z.ZodType<{ highlights: Highlight[][] }> = z
                   width: z.number(),
                   height: z.number(),
                 })
-                .passthrough(),
+                .loose(),
             ),
           })
-          .passthrough(),
+          .loose(),
       ),
     ),
   })
-  .passthrough();
+  .loose();
 
 /** a single layer on a page */
 export interface PageLayer {
@@ -758,9 +756,9 @@ const pageMetadataReg = /\/[^/]+-metadata\.json$/;
 
 const pageMetadata: z.ZodType<PageMetadata> = z
   .object({
-    layers: z.array(z.object({ name: z.string() }).passthrough()),
+    layers: z.array(z.object({ name: z.string() }).loose()),
   })
-  .passthrough();
+  .loose();
 
 /**
  * item level metadata
@@ -827,7 +825,7 @@ const metadata: z.ZodType<Metadata> = z
     new: z.boolean().optional(),
     source: z.string().optional(),
   })
-  .passthrough();
+  .loose();
 
 /** parse and validate the json text of a `.metadata` file */
 export function parseMetadata(text: string): Metadata {
@@ -845,7 +843,7 @@ const updatedRootHash: z.ZodType<UpdatedRootHash> = z
     hash: z.string(),
     generation: z.number(),
   })
-  .passthrough();
+  .loose();
 
 interface RootHash extends UpdatedRootHash {
   schemaVersion: number;
@@ -857,7 +855,7 @@ const rootHash: z.ZodType<RootHash> = z
     generation: z.number(),
     schemaVersion: z.number().int().nonnegative(),
   })
-  .passthrough();
+  .loose();
 
 interface NativeItemRef {
   docID: string;
@@ -869,7 +867,7 @@ const nativeItemRef: z.ZodType<NativeItemRef> = z
     docID: z.string(),
     hash: z.string(),
   })
-  .passthrough();
+  .loose();
 
 async function digest(buff: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest(
