@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `session` now throws when the token isn't a reMarkable jwt
+- deprecated the `uploadHost` option as rawHost is now the same
 
 ## [14.0.0] - 2026-08-17
 
