@@ -2343,6 +2343,10 @@ export interface RemarkableSessionOptions {
   /**
    * the base url for making upload requests
    *
+   * @deprecated uploads now go to the same server as everything else, so this
+   *   will be removed and `rawHost` will cover both. Point `rawHost` at the
+   *   backend you want instead.
+   *
    * @defaultValue "https://internal.cloud.remarkable.com"
    */
   uploadHost?: string;
