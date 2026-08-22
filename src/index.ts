@@ -511,6 +511,69 @@ function tokenDeviceId(token: string): string {
   return parsed["device-id"];
 }
 
+/** what a sync notification says happened */
+export interface SyncEventAttributes {
+  /** the kind of event, always a sync completion here */
+  event: "SyncComplete";
+  /**
+   * the device that synced
+   *
+   * Tablets report their serial, api clients the id they registered with, so
+   * compare it against {@link RemarkableApi.deviceId | `deviceId`} to spot your
+   * own syncs.
+   */
+  sourceDeviceID: string;
+  /** the account that synced, as an auth0 id */
+  auth0UserID: string;
+  /** the same value as `auth0UserID` in every event we've seen */
+  userID?: string;
+  /** the notification family, always "SyncEventNotification" so far */
+  eventType?: string;
+  /** the format version, always "1" so far */
+  eventVersion?: string;
+  /** the organization of a managed account, otherwise empty */
+  orgID?: string;
+}
+
+/**
+ * a sync notification pushed over the notification socket
+ *
+ * Events carry a little more, but nothing worth depending on, so the rest is
+ * passed through untyped rather than validated.
+ */
+export interface SyncEvent {
+  /** what happened */
+  attributes: SyncEventAttributes;
+  /** the id of this notification */
+  messageid?: string;
+}
+
+const notification: z.ZodType<{ message: { attributes: { event: string } } }> =
+  z
+    .object({
+      message: z
+        .object({ attributes: z.object({ event: z.string() }).loose() })
+        .loose(),
+    })
+    .loose();
+
+const syncEvent: z.ZodType<SyncEvent> = z
+  .object({
+    attributes: z
+      .object({
+        event: z.literal("SyncComplete"),
+        sourceDeviceID: z.string(),
+        auth0UserID: z.string(),
+        userID: z.string().optional(),
+        eventType: z.string().optional(),
+        eventVersion: z.string().optional(),
+        orgID: z.string().optional(),
+      })
+      .loose(),
+    messageid: z.string().optional(),
+  })
+  .loose();
+
 /**
  * the api for accessing remarkable functions
  *
@@ -558,6 +621,11 @@ class Remarkable {
     this.raw = new RawRemarkable(
       (method, url, { body, headers } = {}) =>
         this.#authedFetch(url, { method, body, headers }),
+      (url) =>
+        // node and bun both take headers here, the dom types don't know about them
+        new WebSocket(url, {
+          headers: { Authorization: `Bearer ${this.#sessionToken}` },
+        } as unknown as string[]),
       cache,
       rawHost,
       uploadHost,
@@ -2085,6 +2153,110 @@ class Remarkable {
     refresh: boolean = false,
   ): Promise<ItemRef[]> {
     return await this.bulkMove(refs, TRASH_ID, refresh);
+  }
+
+  /**
+   * listen for sync notifications
+   *
+   * reMarkable sends one every time a device finishes syncing. It names the
+   * device, not what changed, so use it as a cue to re-read.
+   *
+   * The socket is reopened when the server drops it, which happens every few
+   * minutes. Leaving the loop closes it. Session tokens expire after a few
+   * hours, and this throws once reconnecting with an expired one fails.
+   *
+   * reMarkable authorizes the handshake with a header, which node and bun can
+   * attach but a browser's `WebSocket` can't, so this is server side only.
+   *
+   * @example
+   * ```ts
+   * for await (const { attributes } of api.listen()) {
+   *   if (attributes.sourceDeviceID !== api.deviceId) {
+   *     const entries = await api.listItems(true);
+   *   }
+   * }
+   * ```
+   *
+   * @returns the notifications, in the order they arrive
+   */
+  listen(): AsyncGenerator<SyncEvent, void, undefined> {
+    const stop = new AbortController();
+    const events = this.#listen(stop.signal);
+    const { return: finish } = events;
+    // an async generator only acts on return once it reaches a yield, so
+    // stopping has to unblock the loop and let it end on its own
+    events.return = async (value) => {
+      stop.abort();
+      return await finish.call(events, value);
+    };
+    return events;
+  }
+
+  async *#listen(
+    signal: AbortSignal,
+  ): AsyncGenerator<SyncEvent, void, undefined> {
+    for (let failures = 0; ; ) {
+      const socket = this.raw.notifications();
+      const closeSocket = () => {
+        socket.close();
+      };
+      signal.addEventListener("abort", closeSocket, { once: true });
+      const queued: string[] = [];
+      let arrived = () => {};
+      // tells a failed handshake, likely an expired token, from the server's
+      // routine drop of a healthy socket
+      let opened = false;
+      let done = false;
+      socket.addEventListener("open", () => {
+        opened = true;
+      });
+      socket.addEventListener("message", ({ data }) => {
+        queued.push(data as string);
+        arrived();
+      });
+      socket.addEventListener("error", () => {
+        done = true;
+        arrived();
+      });
+      socket.addEventListener("close", () => {
+        done = true;
+        arrived();
+      });
+
+      try {
+        while (!done || queued.length) {
+          const raw = queued.shift();
+          if (raw === undefined) {
+            await new Promise<void>((res) => {
+              arrived = res;
+            });
+          } else {
+            const { message } = notification.parse(JSON.parse(raw));
+            // screenshare and passcode events share the socket, and their
+            // attributes are shaped differently
+            if (message.attributes.event === "SyncComplete") {
+              yield syncEvent.parse(message);
+            }
+          }
+        }
+      } finally {
+        signal.removeEventListener("abort", closeSocket);
+        socket.close();
+      }
+
+      if (signal.aborted) {
+        return;
+      } else if (opened) {
+        failures = 0;
+      } else if (failures < this.#maxTransientRetries) {
+        failures++;
+      } else {
+        throw new Error(
+          "couldn't open the reMarkable notification socket; the session token may have expired",
+        );
+      }
+      await sleep(backoffMs(failures, TRANSIENT_BASE_MS));
+    }
   }
 
   /**

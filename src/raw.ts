@@ -884,6 +884,8 @@ type AuthedFetch = (
   init?: { body?: string | Uint8Array; headers?: Record<string, string> },
 ) => Promise<Response>;
 
+type AuthedSocket = (url: string) => WebSocket;
+
 function parseRawEntryLine(line: string): RawEntry {
   const [hash, type, id, subfiles, size] = line.split(":");
   if (
@@ -972,6 +974,7 @@ function parseRawEntryLine(line: string): RawEntry {
  */
 export class RawRemarkable {
   readonly #authedFetch: AuthedFetch;
+  readonly #authedSocket: AuthedSocket;
   readonly #rawHost: string;
   readonly #uploadHost: string;
   /**
@@ -988,12 +991,14 @@ export class RawRemarkable {
 
   constructor(
     authedFetch: AuthedFetch,
+    authedSocket: AuthedSocket,
     cache: Map<string, Uint8Array | null>,
     rawHost: string,
     uploadHost: string,
     maxCachedBytes: number,
   ) {
     this.#authedFetch = authedFetch;
+    this.#authedSocket = authedSocket;
     this.#cache = cache;
     this.#rawHost = rawHost;
     this.#uploadHost = uploadHost;
@@ -1534,6 +1539,23 @@ export class RawRemarkable {
     const loaded = (await resp.json()) as unknown;
     const { docID, hash } = nativeItemRef.parse(loaded);
     return { id: docID, hash };
+  }
+
+  /**
+   * open the websocket reMarkable pushes notifications to
+   *
+   * The server drops the socket every few minutes, so anything long lived has
+   * to reopen it. {@link RemarkableApi.listen | `listen`} does that, and parses
+   * the sync notifications out of what arrives.
+   *
+   * reMarkable authorizes the handshake with a header, which node and bun can
+   * attach but a browser's `WebSocket` can't, so this is server side only.
+   *
+   * @returns the connecting socket
+   */
+  notifications(): WebSocket {
+    const host = this.#rawHost.replace(/^http/, "ws");
+    return this.#authedSocket(`${host}/notifications/ws/json/1`);
   }
 
   /**

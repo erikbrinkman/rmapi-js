@@ -67,6 +67,20 @@ const [entry] = await api.listItems()
 const buffer = await api.getEpub(entry)
 ```
 
+To react to changes as they happen, `listen` yields a notification each time a
+device finishes syncing. It names the device, not what changed, so use it as a
+cue to re-read whatever you care about. Compare against `deviceId` to skip your
+own syncs. reMarkable authorizes the socket's handshake with a header, and a
+browser's `WebSocket` takes only a url, so this needs node or bun.
+
+```ts
+for await (const { attributes } of api.listen()) {
+  if (attributes.sourceDeviceID !== api.deviceId) {
+    const fileEntries = await api.listItems(true);
+  }
+}
+```
+
 ### Gotchas
 
 By default, all calls try to do their best to verify that the input and output
