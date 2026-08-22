@@ -118,3 +118,19 @@ export function mockFetch(
   spy.mockImplementation(createMockFetch(...nextResponses));
   return spy;
 }
+
+/** the device id carried by {@link authResponse} */
+export const mockDeviceId = "5bd526e8-a264-4e7b-ac82-78fbd72960b8";
+
+/** a token shaped like the ones reMarkable mints, but unsigned */
+export function jwt(claims: object): string {
+  const payload = new TextEncoder()
+    .encode(JSON.stringify(claims))
+    .toBase64({ alphabet: "base64url", omitPadding: true });
+  return `header.${payload}.signature`;
+}
+
+/** the response `auth` gets back when it exchanges a device token */
+export function authResponse(): Response {
+  return textResponse(jwt({ "device-id": mockDeviceId }));
+}
