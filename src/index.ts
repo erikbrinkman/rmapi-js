@@ -493,6 +493,24 @@ export interface PutOptions {
   refresh?: boolean;
 }
 
+const tokenClaims: z.ZodType<{ "device-id": string }> = z
+  .object({ "device-id": z.string() })
+  .loose();
+
+function tokenDeviceId(token: string): string {
+  const [, payload] = token.split(".", 2);
+  if (payload === undefined) {
+    throw new Error("token wasn't a jwt, so it had no device id");
+  }
+  const decoded = Uint8Array.fromBase64(payload, {
+    alphabet: "base64url",
+    lastChunkHandling: "loose",
+  });
+  const json = new TextDecoder().decode(decoded);
+  const parsed = tokenClaims.parse(JSON.parse(json));
+  return parsed["device-id"];
+}
+
 /**
  * the api for accessing remarkable functions
  *
@@ -515,6 +533,7 @@ class Remarkable {
   readonly #cache: Map<string, Uint8Array | null>;
   /** scoped access to the raw low-level api */
   readonly raw: RawRemarkable;
+  readonly #deviceId: string;
   readonly #maxGenerationRetries: number;
   readonly #maxTransientRetries: number;
   #lastHashGen: readonly [string, number] | undefined;
@@ -532,6 +551,7 @@ class Remarkable {
     maxCachedBytes: number,
   ) {
     this.#sessionToken = sessionToken;
+    this.#deviceId = tokenDeviceId(sessionToken);
     this.#cache = cache;
     this.#maxGenerationRetries = maxGenerationRetries;
     this.#maxTransientRetries = maxTransientRetries;
@@ -543,6 +563,16 @@ class Remarkable {
       uploadHost,
       maxCachedBytes,
     );
+  }
+
+  /**
+   * the id this api is registered under
+   *
+   * This is the uuid passed to {@link register | `register`}, which reMarkable
+   * stamps on everything this client does. Tablets use their serial instead.
+   */
+  get deviceId(): string {
+    return this.#deviceId;
   }
 
   async #getRootHash(
@@ -2284,6 +2314,9 @@ export async function auth(
  *
  * If requests start failing, simply recreate the api instance with a freshly
  * fetched session token.
+ *
+ * The device id is read out of the token, so this throws if it isn't one
+ * reMarkable minted.
  *
  * @param sessionToken - the session token used for authorization
  * @returns an api instance

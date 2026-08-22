@@ -17,9 +17,12 @@ import {
   type TemplateContent,
 } from "./index.js";
 import {
+  authResponse,
   bytesResponse,
   emptyResponse,
   jsonResponse,
+  jwt,
+  mockDeviceId,
   mockFetch,
   textResponse,
 } from "./test-utils.js";
@@ -92,7 +95,7 @@ describe("auth()", () => {
 describe("remarkable", () => {
   describe("remarkable()", () => {
     test("success", async () => {
-      const fetch = mockFetch(textResponse("custom session token"));
+      const fetch = mockFetch(authResponse());
 
       await remarkable("custom device token");
       expect(fetch.mock.calls).toHaveLength(1);
@@ -113,7 +116,7 @@ describe("remarkable", () => {
     test("uses provided token and skips exchange", () => {
       const fetch = mockFetch();
 
-      const api = session("cached session token");
+      const api = session(jwt({ "device-id": mockDeviceId }));
       expect(fetch.mock.calls).toHaveLength(0);
       expect(api.raw).toBeDefined();
     });
@@ -121,9 +124,30 @@ describe("remarkable", () => {
     test("throws when cache is invalid", () => {
       mockFetch();
 
-      expect(() => session("token", { cache: "42" })).toThrow(
-        "cache was neither a version 2 dump nor the original mapping",
-      );
+      expect(() =>
+        session(jwt({ "device-id": mockDeviceId }), { cache: "42" }),
+      ).toThrow("cache was neither a version 2 dump nor the original mapping");
+    });
+  });
+
+  describe("deviceId", () => {
+    test("reads the id out of the session token", () => {
+      mockFetch();
+
+      const api = session(jwt({ "device-id": mockDeviceId, sub: "auth0|abc" }));
+      expect(api.deviceId).toBe(mockDeviceId);
+    });
+
+    test("throws when the token isn't a jwt", () => {
+      mockFetch();
+
+      expect(() => session("opaque")).toThrow("token wasn't a jwt");
+    });
+
+    test("throws when the token has no device id", () => {
+      mockFetch();
+
+      expect(() => session(jwt({ sub: "auth0|abc" }))).toThrow("invalid_type");
     });
   });
 
@@ -216,7 +240,7 @@ fake_template_hash:0:${docId}.template:0:1
     };
 
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -266,7 +290,7 @@ hash:0:doc.pdf:0:1
       pinned: false,
       lastOpenedPage: -1,
     };
-    mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
+    mockFetch(authResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
     const meta = await api.getMetadata({ id: "test-id", hash: repHash("0") });
@@ -285,7 +309,7 @@ ${realHash}:0:doc.metadata:0:1
       type: "CollectionType",
       pinned: false,
     };
-    mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
+    mockFetch(authResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
     const meta = await api.getMetadata({ id: "test-id", hash: repHash("0") });
@@ -308,7 +332,7 @@ ${realHash}:0:doc.metadata:0:1
       modified: null,
       synced: null,
     };
-    mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
+    mockFetch(authResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
     const meta = await api.getMetadata({ id: "test-id", hash: repHash("0") });
@@ -321,7 +345,7 @@ hash:80000000:document:0:1
 hash2:80000000:other:0:2
 `;
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -366,7 +390,7 @@ hash:0:doc.pdf:0:1
         textAlignment: "left",
         textScale: 1,
       };
-      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+      mockFetch(authResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
       const cont = await api.getContent({ id: "test-id", hash: repHash("0") });
@@ -382,7 +406,7 @@ ${realHash}:0:col.content:0:1
         tags: ["Remarcal", "calendar"],
       };
 
-      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+      mockFetch(authResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
       const cont = await api.getContent({ id: "col", hash: repHash("0") });
@@ -411,7 +435,7 @@ hash:0:doc.pdf:0:1
         textScale: 1,
       };
 
-      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+      mockFetch(authResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
       const cont = await api.getContent({ id: "doc", hash: repHash("0") });
@@ -439,7 +463,7 @@ hash:0:doc.pdf:0:1
         textAlignment: "",
         textScale: 1,
       };
-      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+      mockFetch(authResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
       const cont = (await api.getContent({
@@ -470,7 +494,7 @@ hash:0:doc.pdf:0:1
         textScale: 1,
         transform: {},
       };
-      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+      mockFetch(authResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
       const cont = (await api.getContent({
@@ -508,7 +532,7 @@ hash:0:tpl.template:0:1
           },
         ],
       };
-      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+      mockFetch(authResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
       const cont = await api.getContent({ id: "test-id", hash: repHash("0") });
@@ -534,7 +558,7 @@ hash:0:tpl.template:0:1
         templateVersion: "0.0.1",
         items: [],
       };
-      mockFetch(emptyResponse(), textResponse(file), jsonResponse(content));
+      mockFetch(authResponse(), textResponse(file), jsonResponse(content));
 
       const api = await remarkable("");
       const cont = await api.getContent({ id: "test-id", hash: repHash("0") });
@@ -549,7 +573,7 @@ hash:0:doc.metadata:0:1
 hash:0:doc.epub:0:1
 `;
       mockFetch(
-        emptyResponse(),
+        authResponse(),
         textResponse(file),
         jsonResponse({ foo: "bar" }),
       );
@@ -576,7 +600,7 @@ hash:0:doc.pdf:0:1
       type: "DocumentType",
       pinned: false,
     };
-    mockFetch(emptyResponse(), textResponse(file), jsonResponse(metadata));
+    mockFetch(authResponse(), textResponse(file), jsonResponse(metadata));
 
     const api = await remarkable("");
     const meta = await api.getMetadata({ id: "test-id", hash: repHash("0") });
@@ -592,7 +616,7 @@ ${realHash}:0:doc.pdf:0:1
 `;
     const enc = new TextEncoder();
     const pdf = enc.encode("pdf content");
-    mockFetch(emptyResponse(), textResponse(file), bytesResponse(pdf));
+    mockFetch(authResponse(), textResponse(file), bytesResponse(pdf));
 
     const api = await remarkable("");
     const bytes = await api.getPdf({ id: "test-id", hash: repHash("0") });
@@ -609,7 +633,7 @@ hash:0:doc.pdf:0:1
 `;
     const enc = new TextEncoder();
     const epub = enc.encode("epub content");
-    mockFetch(emptyResponse(), textResponse(file), bytesResponse(epub));
+    mockFetch(authResponse(), textResponse(file), bytesResponse(epub));
 
     const api = await remarkable("");
     const bytes = await api.getEpub({ id: "test-id", hash: repHash("0") });
@@ -637,7 +661,7 @@ ${highlightsHash}:0:test-id.highlights/p1.json:0:1
       ],
     };
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(file),
       jsonResponse(pdfContent(["p1"])),
       jsonResponse(highlights),
@@ -657,7 +681,7 @@ ${highlightsHash}:0:test-id.highlights/p1.json:0:1
 ${contentHash}:0:test-id.content:0:1
 `;
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(file),
       jsonResponse(pdfContent(["p1"])),
     );
@@ -676,7 +700,7 @@ ${contentHash}:0:test-id.content:0:1
 ${contentHash}:0:test-id.content:0:1
 `;
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(file),
       jsonResponse(pdfContent(["p1"])),
     );
@@ -690,7 +714,7 @@ ${contentHash}:0:test-id.content:0:1
   const putHighlightsMocks = (docId: string, docHash: string) => {
     const contentHash = repHash("2");
     return [
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
       textResponse(`3\n${contentHash}:0:${docId}.content:0:1\n`),
@@ -789,7 +813,7 @@ ${contentHash}:0:test-id.content:0:1
       [{ text: "two", color: 2, start: 4, length: 3, rects: [] }],
     ];
     const fetch = mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
       textResponse(`3\n${contentHash}:0:${docId}.content:0:1\n`),
@@ -838,7 +862,7 @@ ${contentHash}:0:test-id.content:0:1
   });
 
   test("#putHighlightPages() with nothing to write makes no requests", async () => {
-    const fetch = mockFetch(emptyResponse());
+    const fetch = mockFetch(authResponse());
     const api = await remarkable("");
     const ref = { id: "test-id", hash: repHash("1") };
 
@@ -862,7 +886,7 @@ ${realHash}:0:test-id.template:0:1
       items: [],
       constants: [{ marginSmall: 14, label: "top" }],
     };
-    mockFetch(emptyResponse(), textResponse(file), jsonResponse(template));
+    mockFetch(authResponse(), textResponse(file), jsonResponse(template));
 
     const api = await remarkable("");
     const templ = await api.getTemplate({ id: "test-id", hash: repHash("0") });
@@ -885,7 +909,7 @@ ${realHash}:0:test-id.template:0:1
       templateVersion: "1.0",
     };
     const fetch = mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
       textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
@@ -913,7 +937,7 @@ ${realHash}:0:test-id.template:0:1
   });
 
   test("#putTemplate() rejects a bad file name", async () => {
-    mockFetch(emptyResponse());
+    mockFetch(authResponse());
     const api = await remarkable("");
     await expect(
       api.raw.putTemplate("doc.content", {} as TemplateContent),
@@ -927,7 +951,7 @@ hash:0:test-id.content:0:1
 ${realHash}:0:test-id.pagedata:0:1
 `;
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(file),
       textResponse("Blank\nGrid\n\n"),
     );
@@ -944,7 +968,7 @@ ${realHash}:0:test-id.pagedata:0:1
     const docId = "test-id";
     const docHash = repHash("1");
     const fetch = mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
       textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
@@ -977,7 +1001,7 @@ ${realHash}:0:test-id.pagedata:0:1
   test("#putPagedata() round-trips through #getPagedata()", async () => {
     const templates = ["Blank", "", "Grid"];
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(`3\n${repHash("1")}:0:test-id.pagedata:0:1\n`),
       textResponse(`${templates.join("\n")}\n`),
     );
@@ -990,7 +1014,7 @@ ${realHash}:0:test-id.pagedata:0:1
 
   test("#getPagedata() is undefined without a .pagedata", async () => {
     const file = `3\nhash:0:test-id.content:0:1\n`;
-    mockFetch(emptyResponse(), textResponse(file));
+    mockFetch(authResponse(), textResponse(file));
 
     const api = await remarkable("");
     expect(
@@ -1007,7 +1031,7 @@ ${realHash}:0:test-id/p1-metadata.json:0:1
 `;
     const meta = { layers: [{ name: "Layer 1" }, { name: "Layer 2" }] };
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(file),
       jsonResponse(pdfContent(["p1"])),
       jsonResponse(meta),
@@ -1027,7 +1051,7 @@ ${realHash}:0:test-id/p1-metadata.json:0:1
 ${contentHash}:0:test-id.content:0:1
 `;
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(file),
       jsonResponse(pdfContent(["p1"])),
     );
@@ -1043,7 +1067,7 @@ ${contentHash}:0:test-id.content:0:1
     const docHash = repHash("1");
     const meta: PageMetadata = { layers: [{ name: "Layer 1" }] };
     const fetch = mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
       textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
@@ -1079,7 +1103,7 @@ ${contentHash}:0:test-id.content:0:1
     const docId = "test-id";
     const docHash = repHash("1");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
       textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
@@ -1096,7 +1120,7 @@ ${contentHash}:0:test-id.content:0:1
     const docId = "test-id";
     const meta: PageMetadata = { layers: [{ name: "Layer 1" }] };
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(
         `3\n${repHash("2")}:0:${docId}.content:0:1\n${repHash("3")}:0:${docId}/p2-metadata.json:0:1\n`,
       ),
@@ -1118,7 +1142,7 @@ ${contentHash}:0:test-id.content:0:1
     const docHash = repHash("1");
     const page: RmPageV5 = { version: 5, layers: [{ lines: [] }] };
     const fetch = mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
       textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
@@ -1149,7 +1173,7 @@ ${contentHash}:0:test-id.content:0:1
     const docId = "test-id";
     const docHash = repHash("1");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${docHash}:80000000:${docId}:1:1\n`),
       textResponse(`3\n${repHash("2")}:0:${docId}.content:0:1\n`),
@@ -1199,7 +1223,7 @@ ${epubHash}:0:doc.epub:0:1
     };
     const epub = enc.encode("epub content");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse(file),
       jsonResponse(content),
       jsonResponse(metadata),
@@ -1218,7 +1242,7 @@ ${epubHash}:0:doc.epub:0:1
     const enc = new TextEncoder();
     const pdf = enc.encode("pdf content");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("1"),
         docID: "fake pdf id",
@@ -1235,7 +1259,7 @@ ${epubHash}:0:doc.epub:0:1
   /** test that hash matches https://github.com/erikbrinkman/rmapi-js/issues/25#issuecomment-3526745194 */
   test("#putEntries() v4", async () => {
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       emptyResponse(), // put entry
     );
     const api = await remarkable("");
@@ -1264,7 +1288,7 @@ ${epubHash}:0:doc.epub:0:1
    */
   test("#putEntries() schema 4 root index", async () => {
     const fetch = mockFetch(
-      emptyResponse(),
+      authResponse(),
       emptyResponse(), // put root entry
     );
     const api = await remarkable("");
@@ -1304,7 +1328,7 @@ ${epubHash}:0:doc.epub:0:1
   });
 
   test("#putHighlights()", async () => {
-    const fetch = mockFetch(emptyResponse(), emptyResponse());
+    const fetch = mockFetch(authResponse(), emptyResponse());
     const api = await remarkable("");
     const highlights: Highlight[][] = [
       [
@@ -1334,7 +1358,7 @@ ${epubHash}:0:doc.epub:0:1
   });
 
   test("#putHighlights() rejects a non-highlights file name", async () => {
-    mockFetch(emptyResponse());
+    mockFetch(authResponse());
     const api = await remarkable("");
     await expect(api.raw.putHighlights("test-id.content", [])).rejects.toThrow(
       "fileName was not of the form",
@@ -1351,7 +1375,7 @@ ${epubHash}:0:doc.epub:0:1
       size: 1,
     };
     const fetch = mockFetch(
-      emptyResponse(),
+      authResponse(),
       emptyResponse(),
       textResponse(`4\n0:${docId}:1:1\n${entry.hash}:0:${entry.id}:0:1\n`),
     );
@@ -1375,7 +1399,7 @@ ${epubHash}:0:doc.epub:0:1
   });
 
   test("#putEntries() sorts entries by code unit", async () => {
-    const fetch = mockFetch(emptyResponse(), emptyResponse());
+    const fetch = mockFetch(authResponse(), emptyResponse());
     const api = await remarkable("");
     const docId = "043eccc1-35a8-467b-a5f3-7196cb1f57d2";
     const pageId = "b6f2c1a0-1111-2222-3333-444455556666";
@@ -1420,7 +1444,7 @@ ${epubHash}:0:doc.epub:0:1
     const enc = new TextEncoder();
     const pdf = enc.encode("pdf content");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("abcd0123"),
         generation: 0,
@@ -1450,7 +1474,7 @@ ${epubHash}:0:doc.epub:0:1
     const enc = new TextEncoder();
     const epub = enc.encode("epub content");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("1"),
         docID: "fake epub id",
@@ -1468,7 +1492,7 @@ ${epubHash}:0:doc.epub:0:1
     const enc = new TextEncoder();
     const epub = enc.encode("epub content");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("abcd0123"),
         generation: 0,
@@ -1496,7 +1520,7 @@ ${epubHash}:0:doc.epub:0:1
 
   test("#createFolder()", async () => {
     const fetch = mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("abcd0123"),
         generation: 0,
@@ -1541,7 +1565,7 @@ ${epubHash}:0:doc.epub:0:1
     };
 
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -1578,7 +1602,7 @@ ${epubHash}:0:doc.epub:0:1
     };
 
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -1606,7 +1630,7 @@ ${epubHash}:0:doc.epub:0:1
 
   test("#move() failure", async () => {
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -1632,7 +1656,7 @@ ${epubHash}:0:doc.epub:0:1
     };
 
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -1669,7 +1693,7 @@ ${epubHash}:0:doc.epub:0:1
     };
 
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -1706,7 +1730,7 @@ ${epubHash}:0:doc.epub:0:1
     };
 
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -1737,7 +1761,7 @@ ${epubHash}:0:doc.epub:0:1
   test("#bulkMove() errors when a hash is gone", async () => {
     const staleHash = repHash("9");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${repHash("1")}:80000000:fake_id:2:123\n`),
     );
@@ -1760,7 +1784,7 @@ ${epubHash}:0:doc.epub:0:1
     };
 
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(
         `3\n${sharedHash}:80000000:first_id:2:123\n${sharedHash}:80000000:second_id:2:123\n`,
@@ -1787,7 +1811,7 @@ ${epubHash}:0:doc.epub:0:1
   test("#updateDocument() errors when the hash is gone", async () => {
     const staleHash = repHash("9");
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
       textResponse(`3\n${repHash("1")}:80000000:fake_id:2:123\n`),
     );
@@ -1809,7 +1833,7 @@ ${epubHash}:0:doc.epub:0:1
     };
 
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -1856,7 +1880,7 @@ ${fileHash}:0:document.content:0:1
       [unreachableHash]: "orphan",
     });
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: rootHash,
         generation: 0,
@@ -1882,7 +1906,7 @@ hash:80000000:document:0:1
 hash2:80000000:other:0:2
 `;
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       jsonResponse({
         hash: repHash("0"),
         generation: 0,
@@ -1900,7 +1924,7 @@ hash2:80000000:other:0:2
   });
 
   test("#dumpCache() keeps utf-8 as text and falls back to base64", async () => {
-    mockFetch(emptyResponse(), emptyResponse(), emptyResponse());
+    mockFetch(authResponse(), emptyResponse(), emptyResponse());
     const api = await remarkable("");
 
     const enc = new TextEncoder();
@@ -1924,7 +1948,7 @@ hash2:80000000:other:0:2
   });
 
   test("#remarkable() forwards maxCachedBytes", async () => {
-    mockFetch(emptyResponse(), emptyResponse());
+    mockFetch(authResponse(), emptyResponse());
     const api = await remarkable("", { maxCachedBytes: 0 });
     const entry = await api.raw.putFile("doc.rm", new Uint8Array([1, 2, 3]));
     await entry[Symbol.asyncDispose]();
@@ -1945,13 +1969,13 @@ hash2:80000000:other:0:2
   test("a cache dumped in the old text-only format still loads", async () => {
     const hash = repHash("3");
     const legacy = JSON.stringify({ [hash]: "Blank\n" });
-    mockFetch(emptyResponse());
+    mockFetch(authResponse());
     const api = await remarkable("", { cache: legacy });
     expect(await api.raw.getText({ id: "doc.pagedata", hash })).toBe("Blank\n");
   });
 
   test("validation fail", async () => {
-    mockFetch(emptyResponse());
+    mockFetch(authResponse());
 
     const api = await remarkable("");
     expect(api.putFolder("test", { parent: "invalid" })).rejects.toThrow(
@@ -1961,7 +1985,7 @@ hash2:80000000:other:0:2
 
   test("generation fail", async () => {
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse('{"message":"precondition failed"}\n', { status: 400 }),
     );
 
@@ -1972,7 +1996,7 @@ hash2:80000000:other:0:2
   });
 
   test("request fail", async () => {
-    mockFetch(emptyResponse(), jsonResponse([{}]));
+    mockFetch(authResponse(), jsonResponse([{}]));
 
     const api = await remarkable("");
     expect(api.listItems()).rejects.toThrow("expected object");
@@ -1980,7 +2004,7 @@ hash2:80000000:other:0:2
 
   test("response fail", async () => {
     mockFetch(
-      emptyResponse(),
+      authResponse(),
       textResponse("fail", { status: 400, statusText: "bad request" }),
     );
 
@@ -1989,7 +2013,7 @@ hash2:80000000:other:0:2
   });
 
   test("verification fail", async () => {
-    mockFetch(emptyResponse(), jsonResponse([{}]));
+    mockFetch(authResponse(), jsonResponse([{}]));
 
     const api = await remarkable("");
     expect(api.listItems()).rejects.toThrow("expected object");
@@ -2034,7 +2058,7 @@ describe("putDocumentArchive() / getDocumentArchive()", () => {
       const url = input.toString();
       const method = init?.method ?? "GET";
       if (url.endsWith("/token/json/2/user/new")) {
-        return textResponse("session");
+        return authResponse();
       } else if (url.endsWith("/sync/v4/root")) {
         return jsonResponse({ ...root, schemaVersion: 4 });
       } else if (url.endsWith("/sync/v3/root") && method === "PUT") {
@@ -2121,7 +2145,7 @@ describe("retries", () => {
       const url = input.toString();
       const method = init?.method ?? "GET";
       if (url.endsWith("/token/json/2/user/new")) {
-        return textResponse("session");
+        return authResponse();
       } else if (url.endsWith("/sync/v4/root")) {
         return jsonResponse({ ...root, schemaVersion: 4 });
       } else if (url.endsWith("/sync/v3/root") && method === "PUT") {
@@ -2170,7 +2194,7 @@ describe("retries", () => {
     ): Promise<Response> => {
       const url = input.toString();
       if (url.endsWith("/token/json/2/user/new")) {
-        return textResponse("session");
+        return authResponse();
       } else if (url.endsWith("/sync/v4/root")) {
         rootGets++;
         if (rootGets === 1) {
@@ -2215,7 +2239,7 @@ describe("retries", () => {
       const url = input.toString();
       const method = init?.method ?? "GET";
       if (url.endsWith("/token/json/2/user/new")) {
-        return textResponse("session");
+        return authResponse();
       } else if (url.endsWith("/sync/v4/root")) {
         return jsonResponse({
           hash: rootStart,
@@ -2266,7 +2290,7 @@ describe("retries", () => {
       const url = input.toString();
       const method = init?.method ?? "GET";
       if (url.endsWith("/token/json/2/user/new")) {
-        return textResponse("session");
+        return authResponse();
       } else if (url.endsWith("/sync/v4/root")) {
         return jsonResponse({ ...root, schemaVersion: 4 });
       } else if (url.endsWith("/sync/v3/root") && method === "PUT") {
