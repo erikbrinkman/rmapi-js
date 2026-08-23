@@ -32,6 +32,16 @@ function repHash(hash: string): string {
   return new Array(mult).fill(hash).join("");
 }
 
+function trashMeta(parent: string): Metadata {
+  return {
+    lastModified: "",
+    visibleName: "test",
+    parent,
+    pinned: false,
+    type: "DocumentType",
+  };
+}
+
 function pdfContent(pages: string[]): DocumentContent {
   return {
     fileType: "pdf",
@@ -1682,6 +1692,54 @@ ${epubHash}:0:doc.epub:0:1
     expect(res.hash).toHaveLength(64);
   });
 
+  test("#purge()", async () => {
+    const purgeHash = repHash("1");
+    const keepHash = repHash("2");
+
+    const fetch = mockFetch(
+      authResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(
+        `3\n${purgeHash}:80000000:fake_id:2:123\n${keepHash}:80000000:other_id:2:123\n`,
+      ), // root entries
+      emptyResponse(), // put root entries
+      jsonResponse({
+        hash: repHash("3"),
+        generation: 1,
+      }), // root hash
+    );
+
+    const api = await remarkable("");
+    await api.purge({ id: "fake_id", hash: purgeHash });
+
+    const written = fetch.mock.calls.find(
+      ([, init]) =>
+        init?.method === "PUT" &&
+        new Headers(init.headers).get("rm-filename") === "root.docSchema",
+    );
+    const root = new TextDecoder().decode(written![1]!.body as Uint8Array);
+    expect(root).not.toContain("fake_id");
+    expect(root).toContain("other_id");
+  });
+
+  test("#purge() errors when a hash is gone", async () => {
+    const staleHash = repHash("9");
+    mockFetch(
+      authResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${repHash("1")}:80000000:fake_id:2:123\n`),
+    );
+
+    const api = await remarkable("");
+    await expect(api.purge({ id: "fake_id", hash: staleHash })).rejects.toThrow(
+      staleHash,
+    );
+  });
+
   test("#rename()", async () => {
     const moveHash = repHash("1");
     const oldMeta: Metadata = {
@@ -1859,6 +1917,151 @@ ${epubHash}:0:doc.epub:0:1
     expect(res).toHaveLength(1);
     expect(res[0]!.id).toBe("fake_id");
     expect(res[0]!.hash).toHaveLength(64);
+  });
+
+  test("#bulkPurge()", async () => {
+    const firstHash = repHash("1");
+    const secondHash = repHash("2");
+    const keepHash = repHash("3");
+
+    const fetch = mockFetch(
+      authResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(
+        `3\n${firstHash}:80000000:one:2:123\n${secondHash}:80000000:two:2:123\n${keepHash}:80000000:three:2:123\n`,
+      ), // root entries
+      emptyResponse(), // put root entries
+      jsonResponse({
+        hash: repHash("4"),
+        generation: 1,
+      }), // root hash
+    );
+
+    const api = await remarkable("");
+    await api.bulkPurge([
+      { id: "one", hash: firstHash },
+      { id: "two", hash: secondHash },
+    ]);
+
+    // both went in a single root write
+    const roots = fetch.mock.calls.filter(
+      ([url, init]) => init?.method === "PUT" && String(url).endsWith("/root"),
+    );
+    expect(roots).toHaveLength(1);
+
+    const written = fetch.mock.calls.find(
+      ([, init]) =>
+        init?.method === "PUT" &&
+        new Headers(init.headers).get("rm-filename") === "root.docSchema",
+    );
+    const root = new TextDecoder().decode(written![1]!.body as Uint8Array);
+    expect(root).not.toContain(":one:");
+    expect(root).not.toContain(":two:");
+    expect(root).toContain(":three:");
+  });
+
+  test("#bulkPurge() with no refs leaves the root alone", async () => {
+    const fetch = mockFetch(authResponse());
+
+    const api = await remarkable("");
+    await api.bulkPurge([]);
+
+    expect(fetch.mock.calls).toHaveLength(1);
+  });
+
+  test("#bulkPurge() errors when a hash is gone", async () => {
+    const staleHash = repHash("9");
+    mockFetch(
+      authResponse(),
+      jsonResponse({ hash: repHash("0"), generation: 0, schemaVersion: 3 }),
+      textResponse(`3\n${repHash("1")}:80000000:fake_id:2:123\n`),
+    );
+
+    const api = await remarkable("");
+    await expect(
+      api.bulkPurge([{ id: "fake_id", hash: staleHash }]),
+    ).rejects.toThrow(staleHash);
+  });
+
+  test("#purgeTrash()", async () => {
+    const folderHash = repHash("1");
+    const insideHash = repHash("2");
+    const nestedHash = repHash("3");
+    const keepHash = repHash("4");
+
+    const fetch = mockFetch(
+      authResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(
+        `3\n${folderHash}:80000000:folder:1:1\n${insideHash}:80000000:inside:1:1\n${nestedHash}:80000000:nested:1:1\n${keepHash}:80000000:keeper:1:1\n`,
+      ), // root entries
+      textResponse(`3\n${repHash("5")}:0:folder.metadata:0:1\n`), // folder entries
+      textResponse(`3\n${repHash("6")}:0:inside.metadata:0:1\n`), // inside entries
+      textResponse(`3\n${repHash("7")}:0:nested.metadata:0:1\n`), // nested entries
+      textResponse(`3\n${repHash("8")}:0:keeper.metadata:0:1\n`), // keeper entries
+      jsonResponse(trashMeta("trash")), // folder metadata
+      jsonResponse(trashMeta("folder")), // inside metadata
+      jsonResponse(trashMeta("inside")), // nested metadata
+      jsonResponse(trashMeta("")), // keeper metadata
+      emptyResponse(), // put root entries
+      jsonResponse({
+        hash: repHash("9"),
+        generation: 1,
+      }), // root hash
+    );
+
+    const api = await remarkable("");
+    const purged = await api.purgeTrash();
+
+    // the whole tree hanging off the trash goes, not just its direct children
+    expect(purged.map(({ id }) => id).sort()).toEqual([
+      "folder",
+      "inside",
+      "nested",
+    ]);
+
+    const written = fetch.mock.calls.find(
+      ([, init]) =>
+        init?.method === "PUT" &&
+        new Headers(init.headers).get("rm-filename") === "root.docSchema",
+    );
+    const root = new TextDecoder().decode(written![1]!.body as Uint8Array);
+    expect(root).toContain(":keeper:");
+    expect(root).not.toContain(":folder:");
+    expect(root).not.toContain(":inside:");
+    expect(root).not.toContain(":nested:");
+  });
+
+  test("#purgeTrash() with an empty trash leaves the root alone", async () => {
+    const keepHash = repHash("1");
+
+    const fetch = mockFetch(
+      authResponse(),
+      jsonResponse({
+        hash: repHash("0"),
+        generation: 0,
+        schemaVersion: 3,
+      }), // root hash
+      textResponse(`3\n${keepHash}:80000000:keeper:1:1\n`), // root entries
+      textResponse(`3\n${repHash("2")}:0:keeper.metadata:0:1\n`), // keeper entries
+      jsonResponse(trashMeta("")), // keeper metadata
+    );
+
+    const api = await remarkable("");
+    expect(await api.purgeTrash()).toEqual([]);
+
+    const writes = fetch.mock.calls.filter(
+      ([, init]) => init?.method === "PUT",
+    );
+    expect(writes).toHaveLength(0);
   });
 
   test("#pruneCache()", async () => {
