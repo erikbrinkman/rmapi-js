@@ -718,17 +718,26 @@ class Remarkable {
         hash: rootHash,
       });
       entries.push(entry);
-      let newRoot: string;
-      {
-        await using rootEntry = await this.raw.putEntries(
-          ROOT_LIST,
-          entries,
-          4,
-        );
-        newRoot = rootEntry.hash;
-      }
-      await this.#putRootHash(newRoot, generation);
+      await this.#writeRoot(entries, generation);
     });
+  }
+
+  /**
+   * upload a new root index and point the account at it
+   *
+   * Every blob the index names must already be uploaded, since the root hash
+   * lands as soon as the index does.
+   */
+  async #writeRoot(
+    entries: readonly RawEntry[],
+    generation: number,
+  ): Promise<void> {
+    let newRoot: string;
+    {
+      await using rootEntry = await this.raw.putEntries(ROOT_LIST, entries, 4);
+      newRoot = rootEntry.hash;
+    }
+    await this.#putRootHash(newRoot, generation);
   }
 
   async #authedFetch(
@@ -2019,6 +2028,31 @@ class Remarkable {
   }
 
   /**
+   * permanently delete an entry
+   *
+   * Unlike {@link delete | `delete`}, which moves an entry to the trash where
+   * the device can still restore it, this drops the entry from the account
+   * outright. Its files stay in the cloud, but nothing points at them anymore
+   * and nothing brings the entry back.
+   *
+   * Only the entry named goes: purging a folder leaves everything inside it
+   * pointing at a parent that's no longer there. Those entries stay in the
+   * account and {@link listItems | `listItems`} still returns them, but no
+   * folder holds them, so nothing browsing the tree will find them. Purge the
+   * contents first, or use {@link purgeTrash | `purgeTrash`}, which takes the
+   * whole tree.
+   *
+   * @example
+   * ```ts
+   * await api.purge(file);
+   * ```
+   * @param ref - a reference to the entry to purge
+   */
+  async purge(ref: ItemRef, refresh: boolean = false): Promise<void> {
+    await this.bulkPurge([ref], refresh);
+  }
+
+  /**
    * rename an entry
    *
    * @example
@@ -2153,6 +2187,127 @@ class Remarkable {
     refresh: boolean = false,
   ): Promise<ItemRef[]> {
     return await this.bulkMove(refs, TRASH_ID, refresh);
+  }
+
+  /**
+   * permanently delete many entries
+   *
+   * The bulk form of {@link purge | `purge`}, done in a single root write.
+   *
+   * @example
+   * ```ts
+   * await api.bulkPurge([file]);
+   * ```
+   *
+   * @param refs - references to the entries to purge
+   */
+  async bulkPurge(
+    refs: readonly ItemRef[],
+    refresh: boolean = false,
+  ): Promise<void> {
+    if (!refs.length) {
+      return;
+    }
+    await this.#withRetry(async () => {
+      const [rootHash, generation] = await this.#getRootHash(refresh);
+      const { entries } = await this.raw.getEntries({
+        id: ROOT_LIST,
+        hash: rootHash,
+      });
+
+      const wanted = new Set(refs.map((ref) => `${ref.id}\0${ref.hash}`));
+      const found = new Set<string>();
+      const newEntries: RawEntry[] = [];
+      for (const entry of entries) {
+        const key = `${entry.id}\0${entry.hash}`;
+        if (wanted.has(key)) {
+          found.add(key);
+        } else {
+          newEntries.push(entry);
+        }
+      }
+      for (const ref of refs) {
+        if (!found.has(`${ref.id}\0${ref.hash}`)) {
+          throw new HashNotFoundError(ref.hash);
+        }
+      }
+
+      await this.#writeRoot(newEntries, generation);
+    });
+  }
+
+  /**
+   * permanently delete everything in the trash
+   *
+   * Trashing a folder doesn't touch what's inside it — those entries keep
+   * naming the folder as their parent, which is what lets the device restore
+   * them together — so the trash holds the whole tree hanging off it, not just
+   * the entries whose parent is "trash". This purges all of it in one root
+   * write.
+   *
+   * @example
+   * ```ts
+   * await api.purgeTrash();
+   * ```
+   *
+   * @remarks
+   * Finding that tree means reading every item's metadata, so this costs about
+   * as much as {@link listItems | `listItems`}.
+   *
+   * @param refresh - if true, refresh the root hash before purging
+   * @returns references to the entries that were purged
+   */
+  async purgeTrash(refresh: boolean = false): Promise<ItemRef[]> {
+    return await this.#withRetry(async () => {
+      const [rootHash, generation] = await this.#getRootHash(refresh);
+      const { entries } = await this.raw.getEntries({
+        id: ROOT_LIST,
+        hash: rootHash,
+      });
+      const parents = await Promise.all(
+        entries.map(async (entry) => (await this.getMetadata(entry)).parent),
+      );
+
+      const children = new Map<string, RawEntry[]>();
+      for (const [ind, entry] of entries.entries()) {
+        const siblings = children.get(parents[ind]!);
+        if (siblings === undefined) {
+          children.set(parents[ind]!, [entry]);
+        } else {
+          siblings.push(entry);
+        }
+      }
+
+      const trashed = new Set<string>();
+      let frontier = children.get(TRASH_ID) ?? [];
+      while (frontier.length) {
+        const next: RawEntry[] = [];
+        for (const { id } of frontier) {
+          // skipping what we've already seen also ends a parent cycle, which
+          // the account shouldn't have but which would loop here forever
+          if (!trashed.has(id)) {
+            trashed.add(id);
+            next.push(...(children.get(id) ?? []));
+          }
+        }
+        frontier = next;
+      }
+      if (!trashed.size) {
+        return [];
+      }
+
+      const purged: ItemRef[] = [];
+      const newEntries: RawEntry[] = [];
+      for (const entry of entries) {
+        if (trashed.has(entry.id)) {
+          purged.push({ id: entry.id, hash: entry.hash });
+        } else {
+          newEntries.push(entry);
+        }
+      }
+      await this.#writeRoot(newEntries, generation);
+      return purged;
+    });
   }
 
   /**
