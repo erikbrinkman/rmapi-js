@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.2.0] - 2026-08-23
+
 ### Added
 
 - `purge`, `bulkPurge`, and `purgeTrash` to permanantly remove things
@@ -317,7 +319,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v14.1.0...HEAD
+[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v14.2.0...HEAD
+[14.2.0]: https://github.com/erikbrinkman/rmapi-js/compare/v14.1.0...v14.2.0
 [14.1.0]: https://github.com/erikbrinkman/rmapi-js/compare/v14.0.0...v14.1.0
 [14.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v13.0.0...v14.0.0
 [13.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v12.0.3...v13.0.0
