@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.3.0] - 2026-09-16
+
 ### Added
 
 - `register` and `auth` throw `RegisterError` and `AuthError`, which carry the
@@ -324,7 +326,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v14.2.0...HEAD
+[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v14.3.0...HEAD
+[14.3.0]: https://github.com/erikbrinkman/rmapi-js/compare/v14.2.0...v14.3.0
 [14.2.0]: https://github.com/erikbrinkman/rmapi-js/compare/v14.1.0...v14.2.0
 [14.1.0]: https://github.com/erikbrinkman/rmapi-js/compare/v14.0.0...v14.1.0
 [14.0.0]: https://github.com/erikbrinkman/rmapi-js/compare/v13.0.0...v14.0.0
