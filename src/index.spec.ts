@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import JSZip from "jszip";
 import {
+  AuthError,
   auth,
   type Content,
   type DocumentContent,
@@ -10,6 +11,7 @@ import {
   type LegacyDocumentContent,
   type Metadata,
   type PageMetadata,
+  RegisterError,
   type RmPageV5,
   register,
   remarkable,
@@ -75,10 +77,20 @@ describe("register()", () => {
     expect(register("")).rejects.toThrow("code should be length 8, but was 0");
   });
 
-  test("error", () => {
-    mockFetch(emptyResponse({ status: 400, statusText: "custom error" }));
+  test("error", async () => {
+    mockFetch(
+      textResponse("Invalid One-time-code", {
+        status: 400,
+        statusText: "custom error",
+      }),
+    );
 
-    expect(register("academic")).rejects.toThrow("couldn't register api");
+    const registration = register("academic");
+    await expect(registration).rejects.toThrow(RegisterError);
+    await expect(registration).rejects.toMatchObject({
+      body: "Invalid One-time-code",
+      status: 400,
+    });
   });
 });
 
@@ -96,9 +108,15 @@ describe("auth()", () => {
     );
   });
 
-  test("error", () => {
-    mockFetch(emptyResponse({ status: 400 }));
-    expect(auth("")).rejects.toThrow("couldn't fetch auth token");
+  test("error", async () => {
+    mockFetch(textResponse("Unauthorized device", { status: 400 }));
+
+    const authentication = auth("");
+    await expect(authentication).rejects.toThrow(AuthError);
+    await expect(authentication).rejects.toMatchObject({
+      body: "Unauthorized device",
+      status: 400,
+    });
   });
 });
 
