@@ -425,6 +425,7 @@ export async function register(
     method: "POST",
     headers: {
       Authorization: "Bearer",
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       code,
