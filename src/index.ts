@@ -353,6 +353,28 @@ export class ResponseError extends Error {
   }
 }
 
+/** an error that results from the service rejecting a registration */
+export class RegisterError extends ResponseError {
+  /** the response body */
+  readonly body: string;
+
+  constructor(status: number, statusText: string, body: string) {
+    super(status, statusText, "couldn't register api");
+    this.body = body;
+  }
+}
+
+/** an error that results from the service refusing to issue a session token */
+export class AuthError extends ResponseError {
+  /** the response body */
+  readonly body: string;
+
+  constructor(status: number, statusText: string, body: string) {
+    super(status, statusText, "couldn't fetch auth token");
+    this.body = body;
+  }
+}
+
 /** options for registering with the api */
 export interface RegisterOptions {
   /**
@@ -385,6 +407,7 @@ export interface RegisterOptions {
  * token to use the api.
  *
  * @param code - the eight letter code a user got from `https://my.remarkable.com/device/browser/connect`.
+ * @throws RegisterError if the service rejects the registration
  * @returns the device token necessary for creating an api instace. These never expire so persist as long as necessary.
  */
 export async function register(
@@ -409,14 +432,11 @@ export async function register(
       deviceID: uuid,
     }),
   });
+  const body = await resp.text();
   if (!resp.ok) {
-    throw new ResponseError(
-      resp.status,
-      resp.statusText,
-      "couldn't register api",
-    );
+    throw new RegisterError(resp.status, resp.statusText, body);
   } else {
-    return await resp.text();
+    return body;
   }
 }
 
@@ -2622,6 +2642,7 @@ function decodeCache(dumped: unknown): [string, Uint8Array | null][] {
  *
  * @param deviceToken - the device token proving this api instance is
  *    registered. Create one with {@link register}.
+ * @throws AuthError if the service refuses to issue a session token
  * @returns the session token returned by the reMarkable service
  */
 export async function auth(
@@ -2634,10 +2655,12 @@ export async function auth(
       Authorization: `Bearer ${deviceToken}`,
     },
   });
+  const body = await resp.text();
   if (!resp.ok) {
-    throw new Error(`couldn't fetch auth token: ${resp.statusText}`);
+    throw new AuthError(resp.status, resp.statusText, body);
+  } else {
+    return body;
   }
-  return await resp.text();
 }
 
 /**
