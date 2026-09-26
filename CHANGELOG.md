@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `getContent` no longer throws on documents with `null` `tags`, `pageTags` or
+  `redirectionPageMap`
+
 ## [14.3.0] - 2026-09-16
 
 ### Added

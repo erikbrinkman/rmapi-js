@@ -367,7 +367,7 @@ const cPages: z.ZodType<CPages> = z
 /** the content metadata for collections (folders) */
 export interface CollectionContent {
   /** the tags for the collection */
-  tags?: Tag[];
+  tags?: Tag[] | null;
 
   /** collections don't have a file type */
   fileType?: undefined;
@@ -376,7 +376,7 @@ export interface CollectionContent {
 /** legacy collection content can store tags as raw strings */
 export interface LegacyCollectionContent {
   /** the legacy tag names for the collection */
-  tags?: string[];
+  tags?: string[] | null;
 
   /** collections don't have a file type */
   fileType?: undefined;
@@ -384,13 +384,13 @@ export interface LegacyCollectionContent {
 
 const collectionContent: z.ZodType<CollectionContent> = z
   .object({
-    tags: z.array(tag).optional(),
+    tags: z.array(tag).nullish(),
   })
   .strict();
 
 const legacyCollectionContent: z.ZodType<LegacyCollectionContent> = z
   .object({
-    tags: z.array(z.string()).optional(),
+    tags: z.array(z.string()).nullish(),
   })
   .strict();
 
@@ -451,11 +451,11 @@ export interface CommonDocumentContent {
   /** the number of pages */
   pageCount: number;
   /** the page tags for the document */
-  pageTags?: PageTag[];
+  pageTags?: PageTag[] | null;
   /** a list of the ids of each page in the document, or null when never opened */
   pages?: string[] | null;
   /** a mapping from page number to page id in pages */
-  redirectionPageMap?: number[];
+  redirectionPageMap?: number[] | null;
   /** ostensibly the size in bytes of the file, but this differs from other measurements */
   sizeInBytes?: string;
   /** text alignment for this document */
@@ -525,13 +525,13 @@ export interface CommonDocumentContent {
 /** document content with modern structured tag payloads */
 export interface DocumentContent extends CommonDocumentContent {
   /** document tags for this document */
-  tags?: Tag[];
+  tags?: Tag[] | null;
 }
 
 /** legacy document content can store tags as raw strings */
 export interface LegacyDocumentContent extends CommonDocumentContent {
   /** the legacy tag names for this document */
-  tags?: string[];
+  tags?: string[] | null;
 }
 
 const documentContentRequired = {
@@ -565,8 +565,8 @@ const documentContentOptional = {
   margins: z.number().int().nonnegative().optional(),
   originalPageCount: z.number().int().optional(),
   pages: z.array(z.string()).nullable().optional(),
-  pageTags: z.array(pageTag).optional(),
-  redirectionPageMap: z.array(z.number().int()).optional(),
+  pageTags: z.array(pageTag).nullish(),
+  redirectionPageMap: z.array(z.number().int()).nullish(),
   sizeInBytes: z.string().optional(),
   transform: z
     .object({
@@ -593,13 +593,11 @@ const commonDocumentContent = z
   .loose() satisfies z.ZodType<CommonDocumentContent>;
 
 const documentContent: z.ZodType<DocumentContent> = commonDocumentContent
-  .extend({ tags: z.array(tag).optional() })
+  .extend({ tags: z.array(tag).nullish() })
   .loose();
 
 const legacyDocumentContent: z.ZodType<LegacyDocumentContent> =
-  commonDocumentContent
-    .extend({ tags: z.array(z.string()).optional() })
-    .loose();
+  commonDocumentContent.extend({ tags: z.array(z.string()).nullish() }).loose();
 
 /**
  * content metadata, stored with the "content" extension
