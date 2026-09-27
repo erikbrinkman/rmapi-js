@@ -274,7 +274,7 @@ export interface EntryCommon extends ItemRef {
    */
   parent?: string;
   /** any tags the entry might have */
-  tags?: Tag[] | string[];
+  tags?: Tag[] | string[] | null;
 }
 
 /** a folder, referred to in the api as a collection */

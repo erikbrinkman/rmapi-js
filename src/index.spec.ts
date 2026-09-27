@@ -264,7 +264,7 @@ fake_template_hash:0:${docId}.template:0:1
       fileType: content.fileType,
       visibleName: metadata.visibleName,
       parent: metadata.parent,
-      tags: content.tags,
+      tags: content.tags ?? undefined,
     };
 
     mockFetch(
@@ -489,6 +489,40 @@ hash:0:doc.pdf:0:1
         pages: null,
         sizeInBytes: "",
         textAlignment: "",
+        textScale: 1,
+      };
+      mockFetch(authResponse(), textResponse(file), jsonResponse(content));
+
+      const api = await remarkable("");
+      const cont = (await api.getContent({
+        id: "test-id",
+        hash: repHash("0"),
+      })) as DocumentContent;
+      expect(cont).toEqual(content);
+    });
+
+    test("handles null tags, pageTags and redirectionPageMap", async () => {
+      const realHash = repHash("1");
+      const file = `3
+${realHash}:0:doc.content:0:1
+hash:0:doc.metadata:0:1
+hash:0:doc.pdf:0:1
+`;
+      const content: DocumentContent = {
+        fileType: "pdf",
+        coverPageNumber: -1,
+        documentMetadata: {},
+        extraMetadata: {},
+        fontName: "",
+        lineHeight: -1,
+        orientation: "portrait",
+        pageCount: 0,
+        pages: [],
+        pageTags: null,
+        redirectionPageMap: null,
+        sizeInBytes: "",
+        tags: null,
+        textAlignment: "left",
         textScale: 1,
       };
       mockFetch(authResponse(), textResponse(file), jsonResponse(content));
