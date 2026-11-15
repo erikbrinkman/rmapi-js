@@ -12,7 +12,7 @@
  * @packageDocumentation
  */
 
-import { type RmBrushCode, type RmColorCode, rmBrushCode } from "./codes.js";
+import type { RmBrushCode, RmColorCode } from "./codes.js";
 
 /**
  * a CRDT identifier: an `(authorId, counter)` pair, unique across replicas
@@ -724,7 +724,7 @@ function readItemEnvelope<V>(
 }
 
 function readLineValue(reader: Reader, version: number): RmV6Line {
-  const tool = rmBrushCode.parse(reader.readInt(1));
+  const tool = reader.readInt(1);
   const color = reader.readInt(2);
   const thicknessScale = reader.readDouble(3);
   const startingLength = reader.readFloat(4);
