@@ -3,7 +3,8 @@
  *
  * A stroke stores its pen and its color as small integers. Both sets grew with
  * the firmware, so a code from a newer device can name the same pen or color
- * as an older one. Reading a page checks the codes against these lists.
+ * as an older one. Reading a page checks pen codes against their list, but
+ * keeps any color code, since new firmware keeps adding colors.
  *
  * @packageDocumentation
  */
@@ -92,26 +93,7 @@ export type RmColor =
   | "magenta";
 
 /** a color code that appears in a file */
-export type RmColorCode =
-  | 0
-  | 1
-  | 2
-  | 3
-  | 4
-  | 5
-  | 6
-  | 7
-  | 8
-  | 9
-  | 10
-  | 11
-  | 12
-  | 13;
-
-export const rmColorCode: z.ZodType<RmColorCode> = z.literal(
-  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-  { error: "unknown color code" },
-);
+export type RmColorCode = number;
 
 /**
  * the reMarkable palette, by code
@@ -119,9 +101,9 @@ export const rmColorCode: z.ZodType<RmColorCode> = z.literal(
  * The palette grew when colored annotations arrived and again for the Paper
  * Pro, so two codes can name the same color. `"highlight"` is a marker rather
  * than a color — the stroke's real color is its `colorRgba`. The shade a name
- * renders as depends on the device.
+ * renders as depends on the device. Codes from newer firmware have no name.
  */
-export const rmColors: Readonly<Record<RmColorCode, RmColor>> = {
+export const rmColors: Readonly<Partial<Record<RmColorCode, RmColor>>> = {
   0: "black",
   1: "gray",
   2: "white",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { rmBrushCode, rmBrushes, rmColorCode, rmColors } from "./codes.js";
+import { rmBrushCode, rmBrushes, rmColors } from "./codes.js";
 import { parseRm, type RmPage } from "./raw.js";
 import { type RmPageV5, serializeRm } from "./rm5.js";
 import { type RmScene, serializeRmScene } from "./rm6.js";
@@ -297,7 +297,7 @@ describe("parseRm()", () => {
     expect(() => parseRm(data)).toThrow("unknown pen code");
   });
 
-  test("keeps a version 6 stroke with an unknown color as raw bytes", () => {
+  test("reads a version 6 stroke with an unknown color", () => {
     const lineValue = [
       ...tag(1, 0x4),
       ...u32le(17), // tool
@@ -332,8 +332,11 @@ describe("parseRm()", () => {
     ]);
 
     const scene = asScene(parseRm(data));
-    expect(scene.strokes()).toEqual([]);
-    expect(scene.blocks[0]!.type).toBe("unknown");
+    const lineBlock = scene.blocks[0]!;
+    expect(lineBlock.type).toBe("sceneLineItem");
+    if (lineBlock.type === "sceneLineItem") {
+      expect(lineBlock.item.value?.color).toBe(99);
+    }
     expect(serializeRmScene(scene)).toEqual(data);
   });
 
@@ -404,7 +407,7 @@ describe("rmColors", () => {
     expect(rmColors[9]).toBe("highlight");
   });
 
-  test("rejects an unknown code", () => {
-    expect(() => rmColorCode.parse(99)).toThrow("unknown color code");
+  test("has no name for an unknown code", () => {
+    expect(rmColors[99]).toBeUndefined();
   });
 });
