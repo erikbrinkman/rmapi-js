@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Read color codes as number, so newer colors can be read. `RmColorCode` is now
+  `number` and `rmColors` may return undefined for an unmapped or unknown
+  color.
+
 ## [14.4.0] - 2026-09-27
 
 ### Fixed
