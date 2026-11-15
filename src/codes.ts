@@ -3,13 +3,11 @@
  *
  * A stroke stores its pen and its color as small integers. Both sets grew with
  * the firmware, so a code from a newer device can name the same pen or color
- * as an older one. Reading a page checks pen codes against their list, but
- * keeps any color code, since new firmware keeps adding colors.
+ * as an older one. Reading a page keeps any pen or color code, since new
+ * firmware keeps adding both.
  *
  * @packageDocumentation
  */
-
-import { z } from "zod";
 
 /** a pen/tool name for a stroke */
 export type RmBrush =
@@ -26,37 +24,15 @@ export type RmBrush =
   | "shader";
 
 /** a pen code that appears in a file */
-export type RmBrushCode =
-  | 0
-  | 1
-  | 2
-  | 3
-  | 4
-  | 5
-  | 6
-  | 7
-  | 8
-  | 12
-  | 13
-  | 14
-  | 15
-  | 16
-  | 17
-  | 18
-  | 21
-  | 23;
-
-export const rmBrushCode: z.ZodType<RmBrushCode> = z.literal(
-  [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17, 18, 21, 23],
-  { error: "unknown pen code" },
-);
+export type RmBrushCode = number;
 
 /**
  * the reMarkable pens, by code
  *
  * The codes come in two firmware families, so two codes can name the same pen.
+ * Codes from newer firmware have no name.
  */
-export const rmBrushes: Readonly<Record<RmBrushCode, RmBrush>> = {
+export const rmBrushes: Readonly<Partial<Record<RmBrushCode, RmBrush>>> = {
   0: "brush",
   12: "brush",
   1: "pencil",

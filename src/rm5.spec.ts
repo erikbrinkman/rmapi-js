@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { rmBrushCode, rmBrushes, rmColors } from "./codes.js";
+import { rmBrushes, rmColors } from "./codes.js";
 import { parseRm, type RmPage } from "./raw.js";
 import { type RmPageV5, serializeRm } from "./rm5.js";
 import { type RmScene, serializeRmScene } from "./rm6.js";
@@ -282,7 +282,7 @@ describe("parseRm()", () => {
     });
   });
 
-  test("rejects a version 5 stroke with an unknown pen code", () => {
+  test("reads a version 5 stroke with an unknown pen code", () => {
     const data = new Writer()
       .ascii(header(5))
       .int(1) // num layers
@@ -294,15 +294,20 @@ describe("parseRm()", () => {
       .int(0)
       .int(0) // num points
       .bytes();
-    expect(() => parseRm(data)).toThrow("unknown pen code");
+    const page = asV5(parseRm(data));
+    expect(page.layers[0]!.lines[0]!.brushType).toBe(99);
+    expect(serializeRm(page)).toEqual(data);
   });
 
-  test("reads a version 6 stroke with an unknown color", () => {
+  test.each([
+    ["color", 17, 99],
+    ["pen", 99, 0],
+  ])("reads a version 6 stroke with an unknown %s", (_, tool, color) => {
     const lineValue = [
       ...tag(1, 0x4),
-      ...u32le(17), // tool
+      ...u32le(tool),
       ...tag(2, 0x4),
-      ...u32le(99), // color, not one we know
+      ...u32le(color),
       ...tag(3, 0x8),
       ...f64le(2),
       ...tag(4, 0x4),
@@ -335,7 +340,8 @@ describe("parseRm()", () => {
     const lineBlock = scene.blocks[0]!;
     expect(lineBlock.type).toBe("sceneLineItem");
     if (lineBlock.type === "sceneLineItem") {
-      expect(lineBlock.item.value?.color).toBe(99);
+      expect(lineBlock.item.value?.tool).toBe(tool);
+      expect(lineBlock.item.value?.color).toBe(color);
     }
     expect(serializeRmScene(scene)).toEqual(data);
   });
@@ -384,8 +390,8 @@ describe("rmBrushes", () => {
     expect(rmBrushes[15]).toBe("ballpoint");
   });
 
-  test("rejects an unknown code", () => {
-    expect(() => rmBrushCode.parse(99)).toThrow("unknown pen code");
+  test("has no name for an unknown code", () => {
+    expect(rmBrushes[99]).toBeUndefined();
   });
 });
 

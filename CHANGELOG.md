@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Read pen codes as number, so strokes from newer pens can be read.
+  `RmBrushCode` is now `number` and `rmBrushes` may return undefined for an
+  unknown pen.
+
 ## [14.4.1] - 2026-11-15
 
 ### Fixed
