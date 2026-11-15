@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.4.2] - 2026-11-15
+
 ### Fixed
 
 - Read pen codes as number, so strokes from newer pens can be read.
@@ -347,7 +349,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.1...HEAD
+[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.2...HEAD
+[14.4.2]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.1...v14.4.2
 [14.4.1]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.0...v14.4.1
 [14.4.0]: https://github.com/erikbrinkman/rmapi-js/compare/v14.3.0...v14.4.0
 [14.3.0]: https://github.com/erikbrinkman/rmapi-js/compare/v14.2.0...v14.3.0
