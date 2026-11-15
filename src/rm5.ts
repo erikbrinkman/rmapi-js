@@ -14,12 +14,7 @@
  * @packageDocumentation
  */
 
-import {
-  type RmBrushCode,
-  type RmColorCode,
-  rmBrushCode,
-  rmColorCode,
-} from "./codes.js";
+import { type RmBrushCode, type RmColorCode, rmBrushCode } from "./codes.js";
 /** the flat reMarkable `.lines` file versions read into an {@link RmPageV5} */
 export type RmVersion = 3 | 5;
 
@@ -106,7 +101,7 @@ export function parseV5(data: Uint8Array, version: 3 | 5): RmPageV5 {
     const lines: RmLine[] = [];
     for (let line = 0; line < numLines; line++) {
       const brushType = rmBrushCode.parse(readInt());
-      const color = rmColorCode.parse(readInt());
+      const color = readInt();
       const padding = readInt();
       const brushBaseSize = readFloat();
       const unknown = version === 5 ? readInt() : undefined;
