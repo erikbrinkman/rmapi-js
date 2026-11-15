@@ -29,7 +29,7 @@
   ],
   "scripts": {
     "doc": "typedoc",
-    "doc:md": "typedoc --options typedoc.md.json && node scripts/build-docs-md.js",
+    "doc:md": "typedoc --options typedoc.md.json",
     "fmt": "biome format --write",
     "lint": "tsc && biome check && typedoc --emit none",
     "export": "tsc -p tsconfig.build.json && bun build src/index.ts --minify --outfile dist/rmapi-js.esm.min.js",

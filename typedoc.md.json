@@ -14,5 +14,8 @@
   "readme": "none",
 
   "hideBreadcrumbs": true,
-  "useHTMLAnchors": true
+  "useHTMLAnchors": false,
+  "outputFileStrategy": "modules",
+  "entryFileName": "docs",
+  "disableSources": true
 }
