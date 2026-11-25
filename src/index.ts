@@ -1454,9 +1454,19 @@ class Remarkable {
     const zip = new JSZip();
     for (const entry of entries) {
       // TODO if this is .metadata we might want to assert type === "DocumentType"
-      zip.file(entry.id, this.raw.getHash(entry));
+      zip.file(entry.id, this.raw.getHash(entry), {
+        createFolders: false,
+        unixPermissions: 0o100644,
+      });
     }
-    return zip.generateAsync({ type: "uint8array" });
+    return zip.generateAsync({
+      type: "uint8array",
+      platform: "UNIX",
+      compression: "DEFLATE",
+      compressionOptions: {
+        level: 6,
+      },
+    });
   }
 
   /**
