@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.4.3] - 2026-11-27
+
 ### Changed
 
 - Generate document archives using DEFLATE compression, omit unnecessary
@@ -354,7 +356,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.2...HEAD
+[unreleased]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.3...HEAD
+[14.4.3]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.2...v14.4.3
 [14.4.2]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.1...v14.4.2
 [14.4.1]: https://github.com/erikbrinkman/rmapi-js/compare/v14.4.0...v14.4.1
 [14.4.0]: https://github.com/erikbrinkman/rmapi-js/compare/v14.3.0...v14.4.0
