@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Generate document archives using DEFLATE compression, omit unnecessary
+  directory entries and set Unix file permissions to 0644.
+
 ## [14.4.2] - 2026-11-15
 
 ### Fixed

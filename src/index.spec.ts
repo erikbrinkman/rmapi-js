@@ -61,6 +61,39 @@ function pdfContent(pages: string[]): DocumentContent {
   };
 }
 
+function zipCompressionMethods(bytes: Uint8Array): number[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  // Locate the end-of-central-directory record.
+  let endOffset = bytes.length - 22;
+  while (endOffset >= 0 && view.getUint32(endOffset, true) !== 0x06054b50) {
+    endOffset--;
+  }
+  if (endOffset < 0) {
+    throw new Error("ZIP end-of-central-directory record not found");
+  }
+
+  const entryCount = view.getUint16(endOffset + 10, true);
+  let offset = view.getUint32(endOffset + 16, true);
+  const methods: number[] = [];
+
+  for (let i = 0; i < entryCount; i++) {
+    if (view.getUint32(offset, true) !== 0x02014b50) {
+      throw new Error("Invalid ZIP central directory entry");
+    }
+
+    methods.push(view.getUint16(offset + 10, true));
+
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+
+  return methods;
+}
+
 describe("register()", () => {
   test("success", async () => {
     const fetch = mockFetch(textResponse("custom device token"));
@@ -1297,7 +1330,23 @@ ${epubHash}:0:doc.epub:0:1
       id: "test-id",
       hash: repHash("0"),
     });
-    expect(bytes.length).toBeGreaterThan(0);
+    const archive = await JSZip.loadAsync(bytes, { createFolders: false });
+
+    expect(Object.keys(archive.files).sort()).toEqual([
+      "doc.content",
+      "doc.epub",
+      "doc.metadata",
+    ]);
+
+    for (const entry of Object.values(archive.files)) {
+      expect(entry.dir).toBe(false);
+      expect(entry.unixPermissions).toBe(0o100644);
+    }
+
+    expect(zipCompressionMethods(bytes)).toEqual([8, 8, 8]);
+    expect(await archive.file("doc.epub")!.async("string")).toBe(
+      "epub content",
+    );
   });
 
   test("#uploadPdf()", async () => {
@@ -2348,9 +2397,7 @@ describe("putDocumentArchive() / getDocumentArchive()", () => {
     // read it back and confirm every file survived with the new id prefix
     const out = await api.getDocumentArchive({ id: newId, hash });
     const zip = await JSZip.loadAsync(out);
-    const files = Object.keys(zip.files).filter(
-      (path) => !zip.files[path]!.dir,
-    );
+    const files = Object.keys(zip.files);
     expect(files.sort()).toEqual(
       [
         `${newId}.content`,
