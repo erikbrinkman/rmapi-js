@@ -2397,9 +2397,7 @@ describe("putDocumentArchive() / getDocumentArchive()", () => {
     // read it back and confirm every file survived with the new id prefix
     const out = await api.getDocumentArchive({ id: newId, hash });
     const zip = await JSZip.loadAsync(out);
-    const files = Object.keys(zip.files).filter(
-      (path) => !zip.files[path]!.dir,
-    );
+    const files = Object.keys(zip.files);
     expect(files.sort()).toEqual(
       [
         `${newId}.content`,
